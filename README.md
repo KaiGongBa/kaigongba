@@ -1,11 +1,11 @@
 <div align="center">
 
-<img src="packaging/assets/staffdeck_banner_en.png" alt="StaffDeck logo" />
+<img src="frontend-enterprise/src/assets/brand/kaigongba-logo-cropped.png" alt="开工吧 Logo" width="240" />
 
 <p align="center">
-  <a href="https://staffdeck.openbmb.cn/"><img src="https://img.shields.io/badge/Website-staffdeck.openbmb.cn-FF6B35?style=flat-square&logo=googlechrome&logoColor=white" alt="Official Website"/></a>
+  <a href="https://kaigongba.net/"><img src="https://img.shields.io/badge/Website-kaigongba.net-E63D28?style=flat-square&logo=googlechrome&logoColor=white" alt="开工吧官网"/></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL_3.0-blue.svg?style=flat-square" alt="License"/></a>
-  <a href="https://github.com/OpenBMB/StaffDeck/stargazers"><img src="https://img.shields.io/github/stars/OpenBMB/StaffDeck?style=flat-square" alt="Stars"/></a>
+  <a href="https://github.com/KaiGongBa/kaigongba/stargazers"><img src="https://img.shields.io/github/stars/KaiGongBa/kaigongba?style=flat-square" alt="Stars"/></a>
   <br/>
   <a href="#-Community"><img src="https://img.shields.io/badge/Discord-Join_Community-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord"/></a>
   &nbsp;
@@ -20,11 +20,11 @@
 
 ## News
 
-- 📌 **Pinned · 2026-07-15**: StaffDeck is now open source! We welcome your feedback and support with a Star.
+- 📌 **开工吧**：基于 StaffDeck 的最小品牌化复刻版本；功能与上游保持一致。
 
-# 💡 About StaffDeck
+# 💡 About 开工吧
 
-StaffDeck is an enterprise platform for building and managing digital employees. It helps professionals turn their work experience, business processes, and decision criteria into digital employees that can operate continuously, take over repetitive tasks, and preserve individual expertise as reusable, evolvable, and traceable organizational assets. StaffDeck is jointly developed by the [ModelBest](https://modelbest.cn/), [NEU-ModelBest Data Intelligence Joint Lab](https://neuir.github.io/), [THUNLP](https://nlp.csai.tsinghua.edu.cn/), [OpenBMB](https://www.openbmb.cn/home), and [AI9Stars](https://github.com/AI9Stars) for enterprises and institutions seeking to advance AI from a personal productivity tool to an organizational capability.
+开工吧是面向企业数字员工的运营平台。它基于 [OpenBMB/StaffDeck](https://github.com/OpenBMB/StaffDeck) 构建，保留模型、数字员工、知识库、技能、SOP、工具、记忆、定时任务与 Trace 等完整能力；改造范围仅限于品牌和项目信息。详细上游归属与许可证见 [开源声明](./OPEN_SOURCE_NOTICES.md)。
 
 ## Core Features
 
@@ -35,21 +35,21 @@ StaffDeck is an enterprise platform for building and managing digital employees.
 
 ## Desktop Downloads
 
-Visit the [StaffDeck official website](https://staffdeck.openbmb.cn/) or download the latest desktop release directly:
+请从本仓库自行构建桌面包；上游 StaffDeck 发布包不代表开工吧版本。
 
 | Platform | Architecture | Download |
 | --- | --- | --- |
-| macOS | Apple Silicon (arm64) | [Download `.dmg`](https://github.com/OpenBMB/StaffDeck/releases/latest/download/StaffDeck-macos-arm64.dmg) |
-| Windows | x64 | [Download installer `.exe`](https://github.com/OpenBMB/StaffDeck/releases/latest/download/StaffDeck-windows-x64-setup.exe) |
-| Linux | x86_64 (Debian/Ubuntu) | [Download `.deb`](https://github.com/OpenBMB/StaffDeck/releases/latest/download/StaffDeck-linux-x86_64.deb) |
+| macOS | Apple Silicon (arm64) | 请按下方 Quick Start 构建 |
+| Windows | x64 | 请按下方 Quick Start 构建 |
+| Linux | x86_64 (Debian/Ubuntu) | 请按下方 Quick Start 构建 |
 
 ## Agent-Friendly Quick Deploy
 
 Paste the prompt below into Cursor, Claude Code, or Codex:
 
 ```text
-Read https://raw.githubusercontent.com/OpenBMB/StaffDeck/main/README.md.
-Clone the OpenBMB/StaffDeck repository, prepare Python 3.11 or newer and Node.js 20,
+Read https://raw.githubusercontent.com/KaiGongBa/kaigongba/main/README.md.
+Clone the KaiGongBa/kaigongba repository, prepare Python 3.11 or newer and Node.js 20,
 create backend/.venv, install the backend and frontend dependencies, copy
 backend/.env.example to backend/.env, ask me for the OpenAI-compatible model
 endpoint and API key if they are missing, and use the commands documented for
@@ -61,7 +61,7 @@ plus /workspace/gallery before reporting success.
 
 ## Table of Contents
 
-- [💡 About StaffDeck](#-about-staffdeck)
+- [💡 About 开工吧](#-about-开工吧)
   - [Core Features](#core-features)
   - [Desktop Downloads](#desktop-downloads)
   - [Agent-Friendly Quick Deploy](#agent-friendly-quick-deploy)
@@ -100,8 +100,8 @@ plus /workspace/gallery before reporting success.
 Clone the repository first:
 
 ```bash
-git clone https://github.com/OpenBMB/StaffDeck.git
-cd StaffDeck
+git clone https://github.com/KaiGongBa/kaigongba.git
+cd kaigongba
 ```
 
 On macOS, Linux, or WSL:
@@ -283,10 +283,10 @@ Marketplace resources are reusable templates. Regular users can copy or bind aut
 Roadmap priorities are driven by real deployment needs. Please open an [Issue](https://github.com/OpenBMB/StaffDeck/issues) with a reproducible scenario and expected behavior.
 
 # 💬 Community
-- For bugs and feature requests, please open a [GitHub Issues](https://github.com/OpenBMB/StaffDeck/issues)。
-- For business corporation, please contact:
+- For bugs and feature requests, please open a [GitHub Issues](https://github.com/KaiGongBa/kaigongba/issues)。
+- For business cooperation, please contact:
   ```
-  business@modelbest.cn
+  contact@huozaotech.com
   ```
 - Join our community channels:
 
