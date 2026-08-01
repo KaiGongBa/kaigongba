@@ -41,11 +41,22 @@ import type {
 import { useMarketplaceOrganization } from './useMarketplaceOrganization';
 import { useMarketplaceResource } from './useMarketplaceResource';
 
-type WorkspaceTab = 'overview' | 'execution' | 'communication' | 'changes' | 'disputes' | 'deliverables' | 'materials' | 'events';
+export const ORDER_WORKSPACE_TABS = [
+  { id: 'overview', label: '项目总览' },
+  { id: 'execution', label: 'SOP 执行' },
+  { id: 'communication', label: '订单沟通' },
+  { id: 'changes', label: '变更与取消' },
+  { id: 'disputes', label: '争议处理' },
+  { id: 'deliverables', label: '交付物' },
+  { id: 'materials', label: '材料' },
+  { id: 'events', label: '执行记录' },
+] as const;
+
+type WorkspaceTab = (typeof ORDER_WORKSPACE_TABS)[number]['id'];
 
 function initialWorkspaceTab(): WorkspaceTab {
   const value = new URLSearchParams(window.location.search).get('tab');
-  return ['overview', 'execution', 'communication', 'changes', 'disputes', 'deliverables', 'materials', 'events'].includes(value || '')
+  return ORDER_WORKSPACE_TABS.some((item) => item.id === value)
     ? value as WorkspaceTab
     : 'overview';
 }
@@ -350,16 +361,17 @@ export default function OrderWorkspacePage() {
           )}
 
           <nav className="fulfillment-tabs">
-            {([
-              ['overview', '项目总览'],
-              ['execution', terminal ? 'SOP 执行 · 已关闭' : `SOP 执行 ${execution ? execution.progressPercent : 0}%`],
-              ['communication', '订单沟通'],
-              ['changes', '变更与取消'],
-              ['disputes', '争议处理'],
-              ['deliverables', `交付物 ${workspace.deliverables.length}`],
-              ['materials', `材料 ${workspace.materialRequests.length}`],
-              ['events', `执行记录 ${workspace.events.length}`],
-            ] as Array<[WorkspaceTab, string]>).map(([value, label]) => (
+            {ORDER_WORKSPACE_TABS.map(({ id: value, label: baseLabel }) => {
+              const label = value === 'execution'
+                ? (terminal ? `${baseLabel} · 已关闭` : `${baseLabel} ${execution ? execution.progressPercent : 0}%`)
+                : value === 'deliverables'
+                  ? `${baseLabel} ${workspace.deliverables.length}`
+                  : value === 'materials'
+                    ? `${baseLabel} ${workspace.materialRequests.length}`
+                    : value === 'events'
+                      ? `${baseLabel} ${workspace.events.length}`
+                      : baseLabel;
+              return (
               <button
                 type="button"
                 key={value}
@@ -368,7 +380,8 @@ export default function OrderWorkspacePage() {
               >
                 {label}
               </button>
-            ))}
+              );
+            })}
           </nav>
 
           {tab === 'overview' && (
