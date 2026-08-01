@@ -114,20 +114,41 @@
 }
 
 .fulfillment-tabs button {
+  align-items: center;
   background: transparent;
   border: 0;
   border-bottom: 2px solid transparent;
   color: #6f7581;
   cursor: pointer;
+  display: inline-flex;
   font-size: 13px;
+  gap: 6px;
   height: 51px;
   padding: 0 2px;
+}
+
+.fulfillment-tabs button > span {
+  align-items: center;
+  background: #f0f2f5;
+  border-radius: 999px;
+  color: #747b88;
+  display: inline-flex;
+  font-size: 10px;
+  font-weight: 620;
+  justify-content: center;
+  min-width: 20px;
+  padding: 2px 6px;
 }
 
 .fulfillment-tabs button.is-active {
   border-bottom-color: var(--fulfillment-blue);
   color: var(--fulfillment-blue);
   font-weight: 620;
+}
+
+.fulfillment-tabs button.is-active > span {
+  background: var(--fulfillment-blue-soft);
+  color: var(--fulfillment-blue);
 }
 
 .fulfillment-layout,

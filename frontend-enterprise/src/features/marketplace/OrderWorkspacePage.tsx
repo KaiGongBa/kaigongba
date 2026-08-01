@@ -314,7 +314,7 @@ export default function OrderWorkspacePage() {
           <button
             type="button"
             className="marketplace-breadcrumb"
-            onClick={() => navigate('/enterprise/orders')}
+            onClick={() => navigate(`/enterprise/orders?perspective=${workspace?.perspective || 'buyer'}`)}
           >
             <ArrowLeft />
             <strong>我的订单</strong>
@@ -326,13 +326,22 @@ export default function OrderWorkspacePage() {
         organizationLoading={organization.loading}
         onOrganizationChange={organization.selectOrganization}
         action={order && (
-          <button
-            type="button"
-            className="marketplace-secondary-button"
-            onClick={() => navigate(`/enterprise/payments/${order.paymentOrderId}`)}
-          >
-            查看支付单
-          </button>
+          <div className="marketplace-action-group">
+            <button
+              type="button"
+              className="marketplace-secondary-button"
+              onClick={() => navigate(`/enterprise/agreements/${order.agreementId}`)}
+            >
+              查看合作协议
+            </button>
+            <button
+              type="button"
+              className="marketplace-secondary-button"
+              onClick={() => navigate(`/enterprise/payments/${order.paymentOrderId}`)}
+            >
+              查看支付单
+            </button>
+          </div>
         )}
       />
       <MarketplaceState loading={resource.loading} error={resource.error} onRetry={resource.reload} />
@@ -366,32 +375,38 @@ export default function OrderWorkspacePage() {
             </section>
           )}
 
-          <nav className="fulfillment-tabs">
+          <nav className="fulfillment-tabs" role="tablist" aria-label="订单工作区功能">
             {ORDER_WORKSPACE_TABS.map(({ id: value, label: baseLabel }) => {
-              const label = value === 'execution'
-                ? (terminal ? `${baseLabel} · 已关闭` : `${baseLabel} ${execution ? execution.progressPercent : 0}%`)
+              const metric = value === 'execution'
+                ? (terminal ? '已关闭' : `${execution ? execution.progressPercent : 0}%`)
                 : value === 'deliverables'
-                  ? `${baseLabel} ${workspace.deliverables.length}`
+                  ? workspace.deliverables.length
                   : value === 'materials'
-                    ? `${baseLabel} ${workspace.materialRequests.length}`
+                    ? workspace.materialRequests.length
                     : value === 'events'
-                      ? `${baseLabel} ${workspace.events.length}`
-                      : baseLabel;
+                      ? workspace.events.length
+                      : undefined;
               return (
               <button
                 type="button"
+                role="tab"
+                id={`order-tab-${value}`}
+                aria-label={baseLabel}
+                aria-selected={tab === value}
+                aria-controls={`order-panel-${value}`}
                 key={value}
                 className={tab === value ? 'is-active' : ''}
                 onClick={() => selectTab(value)}
               >
-                {label}
+                {baseLabel}
+                {metric !== undefined && <span>{metric}</span>}
               </button>
               );
             })}
           </nav>
 
           {tab === 'overview' && (
-            <div className="fulfillment-layout">
+            <div className="fulfillment-layout" id="order-panel-overview" role="tabpanel" aria-labelledby="order-tab-overview">
               <div className="fulfillment-main-stack">
                 <section className={`fulfillment-current-card ${terminal ? 'is-terminal' : ''}`}>
                   <header>
@@ -527,7 +542,7 @@ export default function OrderWorkspacePage() {
           )}
 
           {tab === 'execution' && (
-            <section className="fulfillment-full-card execution-workspace">
+            <section className="fulfillment-full-card execution-workspace" id="order-panel-execution" role="tabpanel" aria-labelledby="order-tab-execution">
               <header>
                 <div>
                   <h2>SOP 与 AI 员工执行</h2>
@@ -594,7 +609,7 @@ export default function OrderWorkspacePage() {
           )}
 
           {tab === 'deliverables' && (
-            <section className="fulfillment-full-card">
+            <section className="fulfillment-full-card" id="order-panel-deliverables" role="tabpanel" aria-labelledby="order-tab-deliverables">
               <header><div><h2>全部交付物</h2><p>共 {workspace.deliverables.length} 项，版本和验收动作均留存审计记录。</p></div></header>
               <DeliverableList
                 items={workspace.deliverables}
@@ -613,36 +628,42 @@ export default function OrderWorkspacePage() {
           )}
 
           {tab === 'communication' && (
-            <OrderCommunicationPanel
-              orderId={order.id}
-              organizationId={organization.selected!.id}
-              milestoneId={currentMilestone.id}
-              heldAmount={order.heldAmount}
-              onBusinessChanged={resource.reload}
-            />
+            <div id="order-panel-communication" role="tabpanel" aria-labelledby="order-tab-communication">
+              <OrderCommunicationPanel
+                orderId={order.id}
+                organizationId={organization.selected!.id}
+                milestoneId={currentMilestone.id}
+                heldAmount={order.heldAmount}
+                onBusinessChanged={resource.reload}
+              />
+            </div>
           )}
 
           {tab === 'changes' && (
-            <OrderChangePanel
-              orderId={order.id}
-              organizationId={organization.selected!.id}
-              milestoneId={currentMilestone.id}
-              heldAmount={order.heldAmount}
-              onBusinessChanged={resource.reload}
-            />
+            <div id="order-panel-changes" role="tabpanel" aria-labelledby="order-tab-changes">
+              <OrderChangePanel
+                orderId={order.id}
+                organizationId={organization.selected!.id}
+                milestoneId={currentMilestone.id}
+                heldAmount={order.heldAmount}
+                onBusinessChanged={resource.reload}
+              />
+            </div>
           )}
 
           {tab === 'disputes' && (
-            <OrderDisputePanel
-              orderId={order.id}
-              organizationId={organization.selected!.id}
-              heldAmount={order.heldAmount}
-              milestones={order.milestones}
-            />
+            <div id="order-panel-disputes" role="tabpanel" aria-labelledby="order-tab-disputes">
+              <OrderDisputePanel
+                orderId={order.id}
+                organizationId={organization.selected!.id}
+                heldAmount={order.heldAmount}
+                milestones={order.milestones}
+              />
+            </div>
           )}
 
           {tab === 'materials' && (
-            <section className="fulfillment-full-card">
+            <section className="fulfillment-full-card" id="order-panel-materials" role="tabpanel" aria-labelledby="order-tab-materials">
               <header><div><h2>材料请求与提交记录</h2><p>每次补充都会创建独立提交版本，原文件不被覆盖。</p></div></header>
               <MaterialList
                 items={workspace.materialRequests}
@@ -660,7 +681,7 @@ export default function OrderWorkspacePage() {
           )}
 
           {tab === 'events' && (
-            <section className="fulfillment-full-card">
+            <section className="fulfillment-full-card" id="order-panel-events" role="tabpanel" aria-labelledby="order-tab-events">
               <header><div><h2>订单执行记录</h2><p>关键履约动作按时间倒序留痕，可供后续平台争议处理归档。</p></div><button type="button" onClick={resource.reload}><RefreshCw />刷新</button></header>
               <EventTimeline events={workspace.events} />
             </section>
