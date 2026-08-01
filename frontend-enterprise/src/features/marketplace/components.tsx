@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Bot,
   BriefcaseBusiness,
@@ -50,6 +51,7 @@ export function MarketplaceHeader({
   onOrganizationChange?: (organizationId: string) => void;
   hideOrganization?: boolean;
 }) {
+  const navigate = useNavigate();
   return (
     <header className="marketplace-header">
       <div className="marketplace-header__main">
@@ -91,7 +93,7 @@ export function MarketplaceHeader({
             <ChevronDown aria-hidden="true" />
           </label>}
           <MarketplaceNotifications organizationId={selectedOrganizationId || undefined} />
-          <button type="button" className="marketplace-avatar" aria-label="账号菜单">A</button>
+          <button type="button" className="marketplace-avatar" aria-label="账号菜单" onClick={() => navigate('/enterprise/accounts/organization')}>A</button>
         </div>
       </div>
     </header>

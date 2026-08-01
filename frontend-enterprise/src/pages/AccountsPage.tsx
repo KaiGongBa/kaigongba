@@ -67,9 +67,11 @@ const ACCOUNT_PAGE_SIZE = 10;
 export default function AccountsPage({
   currentUser,
   onLogout,
+  embedded = false,
 }: {
   currentUser?: EnterpriseAuthUser;
   onLogout?: () => void;
+  embedded?: boolean;
 } = {}) {
   const [rows, setRows] = useState<EmployeeAccount[]>([]);
   const [loading, setLoading] = useState(false);
@@ -277,10 +279,10 @@ export default function AccountsPage({
   );
 
   return (
-    <div className="min-h-full box-border px-[48px] pt-[32px] pb-[43px] max-[900px]:px-[16px]" aria-busy={loading}>
-      <AppHeader onLogout={onLogout} userName={currentUser?.username} title="账号管理" />
+    <div className={cn('min-h-full box-border', !embedded && 'px-[48px] pt-[32px] pb-[43px] max-[900px]:px-[16px]')} aria-busy={loading}>
+      {!embedded && <AppHeader onLogout={onLogout} userName={currentUser?.username} title="账号管理" />}
 
-      <div className="mt-[20px] mb-[16px] flex items-center justify-end gap-[12px]">
+      <div className={cn('mb-[16px] flex items-center justify-end gap-[12px]', !embedded && 'mt-[20px]')}>
         <UIButton
           variant="outline"
           onClick={() => void load()}

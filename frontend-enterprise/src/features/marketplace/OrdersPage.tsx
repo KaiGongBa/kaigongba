@@ -176,7 +176,7 @@ export default function OrdersPage() {
             <section className="transaction-card transaction-order-tip">
               <h2>小贴士</h2>
               <p>订单与项目相互独立，快照、支付事件和里程碑按企业及订单隔离。</p>
-              <button type="button" onClick={() => navigate('/enterprise/organization/team')}>了解更多 <ArrowRight /></button>
+              <button type="button" onClick={() => navigate('/enterprise/accounts/organization')}>了解更多 <ArrowRight /></button>
             </section>
           </aside>
         </div>

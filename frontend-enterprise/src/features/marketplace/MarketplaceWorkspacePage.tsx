@@ -11,7 +11,6 @@ import { useChatSession } from '@/pages/chat/useChatSession';
 import AiEmployeeDetailPage from './AiEmployeeDetailPage';
 import AiEmployeeMarketPage from './AiEmployeeMarketPage';
 import MarketplaceComingSoonPage from './MarketplaceComingSoonPage';
-import OrganizationTeamPage from './OrganizationTeamPage';
 import PublishAIServicePage from './PublishAIServicePage';
 import PublishingPage from './PublishingPage';
 import PublishSkillPage from './PublishSkillPage';
@@ -43,7 +42,6 @@ const MARKETPLACE_WORKSPACE_PREFIXES = [
   '/enterprise/provider',
   '/enterprise/agreements',
   '/enterprise/disputes',
-  '/enterprise/organization',
 ] as const;
 
 export function isMarketplaceWorkspacePath(pathname: string): boolean {
@@ -62,7 +60,6 @@ function selectedMarketplaceRoute(pathname: string): string {
   if (pathname.startsWith(EnterpriseRoute.Publishing)) return EnterpriseRoute.Publishing;
   if (pathname.startsWith(EnterpriseRoute.ProviderWorkbench)) return EnterpriseRoute.ProviderWorkbench;
   if (pathname.startsWith(EnterpriseRoute.MyRequirements)) return EnterpriseRoute.MyRequirements;
-  if (pathname.startsWith(EnterpriseRoute.OrganizationTeam)) return EnterpriseRoute.OrganizationTeam;
   return pathname;
 }
 
@@ -185,7 +182,6 @@ export default function MarketplaceWorkspacePage() {
             path="/enterprise/agreements/:agreementId"
             element={<Suspense fallback={<MarketplaceRouteLoading />}><AgreementConfirmPage /></Suspense>}
           />
-          <Route path="/enterprise/organization/team" element={<OrganizationTeamPage />} />
         </Routes>
       </main>
       <ChatDialogs chat={chat} />

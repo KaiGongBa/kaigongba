@@ -78,6 +78,9 @@ const CAPABILITY_NAV: NavItem[] = [
 
 const SYSTEM_NAV: NavItem[] = [
   { route: EnterpriseRoute.Accounts, label: '账号管理', Icon: IconAccounts },
+];
+
+const ADMIN_SYSTEM_NAV: NavItem[] = [
   { route: EnterpriseRoute.Models, label: '模型配置', Icon: IconModels },
 ];
 
@@ -89,7 +92,6 @@ const MARKETPLACE_NAV: NavItem[] = [
   { route: EnterpriseRoute.Confirmations, label: '待确认', Icon: IconChatBubble },
   { route: EnterpriseRoute.Publishing, label: '我的发布', Icon: IconEdit },
   { route: EnterpriseRoute.ProviderWorkbench, label: '服务商工作台', Icon: IconBriefcase },
-  { route: EnterpriseRoute.OrganizationTeam, label: '企业与团队', Icon: IconAccounts },
 ];
 
 const PLATFORM_BUSINESS_NAV: NavItem[] = [
@@ -99,7 +101,7 @@ const PLATFORM_BUSINESS_NAV: NavItem[] = [
 ];
 
 function primaryNavItems(isAdmin: boolean): NavItem[] {
-  return isAdmin ? [...PRIMARY_NAV, ...SYSTEM_NAV] : PRIMARY_NAV;
+  return [...PRIMARY_NAV, ...SYSTEM_NAV, ...(isAdmin ? ADMIN_SYSTEM_NAV : [])];
 }
 
 export type AppSidebarManagementProps = {

@@ -36,7 +36,7 @@ import {
   employeeProfile,
   preferredEmployeeAgent,
 } from "./employee";
-import AccountsPage from "./pages/AccountsPage";
+import AccountManagementLayout, { LegacyOrganizationTeamRedirect } from "./pages/AccountManagementLayout";
 import AgentsPage from "./pages/AgentsPage";
 import ExternalAgentEnrollmentPage from "./pages/ExternalAgentEnrollmentPage";
 import ExternalAgentOperationsPage from "./pages/ExternalAgentOperationsPage";
@@ -177,6 +177,7 @@ function Shell({
     if (location.pathname.startsWith("/enterprise/knowledge")) return EnterpriseRoute.Knowledge;
     if (location.pathname.startsWith("/enterprise/general-skills")) return EnterpriseRoute.GeneralSkills;
     if (location.pathname.startsWith("/enterprise/tools")) return EnterpriseRoute.Tools;
+    if (location.pathname.startsWith(EnterpriseRoute.Accounts)) return EnterpriseRoute.Accounts;
     if (location.pathname.startsWith("/enterprise/scheduled-tasks")) return EnterpriseRoute.ScheduledTasks;
     if (isDistillRoute) return EnterpriseRoute.Skills;
     return location.pathname;
@@ -742,14 +743,12 @@ function Shell({
                 }
               />
               <Route
-                path="/enterprise/accounts"
-                element={
-                  isAdmin ? (
-                    <AccountsPage currentUser={auth.user} onLogout={onLogout} />
-                  ) : (
-                    <Navigate to={EnterpriseRoute.Gallery} replace />
-                  )
-                }
+                path="/enterprise/accounts/*"
+                element={<AccountManagementLayout currentUser={auth.user} onLogout={onLogout} />}
+              />
+              <Route
+                path="/enterprise/organization/team"
+                element={<LegacyOrganizationTeamRedirect />}
               />
               <Route
                 path="/enterprise/models"

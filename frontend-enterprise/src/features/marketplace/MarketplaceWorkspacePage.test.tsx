@@ -59,7 +59,6 @@ vi.mock('./PublishSkillPage', () => ({ default: () => <div data-testid="publish-
 vi.mock('./ProviderWorkbenchPage', () => ({ default: () => <div data-testid="provider-workbench" /> }));
 vi.mock('./ProviderQuotePage', () => ({ default: () => <div data-testid="provider-quote" /> }));
 vi.mock('./AgreementConfirmPage', () => ({ default: () => <div data-testid="agreement" /> }));
-vi.mock('./OrganizationTeamPage', () => ({ default: () => <div data-testid="organization-team" /> }));
 
 import MarketplaceWorkspacePage, { isMarketplaceWorkspacePath } from './MarketplaceWorkspacePage';
 
@@ -87,7 +86,6 @@ const routeCases = [
   ['/enterprise/provider', 'provider-workbench'],
   ['/enterprise/provider/quotes/quote-1', 'provider-quote'],
   ['/enterprise/agreements/agreement-1', 'agreement'],
-  ['/enterprise/organization/team', 'organization-team'],
 ] as const;
 
 describe('marketplace workspace route compatibility', () => {
@@ -106,6 +104,8 @@ describe('marketplace workspace route compatibility', () => {
       expect(isMarketplaceWorkspacePath(path)).toBe(true);
     }
     expect(isMarketplaceWorkspacePath('/enterprise/accounts')).toBe(false);
+    expect(isMarketplaceWorkspacePath('/enterprise/accounts/organization')).toBe(false);
+    expect(isMarketplaceWorkspacePath('/enterprise/organization/team')).toBe(false);
     expect(isMarketplaceWorkspacePath('/workspace/gallery')).toBe(false);
   });
 });
