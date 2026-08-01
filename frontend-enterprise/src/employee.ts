@@ -361,7 +361,14 @@ export function visibleChatEmployees(
   rows: AgentProfileRead[],
   user?: EnterpriseAuthUser | null,
 ): AgentProfileRead[] {
-  return currentEmployeeAgents(rows, user, { activeOnly: true });
+  return currentEmployeeAgents(rows, user, { activeOnly: true })
+    .filter((agent) => !isPlatformAssistantAgent(agent));
+}
+
+export function isPlatformAssistantAgent(
+  agent?: Pick<AgentProfileRead, 'metadata'> | null,
+): boolean {
+  return agent?.metadata?.platform_assistant === true;
 }
 
 export function agentResourceCount(agent: AgentProfileRead, resourceType: AgentResourceType): number {

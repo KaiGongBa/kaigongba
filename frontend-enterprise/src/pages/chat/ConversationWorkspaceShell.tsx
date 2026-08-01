@@ -10,6 +10,7 @@ import MarketplaceWorkspacePage, {
 
 import ChatDialogs from './components/ChatDialogs';
 import ChatGalleryPage from './ChatGalleryPage';
+import KaiAssistantDrawer from './KaiAssistantDrawer';
 import { sessionHasUnreadReply } from './chatHelpers';
 import ChatPage from './ChatPage';
 import { useChatSession } from './useChatSession';
@@ -92,7 +93,10 @@ export default function ConversationWorkspaceShell() {
         <ChatGalleryPage chat={chat} selectedAgentId={selectedProjectAgentId} />
       )}
 
-      <div data-kai-assistant-host="true" aria-hidden="true" />
+      <KaiAssistantDrawer
+        sidebarCollapsed={chat.sidebarCollapsed}
+        onToggleSidebar={chat.toggleSidebar}
+      />
       <ChatDialogs chat={chat} />
     </SidebarProvider>
   );

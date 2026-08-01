@@ -29,6 +29,7 @@ import {
   employeeDisplayName,
   employeeDisplayNameWithCreator,
   employeeProfile,
+  isPlatformAssistantAgent,
   visibleChatEmployees,
 } from '@/employee';
 import { notify } from '@/components/ui/app-toast';
@@ -497,7 +498,24 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
     });
   }, [userId]);
 
-  const currentSession = sessionId ? sessions.find((item) => item.id === sessionId) || null : null;
+  const platformAssistantAgentIds = useMemo(
+    () => new Set(agents.filter(isPlatformAssistantAgent).map((agent) => agent.id)),
+    [agents],
+  );
+  const employeeSessions = useMemo(
+    () => sessions.filter((item) => !item.agent_id || !platformAssistantAgentIds.has(item.agent_id)),
+    [platformAssistantAgentIds, sessions],
+  );
+  const routeTargetsPlatformAssistant = Boolean(
+    sessionId && sessions.some((item) => (
+      item.id === sessionId
+      && item.agent_id
+      && platformAssistantAgentIds.has(item.agent_id)
+    )),
+  );
+  const currentSession = sessionId
+    ? employeeSessions.find((item) => item.id === sessionId) || null
+    : null;
   const availableAgents = visibleChatEmployees(agents, auth?.user);
   const explicitDraftAgentId = draftAgentId || '';
   const routeDraftAgent = explicitDraftAgentId
@@ -543,25 +561,30 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
     ];
   const sessionFilterOptions = useMemo(() => {
     const counts = new Map<string, number>();
-    sessions.forEach((session) => {
+    employeeSessions.forEach((session) => {
       if (!session.agent_id) return;
       counts.set(session.agent_id, (counts.get(session.agent_id) || 0) + 1);
     });
     const rows = availableAgents
       .sort((a, b) => employeeDisplayName(a).localeCompare(employeeDisplayName(b), 'zh-Hans-CN'));
     return [
-      { value: 'all', label: `全部会话 · ${sessions.length}` },
+      { value: 'all', label: `全部会话 · ${employeeSessions.length}` },
       ...rows.map((agent) => ({
         value: agent.id,
         label: `${employeeDisplayNameWithCreator(agent)} · ${counts.get(agent.id) || 0}`,
       })),
     ];
-  }, [availableAgents, sessions]);
+  }, [availableAgents, employeeSessions]);
   const visibleSidebarSessions = useMemo(() => (
     sessionAgentFilter === 'all'
-      ? sessions
-      : sessions.filter((session) => session.agent_id === sessionAgentFilter)
-  ), [sessionAgentFilter, sessions]);
+      ? employeeSessions
+      : employeeSessions.filter((session) => session.agent_id === sessionAgentFilter)
+  ), [employeeSessions, sessionAgentFilter]);
+
+  useEffect(() => {
+    if (!routeTargetsPlatformAssistant) return;
+    navigate('/workspace/gallery', { replace: true });
+  }, [navigate, routeTargetsPlatformAssistant]);
   const enabledModelConfigs = useMemo(() => modelConfigs.filter((item) => item.enabled), [modelConfigs]);
   const selectedModelConfig = (
     enabledModelConfigs.find((item) => item.id === selectedModelConfigId)
@@ -3270,10 +3293,10 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
     SHOW_DEBUG,
     lastTurn,
     // sessions + agents
-    sessions,
+    sessions: employeeSessions,
     sessionsLoading,
     visibleSidebarSessions,
-    agents,
+    agents: availableAgents,
     sessionId,
     sessionReadTimes,
     sessionAgentFilter,

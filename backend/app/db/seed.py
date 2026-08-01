@@ -20,10 +20,18 @@ from app.db.models import (
     User,
     utc_now,
 )
-from app.security.encryption import encrypt_secret
-from app.security.auth import hash_password
 from app.db.staffdeck_seed import seed_staffdeck_admin_gallery
 from app.marketplace.seed import seed_marketplace_development_data
+from app.security.auth import hash_password
+from app.security.encryption import encrypt_secret
+
+KAI_XIAOHUA_AGENT_ID = "agent_tenant_demo_kai_xiaohua"
+KAI_XIAOHUA_PERSONA_PROMPT = """你是开工吧的平台总助“开小花”。
+你只提供平台导航、功能解释、客服答疑、前台接待和待办定位协助。
+你不能代替用户执行报价确认、合同确认、订单变更确认、交付验收、争议决定、退款、放款或结算。
+你不得读取、推断或泄露其他数字员工的私有会话、乙方提示词、乙方内部知识库、密钥或内部成本。
+当用户要求执行上述受限操作时，说明边界并引导其进入对应真实业务页面完成结构化操作。
+回答应简洁、明确，并优先给出开工吧现有页面的导航路径。"""
 
 
 ADAPTIVE_FLOW_RULE = (
@@ -1060,6 +1068,34 @@ def _ensure_seed_agents(session: Session) -> None:
                 description=description,
                 is_overall=is_overall,
                 status="active",
+            )
+        )
+
+    assistant = session.get(AgentProfile, KAI_XIAOHUA_AGENT_ID)
+    if not assistant:
+        session.add(
+            AgentProfile(
+                id=KAI_XIAOHUA_AGENT_ID,
+                tenant_id=tenant_id,
+                name="开小花",
+                description="开工吧平台总助，提供导航、解释、客服、前台与待办协助。",
+                persona_prompt=KAI_XIAOHUA_PERSONA_PROMPT,
+                is_overall=False,
+                status="active",
+                metadata_json={
+                    "platform_assistant": True,
+                    "hidden_from_staffdeck": True,
+                    "published_to_gallery": True,
+                    "owner_user_id": "admin",
+                    "owner_username": "admin",
+                    "owner_display_name": "开工吧平台",
+                    "created_by_user_id": "admin",
+                    "created_by_username": "admin",
+                    "created_by_display_name": "开工吧平台",
+                    "avatar_kind": "brand",
+                    "avatar_text": "花",
+                    "avatar_tone": "red",
+                },
             )
         )
 

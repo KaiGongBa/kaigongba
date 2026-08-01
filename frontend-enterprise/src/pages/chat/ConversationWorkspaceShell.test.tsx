@@ -60,6 +60,12 @@ vi.mock('./ChatPage', () => ({
   default: ({ chat }: { chat: { instanceId: number } }) => <div data-testid="chat-content">{chat.instanceId}</div>,
 }));
 
+vi.mock('./KaiAssistantDrawer', () => ({
+  default: ({ sidebarCollapsed }: { sidebarCollapsed: boolean }) => (
+    <div data-kai-assistant-host="true" data-sidebar-collapsed={String(sidebarCollapsed)} />
+  ),
+}));
+
 vi.mock('@/features/marketplace/MarketplaceWorkspacePage', () => ({
   default: () => <div data-testid="marketplace-content" />,
   isMarketplaceWorkspacePath: (path: string) => path.startsWith('/enterprise/orders'),
@@ -113,7 +119,7 @@ describe('conversation workspace shell', () => {
     expect(chatInstanceInitializations).toBe(1);
   });
 
-  it('reserves a route-neutral mount point for the later Kai Xiaohua drawer', () => {
+  it('mounts Kai Xiaohua once in the shared route-neutral shell', () => {
     render(
       <MemoryRouter initialEntries={['/enterprise/orders']}>
         <ConversationWorkspaceShell />
