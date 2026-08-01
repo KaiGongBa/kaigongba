@@ -47,6 +47,7 @@ def test_gt01_success_terminal_has_committed_history_and_turn_identity(
                 base_url=base_url,
                 headers=harness.headers,
                 timeout=10,
+                trust_env=False,
             ) as history_client,
         ):
             stream_end_seen = threading.Event()
@@ -66,11 +67,13 @@ def test_gt01_success_terminal_has_committed_history_and_turn_identity(
                             base_url=base_url,
                             headers=harness.headers,
                             timeout=10,
+                            trust_env=False,
                         ) as stream_client,
                         httpx.Client(
                             base_url=base_url,
                             headers=harness.headers,
                             timeout=10,
+                            trust_env=False,
                         ) as terminal_history_client,
                         stream_client.stream(
                             "POST",
@@ -164,6 +167,7 @@ def test_gt12_transport_disconnect_worker_finishes_and_history_recovers(
                 base_url=base_url,
                 headers=harness.headers,
                 timeout=10,
+                trust_env=False,
             ) as client,
         ):
             session_id = ""
@@ -213,11 +217,13 @@ def test_gt12_explicit_cancel_is_visible_on_stream_and_history(
                 base_url=base_url,
                 headers=harness.headers,
                 timeout=10,
+                trust_env=False,
             ) as stream_client,
             httpx.Client(
                 base_url=base_url,
                 headers=harness.headers,
                 timeout=10,
+                trust_env=False,
             ) as command_client,
         ):
             observed: list[str] = []
@@ -282,11 +288,13 @@ def test_gt13_history_visibility_at_error_stream_end_and_assistant_event(
                 base_url=base_url,
                 headers=harness.headers,
                 timeout=10,
+                trust_env=False,
             ) as stream_client,
             httpx.Client(
                 base_url=base_url,
                 headers=harness.headers,
                 timeout=10,
+                trust_env=False,
             ) as history_client,
         ):
             visibility: dict[str, list[str]] = {}
