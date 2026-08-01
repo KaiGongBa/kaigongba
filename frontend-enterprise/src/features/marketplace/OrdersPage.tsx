@@ -16,20 +16,23 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { MarketplaceHeader, MarketplaceState } from './components';
 import { marketplaceRepository } from './repository';
 import type { TransactionOrder } from './types';
 import { useMarketplaceOrganization } from './useMarketplaceOrganization';
 import { useMarketplaceResource } from './useMarketplaceResource';
+import { normalizeOrderPerspective } from './uiMigrationContracts';
 
 type OrderPerspective = 'buyer' | 'provider';
 
 export default function OrdersPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const organization = useMarketplaceOrganization();
-  const [perspective, setPerspective] = useState<OrderPerspective>('buyer');
+  const normalizedPerspective = normalizeOrderPerspective(searchParams.get('perspective'));
+  const perspective: OrderPerspective = normalizedPerspective === 'provider' ? 'provider' : 'buyer';
   const [keyword, setKeyword] = useState('');
   const [status, setStatus] = useState('all');
   const [expanded, setExpanded] = useState<string>();
@@ -59,6 +62,12 @@ export default function OrdersPage() {
     [orders],
   );
 
+  function selectPerspective(nextPerspective: OrderPerspective) {
+    const next = new URLSearchParams(searchParams);
+    next.set('perspective', nextPerspective);
+    setSearchParams(next);
+  }
+
   return (
     <main className="marketplace-page marketplace-management-page transaction-page transaction-orders-page">
       <MarketplaceHeader
@@ -74,8 +83,8 @@ export default function OrdersPage() {
       />
 
       <div className="transaction-order-tabs" role="tablist" aria-label="订单角色视角">
-        <button type="button" role="tab" aria-selected={perspective === 'buyer'} aria-controls="transaction-orders-panel" className={perspective === 'buyer' ? 'is-active' : ''} onClick={() => setPerspective('buyer')}>我发起的 <span>{perspective === 'buyer' ? orders.length : ''}</span></button>
-        <button type="button" role="tab" aria-selected={perspective === 'provider'} aria-controls="transaction-orders-panel" className={perspective === 'provider' ? 'is-active' : ''} onClick={() => setPerspective('provider')}>我承接的 <span>{perspective === 'provider' ? orders.length : ''}</span></button>
+        <button type="button" role="tab" aria-selected={perspective === 'buyer'} aria-controls="transaction-orders-panel" className={perspective === 'buyer' ? 'is-active' : ''} onClick={() => selectPerspective('buyer')}>我发起的 <span>{perspective === 'buyer' ? orders.length : ''}</span></button>
+        <button type="button" role="tab" aria-selected={perspective === 'provider'} aria-controls="transaction-orders-panel" className={perspective === 'provider' ? 'is-active' : ''} onClick={() => selectPerspective('provider')}>我承接的 <span>{perspective === 'provider' ? orders.length : ''}</span></button>
         <button type="button" role="tab" aria-selected={false} aria-disabled="true" disabled>内部任务 <span>0</span></button>
       </div>
       <p className="transaction-order-help">每个订单的角色由发起方和承接方决定；同一用户在不同订单中可能分别作为采购方或服务方。</p>

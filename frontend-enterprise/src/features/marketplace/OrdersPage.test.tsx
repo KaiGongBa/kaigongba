@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { MemoryRouter } from 'react-router-dom';
+import userEvent from '@testing-library/user-event';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('./components', () => ({
@@ -68,6 +69,11 @@ vi.mock('./useMarketplaceResource', () => ({
 
 import OrdersPage from './OrdersPage';
 
+function LocationProbe() {
+  const location = useLocation();
+  return <output data-testid="location">{`${location.pathname}${location.search}`}</output>;
+}
+
 afterEach(cleanup);
 
 describe('orders role perspectives', () => {
@@ -87,5 +93,27 @@ describe('orders role perspectives', () => {
     expect(providerTab.getAttribute('aria-selected')).toBe('true');
     expect(screen.getAllByText('KGB-P-001').length).toBeGreaterThan(0);
     expect(screen.getByText(/同一用户在不同订单中可能分别作为采购方或服务方/)).toBeTruthy();
+  });
+
+  it('restores the relationship perspective from the URL and persists keyboard changes', async () => {
+    const user = userEvent.setup();
+    render(
+      <MemoryRouter initialEntries={['/enterprise/orders?perspective=provider&from=projects']}>
+        <OrdersPage />
+        <LocationProbe />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole('tab', { name: /我承接的/ }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByTestId('location').textContent).toBe(
+      '/enterprise/orders?perspective=provider&from=projects',
+    );
+
+    screen.getByRole('tab', { name: /我发起的/ }).focus();
+    await user.keyboard('{Enter}');
+
+    expect(screen.getByTestId('location').textContent).toBe(
+      '/enterprise/orders?perspective=buyer&from=projects',
+    );
   });
 });

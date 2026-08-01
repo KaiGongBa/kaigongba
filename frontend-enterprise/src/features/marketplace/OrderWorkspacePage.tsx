@@ -24,7 +24,7 @@ import {
   UserRound,
 } from 'lucide-react';
 import { useMemo, useState, type ChangeEvent } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { notify } from '@/components/ui/app-toast';
 
@@ -54,8 +54,7 @@ export const ORDER_WORKSPACE_TABS = [
 
 type WorkspaceTab = (typeof ORDER_WORKSPACE_TABS)[number]['id'];
 
-function initialWorkspaceTab(): WorkspaceTab {
-  const value = new URLSearchParams(window.location.search).get('tab');
+function workspaceTab(value: string | null): WorkspaceTab {
   return ORDER_WORKSPACE_TABS.some((item) => item.id === value)
     ? value as WorkspaceTab
     : 'overview';
@@ -64,8 +63,9 @@ function initialWorkspaceTab(): WorkspaceTab {
 export default function OrderWorkspacePage() {
   const navigate = useNavigate();
   const { orderId = '' } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const organization = useMarketplaceOrganization();
-  const [tab, setTab] = useState<WorkspaceTab>(initialWorkspaceTab);
+  const tab = workspaceTab(searchParams.get('tab'));
   const [working, setWorking] = useState(false);
   const [materialPanelOpen, setMaterialPanelOpen] = useState(false);
   const [deliverablePanelOpen, setDeliverablePanelOpen] = useState(false);
@@ -109,6 +109,12 @@ export default function OrderWorkspacePage() {
   const currentExecutionNode = execution?.nodes
     .filter((node) => node.nodeKey === execution.currentNodeKey)
     .sort((left, right) => right.attempt - left.attempt)[0];
+
+  function selectTab(nextTab: WorkspaceTab) {
+    const next = new URLSearchParams(searchParams);
+    next.set('tab', nextTab);
+    setSearchParams(next);
+  }
 
   async function runAction(action: () => Promise<unknown>, success: string) {
     setWorking(true);
@@ -355,8 +361,8 @@ export default function OrderWorkspacePage() {
                 <strong>{order.currentMilestoneName}</strong>
                 <span>{order.status === 'completed' ? '订单流程已经完成；未验收里程碑保留历史记录，但不会继续生成执行待办。' : '订单已经取消；历史交付、沟通与平台处理记录仍可查看。'}</span>
               </div>
-              <button type="button" onClick={() => setTab('disputes')}>查看争议处理</button>
-              <button type="button" onClick={() => setTab('events')}>查看完整记录</button>
+              <button type="button" onClick={() => selectTab('disputes')}>查看争议处理</button>
+              <button type="button" onClick={() => selectTab('events')}>查看完整记录</button>
             </section>
           )}
 
@@ -376,7 +382,7 @@ export default function OrderWorkspacePage() {
                 type="button"
                 key={value}
                 className={tab === value ? 'is-active' : ''}
-                onClick={() => setTab(value)}
+                onClick={() => selectTab(value)}
               >
                 {label}
               </button>
@@ -465,7 +471,7 @@ export default function OrderWorkspacePage() {
                 </section>
 
                 <section className="fulfillment-section-card">
-                  <header><div><h2>材料协作</h2><p>采购方上传的材料按订单隔离并保留每次提交版本。</p></div><button type="button" onClick={() => setTab('materials')}>查看全部 <ChevronRight /></button></header>
+                  <header><div><h2>材料协作</h2><p>采购方上传的材料按订单隔离并保留每次提交版本。</p></div><button type="button" onClick={() => selectTab('materials')}>查看全部 <ChevronRight /></button></header>
                   <MaterialList
                     items={currentMaterials}
                     closed={terminal}
@@ -496,11 +502,11 @@ export default function OrderWorkspacePage() {
                   <p>采购方只会看到节点状态和结果摘要，乙方提示词、知识库、密钥和内部成本始终隐藏。</p>
                   <div className="fulfillment-sop-actions">
                     {workspace.execution.canStart && <button type="button" disabled={working} onClick={startExecution}><Play />启动 SOP</button>}
-                    {execution && <button type="button" onClick={() => setTab('execution')}>查看执行详情 <ChevronRight /></button>}
+                    {execution && <button type="button" onClick={() => selectTab('execution')}>查看执行详情 <ChevronRight /></button>}
                   </div>
                 </section>
                 <section className="fulfillment-side-card">
-                  <header><h2>近期动态</h2><button type="button" onClick={() => setTab('events')}>全部</button></header>
+                  <header><h2>近期动态</h2><button type="button" onClick={() => selectTab('events')}>全部</button></header>
                   <EventTimeline events={workspace.events.slice(0, 6)} />
                 </section>
                 <section className="fulfillment-side-card">
