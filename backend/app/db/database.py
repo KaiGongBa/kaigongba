@@ -12,6 +12,10 @@ from app.config import get_settings
 
 
 def _normalize_database_url(url: str) -> str:
+    if url.startswith("postgres://"):
+        return f"postgresql+psycopg://{url.removeprefix('postgres://')}"
+    if url.startswith("postgresql://"):
+        return f"postgresql+psycopg://{url.removeprefix('postgresql://')}"
     if not url.startswith("sqlite:///") or url.startswith("sqlite:////") or url == "sqlite:///:memory:":
         return url
 

@@ -411,7 +411,7 @@ def test_real_sdk_wire_ack_is_after_visible_commit(
         _write_contract_config(
             tmp_path, supervisor, "binding-wire", local_feishu_server.endpoint_domain, database
         )
-        supervisor.wait_for_event("binding-wire", "CONNECTED")
+        supervisor.wait_for_event("binding-wire", "CONNECTED", timeout=10.0)
         local_feishu_server.wait_for_connections(1)
 
         counts_at_wire_ack: list[int] = []

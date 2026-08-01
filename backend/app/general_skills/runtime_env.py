@@ -8,11 +8,22 @@ from pathlib import Path
 
 from app.config import get_settings
 
-
 IMPORT_NAMES = {
     "beautifulsoup4": "bs4",
     "python-docx": "docx",
     "python-dateutil": "dateutil",
+}
+RUNTIME_ENV_ALLOWLIST = {
+    "PATH",
+    "PATHEXT",
+    "SYSTEMROOT",
+    "WINDIR",
+    "COMSPEC",
+    "LANG",
+    "LC_ALL",
+    "TZ",
+    "SSL_CERT_FILE",
+    "REQUESTS_CA_BUNDLE",
 }
 
 
@@ -32,9 +43,13 @@ def ensure_runtime_python() -> Path:
 
 def runtime_environment(base_env: dict[str, str] | None = None) -> dict[str, str]:
     python_path = ensure_runtime_python()
-    env = dict(base_env or os.environ)
+    source = base_env if base_env is not None else os.environ
+    # Skill 子进程只继承运行必需的操作系统字段。应用密钥、数据库 URL、
+    # 模型 Key、渠道凭据和宿主代理均不进入子进程。
+    env = {key: value for key, value in source.items() if key in RUNTIME_ENV_ALLOWLIST}
     bin_dir = python_path.parent
-    env["PATH"] = f"{bin_dir}{os.pathsep}{env.get('PATH', '')}"
+    inherited_path = env.get("PATH") or os.defpath
+    env["PATH"] = f"{bin_dir}{os.pathsep}{inherited_path}"
     env["VIRTUAL_ENV"] = str(bin_dir.parent)
     env["GENERAL_SKILL_RUNTIME_PYTHON"] = str(python_path)
     env.setdefault("PYTHONUNBUFFERED", "1")
@@ -100,7 +115,7 @@ def _ensure_packages(python_path: Path, packages: list[str]) -> None:
         import certifi
         env["SSL_CERT_FILE"] = certifi.where()
         env["PIP_CERT"] = certifi.where()
-    except Exception:
+    except ImportError:
         pass
     result = subprocess.run(
         args,

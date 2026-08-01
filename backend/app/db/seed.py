@@ -23,6 +23,7 @@ from app.db.models import (
 from app.security.encryption import encrypt_secret
 from app.security.auth import hash_password
 from app.db.staffdeck_seed import seed_staffdeck_admin_gallery
+from app.marketplace.seed import seed_marketplace_development_data
 
 
 ADAPTIVE_FLOW_RULE = (
@@ -949,6 +950,8 @@ def seed_demo_data(session: Session) -> None:
     session.flush()
     _publish_seeded_system_resources(session)
     seed_staffdeck_admin_gallery(session)
+    if settings.marketplace_seed_enabled:
+        seed_marketplace_development_data(session)
 
     default_model = session.exec(
         select(ModelConfig).where(
@@ -1312,7 +1315,9 @@ def _skill_content_graph(content: dict) -> dict:
                     "priority": index,
                     "label": "",
                 }
-                for index, (source, target) in enumerate(zip(node_ids, node_ids[1:]))
+                for index, (source, target) in enumerate(
+                    zip(node_ids[:-1], node_ids[1:], strict=True)
+                )
             ],
         )
     else:

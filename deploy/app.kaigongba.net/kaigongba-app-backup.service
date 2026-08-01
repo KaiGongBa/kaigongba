@@ -1,0 +1,18 @@
+[Unit]
+Description=Back up Kai Gong Ba database and order files
+After=postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=oneshot
+User=kgbapp
+Group=kgbapp
+ExecStart=/opt/kaigongba-app/bin/backup.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/kaigongba-app/backups

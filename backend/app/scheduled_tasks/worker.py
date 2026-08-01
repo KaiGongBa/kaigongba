@@ -7,10 +7,13 @@ from time import sleep
 
 from sqlmodel import Session
 
-from app.db import engine, init_db
-from app.db.seed import seed_demo_data
-from app.scheduled_tasks.service import WORKER_SLEEP_SECONDS, due_scheduled_tasks, execute_scheduled_task
-
+from app.db import engine
+from app.db.startup import prepare_database
+from app.scheduled_tasks.service import (
+    WORKER_SLEEP_SECONDS,
+    due_scheduled_tasks,
+    execute_scheduled_task,
+)
 
 _stopped = False
 _background_thread: threading.Thread | None = None
@@ -22,9 +25,9 @@ def _handle_stop(_signum: int, _frame: object) -> None:
 
 
 def run_worker(*, once: bool = False, poll_seconds: float = WORKER_SLEEP_SECONDS) -> None:
-    init_db()
-    with Session(engine) as db:
-        seed_demo_data(db)
+    # 与 API 进程使用相同的迁移/校验策略。生产环境不会从后台线程绕过
+    # DATABASE_STARTUP_MODE 执行 create_all，也不会写入演示种子。
+    prepare_database()
     while not _stopped:
         with Session(engine) as db:
             due = due_scheduled_tasks(db)

@@ -1,0 +1,56 @@
+name: production-gate
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: kaigongba_test
+          POSTGRES_USER: kaigongba
+          POSTGRES_PASSWORD: test-password
+        ports: ["55432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U kaigongba -d kaigongba_test"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7.4-alpine
+        ports: ["56379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend-enterprise/package-lock.json
+      - name: Backend dependencies
+        run: uv sync --project backend --extra dev --locked
+      - name: Backend regression
+        working-directory: backend
+        run: uv run pytest -q
+      - name: PostgreSQL migration upgrade/rollback/re-upgrade
+        working-directory: backend
+        env:
+          KGB_POSTGRES_TEST_URL: postgresql://kaigongba:test-password@127.0.0.1:55432/kaigongba_test
+        run: uv run pytest -q tests/test_postgres_migrations.py
+      - name: Redis shared-runtime verification
+        working-directory: backend
+        env:
+          KGB_REDIS_TEST_URL: redis://127.0.0.1:56379/15
+        run: uv run pytest -q tests/test_redis_runtime.py
+      - name: Frontend build
+        run: npm --prefix frontend-enterprise ci && npm --prefix frontend-enterprise run build

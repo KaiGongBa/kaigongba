@@ -574,6 +574,10 @@ class GeneralSkillRunner:
                 "SKILL_NAME": skill.name,
                 "USER_ID": user_id,
                 "SKILL_FILES_JSON": json.dumps([file["path"] for file in _skill_files(skill)], ensure_ascii=False),
+                "HOME": str(run_dir),
+                "TMPDIR": str(run_dir),
+                "TEMP": str(run_dir),
+                "TMP": str(run_dir),
             }
         )
         if runtime == "bash" and not _bash_supported():

@@ -3,10 +3,11 @@ import threading
 import time
 from datetime import timedelta
 from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.pool import QueuePool
 from sqlmodel import Session, SQLModel, create_engine, select
 
 import app.channels.service_intake as intake_module
@@ -36,9 +37,9 @@ from app.db.models import (
 
 def _test_engine():
     engine = create_engine(
-        "sqlite://",
+        f"sqlite:///file:wecom_{uuid4().hex}?mode=memory&cache=shared&uri=true",
         connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
+        poolclass=QueuePool,
     )
     SQLModel.metadata.create_all(engine)
     return engine
@@ -1075,22 +1076,24 @@ def test_reconcile_skips_write_when_connected_unchanged(monkeypatch) -> None:
     binding_id = _seed_wecom_binding(engine, connected=True)
     fake = _ConnectedFakeClient(is_connected=True)
     manager = WeComStreamManager(db_engine=engine, client_factory=lambda bot_id, secret: fake)
-    manager.ensure_binding(binding_id)
-    assert _wait_for(lambda: fake.connect_calls == 1)
+    try:
+        manager.ensure_binding(binding_id)
+        assert _wait_for(lambda: fake.connect_calls == 1)
 
-    commits = {"count": 0}
-    original_commit = Session.commit
+        commits = {"count": 0}
+        original_commit = Session.commit
 
-    def counting_commit(self):
-        commits["count"] += 1
-        return original_commit(self)
+        def counting_commit(self):
+            commits["count"] += 1
+            return original_commit(self)
 
-    monkeypatch.setattr(Session, "commit", counting_commit)
-    manager.reconcile_once()
-    # DB 与 SDK 实况一致:_set_connected 内部无变化不写库
-    assert commits["count"] == 0
-    assert _load_binding(engine, binding_id).connected is True
-    manager.stop_binding(binding_id)
+        monkeypatch.setattr(Session, "commit", counting_commit)
+        manager.reconcile_once()
+        # DB 与 SDK 实况一致:_set_connected 内部无变化不写库
+        assert commits["count"] == 0
+        assert _load_binding(engine, binding_id).connected is True
+    finally:
+        assert manager.stop(timeout_seconds=5.0)
 
 
 # ---------- 重配凭证真正重启 ingress ----------

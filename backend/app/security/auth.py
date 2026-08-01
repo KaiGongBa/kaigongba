@@ -16,7 +16,6 @@ from app.config import get_settings
 from app.db import get_session
 from app.db.models import User
 
-
 TOKEN_TTL_SECONDS = 60 * 60 * 24 * 14
 security = HTTPBearer(auto_error=False)
 
@@ -50,16 +49,15 @@ def create_access_token(user: User) -> str:
 
 
 def get_current_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(security),
-    db: Session = Depends(get_session),
+    credentials: HTTPAuthorizationCredentials | None = Depends(security),  # noqa: B008
+    db: Session = Depends(get_session),  # noqa: B008
 ) -> User:
     if not credentials:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    payload = _decode_token(credentials.credentials)
-    user = db.get(User, payload.get("user_id", ""))
-    if not user or user.tenant_id != payload.get("tenant_id"):
-        raise HTTPException(status_code=401, detail="Invalid user token")
-    return user
+    # 独立 StaffDeck 进程经交易核心身份接口校验；合并/交易进程保持本地查询。
+    from app.security.identity_gateway import resolve_current_user
+
+    return resolve_current_user(credentials.credentials, db)
 
 
 def ensure_current_user_tenant(tenant_id: str, current_user: User) -> None:
@@ -71,13 +69,13 @@ def ensure_current_user_tenant(tenant_id: str, current_user: User) -> None:
 
 def require_current_tenant(
     tenant_id: str = Query(...),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),  # noqa: B008
 ) -> User:
     ensure_current_user_tenant(tenant_id, current_user)
     return current_user
 
 
-def _decode_token(token: str) -> dict[str, Any]:
+def decode_access_token(token: str) -> dict[str, Any]:
     try:
         body, signature = token.split(".", 1)
     except ValueError as exc:

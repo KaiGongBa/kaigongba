@@ -4,7 +4,16 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
-AgentResourceType = Literal["skill", "general_skill", "knowledge_base", "tool"]
+AgentResourceType = Literal[
+    "skill",
+    "general_skill",
+    "knowledge_base",
+    "tool",
+    "external_connection",
+    "external_capability",
+    "marketplace_organization",
+    "marketplace_skill_installation",
+]
 AgentWorkRecordEventKind = Literal["chat", "task", "sop", "tool", "knowledge", "skill"]
 AgentWorkRecordEventPhase = Literal["reply", "last_run", "next_run", "assigned"]
 
@@ -15,7 +24,7 @@ class AgentProfileCreateRequest(BaseModel):
     description: Optional[str] = None
     persona_prompt: Optional[str] = None
     is_overall: bool = False
-    source_mode: Literal["copy", "blank"] = "copy"
+    source_mode: Literal["copy", "blank", "external"] = "copy"
     copy_from_agent_id: Optional[str] = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
