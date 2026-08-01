@@ -1,12 +1,7 @@
-import { lazy, Suspense, type CSSProperties } from 'react';
-import { Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { lazy, Suspense } from 'react';
+import { Route, Routes } from 'react-router-dom';
 
-import AppSidebar from '@/components/AppSidebar';
-import { SidebarProvider } from '@/components/ui/sidebar';
 import { EnterpriseRoute } from '@/enums/routes';
-import ChatDialogs from '@/pages/chat/components/ChatDialogs';
-import { sessionHasUnreadReply } from '@/pages/chat/chatHelpers';
-import { useChatSession } from '@/pages/chat/useChatSession';
 
 import AiEmployeeDetailPage from './AiEmployeeDetailPage';
 import AiEmployeeMarketPage from './AiEmployeeMarketPage';
@@ -50,7 +45,7 @@ export function isMarketplaceWorkspacePath(pathname: string): boolean {
   );
 }
 
-function selectedMarketplaceRoute(pathname: string): string {
+export function selectedMarketplaceRoute(pathname: string): string {
   if (pathname.startsWith(EnterpriseRoute.AiEmployeeMarket)) return EnterpriseRoute.AiEmployeeMarket;
   if (pathname.startsWith(EnterpriseRoute.SkillMarket)) return EnterpriseRoute.SkillMarket;
   if (pathname.startsWith(EnterpriseRoute.Orders)) return EnterpriseRoute.Orders;
@@ -68,50 +63,8 @@ function MarketplaceRouteLoading() {
 }
 
 export default function MarketplaceWorkspacePage() {
-  const chat = useChatSession();
-  const location = useLocation();
-  const navigate = useNavigate();
-  const marketplaceSelected = selectedMarketplaceRoute(location.pathname);
-
   return (
-    <SidebarProvider
-      open={!chat.sidebarCollapsed}
-      onOpenChange={(open) => {
-        if (open === chat.sidebarCollapsed) chat.toggleSidebar();
-      }}
-      style={
-        {
-          '--sidebar-width': '220px',
-          '--sidebar-width-icon': '72px',
-        } as CSSProperties
-      }
-      className="h-screen min-h-0 bg-[#fcfcfc] text-[#18181a]"
-    >
-      <AppSidebar
-        variant="chat"
-        sessions={chat.visibleSidebarSessions}
-        sessionsLoading={chat.sessionsLoading}
-        agents={chat.agents}
-        activeSessionId={chat.sessionId}
-        sessionFilter={chat.sessionAgentFilter}
-        onSessionFilterChange={chat.setSessionAgentFilter}
-        sessionFilterOptions={chat.sessionFilterOptions}
-        isSessionUnread={(session) => sessionHasUnreadReply(
-          session,
-          chat.sessionReadTimes,
-          chat.sessionId,
-        )}
-        onOpenSession={chat.openSession}
-        onOpenGallery={chat.openGallery}
-        marketplaceSelected={marketplaceSelected}
-        onMarketplaceNavigate={navigate}
-        handoffCount={chat.handoffs.length}
-        onOpenHandoffs={chat.openHandoffInbox}
-        onRenameSession={chat.openRename}
-        onDeleteSession={chat.requestDelete}
-        onOpenAdmin={chat.openAdmin}
-      />
-      <main className="marketplace-content min-h-0 min-w-0 flex-1">
+    <main className="marketplace-content min-h-0 min-w-0 flex-1">
         <Routes>
           <Route path="/enterprise/market/agents" element={<AiEmployeeMarketPage />} />
           <Route path="/enterprise/market/agents/:employeeId" element={<AiEmployeeDetailPage />} />
@@ -183,8 +136,6 @@ export default function MarketplaceWorkspacePage() {
             element={<Suspense fallback={<MarketplaceRouteLoading />}><AgreementConfirmPage /></Suspense>}
           />
         </Routes>
-      </main>
-      <ChatDialogs chat={chat} />
-    </SidebarProvider>
+    </main>
   );
 }

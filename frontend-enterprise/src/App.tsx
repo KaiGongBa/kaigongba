@@ -41,8 +41,7 @@ import AgentsPage from "./pages/AgentsPage";
 import ExternalAgentEnrollmentPage from "./pages/ExternalAgentEnrollmentPage";
 import ExternalAgentOperationsPage from "./pages/ExternalAgentOperationsPage";
 import ChannelsPage from "./pages/ChannelsPage";
-import ChatPage from "./pages/chat/ChatPage";
-import ChatGalleryPage from "./pages/chat/ChatGalleryPage";
+import ConversationWorkspaceShell from "./pages/chat/ConversationWorkspaceShell";
 import DashboardPage from "./pages/dashboard/DashboardPage";
 import EmptyEmployeeState from "./components/EmptyEmployeeState";
 import DistillPage from "./pages/DistillPage";
@@ -101,9 +100,7 @@ import MarketReviewPage from "./features/marketplace/MarketReviewPage";
 import TransactionSupervisionPage from "./features/marketplace/TransactionSupervisionPage";
 import PlatformDisputesPage from "./features/marketplace/PlatformDisputesPage";
 import PlatformDisputeDetailPage from "./features/marketplace/PlatformDisputeDetailPage";
-import MarketplaceWorkspacePage, {
-  isMarketplaceWorkspacePath,
-} from "./features/marketplace/MarketplaceWorkspacePage";
+import { isMarketplaceWorkspacePath } from "./features/marketplace/MarketplaceWorkspacePage";
 import "./features/marketplace/marketplace.css";
 import "./features/marketplace/management.css";
 import "./features/marketplace/transaction.css";
@@ -995,24 +992,13 @@ function AuthedApp({
     return <Navigate to={`${nextPath}${location.search}`} replace />;
   }
   if (isMarketplaceWorkspacePath(location.pathname)) {
-    return <MarketplaceWorkspacePage />;
+    return <ConversationWorkspaceShell />;
   }
   if (location.pathname.startsWith(EnterpriseRoute.Workspace)) {
-    return (
-      <Routes>
-        <Route
-          path="/workspace"
-          element={<Navigate to="/workspace/gallery" replace />}
-        />
-        <Route path="/workspace/gallery" element={<ChatGalleryPage />} />
-        <Route path="/workspace/chat" element={<ChatPage />} />
-        <Route
-          path="/workspace/chat/draft/:draftAgentId"
-          element={<ChatPage />}
-        />
-        <Route path="/workspace/chat/:sessionId" element={<ChatPage />} />
-      </Routes>
-    );
+    if (location.pathname === EnterpriseRoute.Workspace) {
+      return <Navigate to="/workspace/gallery" replace />;
+    }
+    return <ConversationWorkspaceShell />;
   }
   return <Shell auth={auth} onLogout={onLogout} />;
 }

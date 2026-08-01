@@ -293,12 +293,16 @@ export type UseChatSessionOptions = {
    * `window.location.href = '/'`.
    */
   anonymous?: boolean;
+  sessionId?: string;
+  draftAgentId?: string;
 };
 
 export function useChatSession(options: UseChatSessionOptions = {}) {
   const { anonymous = false } = options;
   const { t } = useI18n();
-  const { sessionId, draftAgentId } = useParams<{ sessionId?: string; draftAgentId?: string }>();
+  const routeParams = useParams<{ sessionId?: string; draftAgentId?: string }>();
+  const sessionId = options.sessionId ?? routeParams.sessionId;
+  const draftAgentId = options.draftAgentId ?? routeParams.draftAgentId;
   const navigate = useNavigate();
   const [auth] = useState(() => getEnterpriseAuthSession());
   const tenantId = auth?.user.tenant_id || TENANT_ID;
