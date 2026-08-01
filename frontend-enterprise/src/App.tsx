@@ -38,6 +38,8 @@ import {
 } from "./employee";
 import AccountsPage from "./pages/AccountsPage";
 import AgentsPage from "./pages/AgentsPage";
+import ExternalAgentEnrollmentPage from "./pages/ExternalAgentEnrollmentPage";
+import ExternalAgentOperationsPage from "./pages/ExternalAgentOperationsPage";
 import ChannelsPage from "./pages/ChannelsPage";
 import ChatPage from "./pages/chat/ChatPage";
 import ChatGalleryPage from "./pages/chat/ChatGalleryPage";
@@ -95,10 +97,25 @@ import {
 } from "@/lib/enterprise-ui";
 import type { AgentProfileRead, ModelConfigRead } from "./types";
 import { useI18n } from "./i18n";
+import MarketReviewPage from "./features/marketplace/MarketReviewPage";
+import TransactionSupervisionPage from "./features/marketplace/TransactionSupervisionPage";
+import PlatformDisputesPage from "./features/marketplace/PlatformDisputesPage";
+import PlatformDisputeDetailPage from "./features/marketplace/PlatformDisputeDetailPage";
+import MarketplaceWorkspacePage, {
+  isMarketplaceWorkspacePath,
+} from "./features/marketplace/MarketplaceWorkspacePage";
+import "./features/marketplace/marketplace.css";
+import "./features/marketplace/management.css";
+import "./features/marketplace/transaction.css";
+import "./features/marketplace/payment-order.css";
+import "./features/marketplace/fulfillment.css";
+import "./features/marketplace/collaboration.css";
+import "./features/marketplace/disputes.css";
+import "./features/external-agent.css";
 
 const ENTERPRISE_SIDEBAR_STORAGE_KEY = "ultrarag_enterprise_sidebar_expanded";
 const MODEL_CONFIGS_UPDATED_EVENT = "ultrarag-enterprise-model-configs-updated";
-type AgentCreateMode = "copy" | "blank";
+type AgentCreateMode = "copy" | "external" | "blank";
 
 type AgentCreateFormState = {
   name: string;
@@ -148,22 +165,22 @@ function Shell({
   const isAdmin = isEnterpriseAdmin(auth.user);
   const accountRoleLabel = isAdmin ? "管理员" : "";
   const isDistillRoute = location.pathname === "/enterprise/skills/distill";
-  const selected =
-    location.pathname === "/enterprise"
-      ? "/enterprise/dashboard"
-      : location.pathname.startsWith("/enterprise/platform")
-        ? "/enterprise/platform"
-        : location.pathname.startsWith("/enterprise/knowledge")
-          ? "/enterprise/knowledge"
-          : location.pathname.startsWith("/enterprise/general-skills")
-            ? "/enterprise/general-skills"
-            : location.pathname.startsWith("/enterprise/tools")
-              ? "/enterprise/tools"
-              : location.pathname.startsWith("/enterprise/scheduled-tasks")
-                ? "/enterprise/scheduled-tasks"
-                : isDistillRoute
-                  ? "/enterprise/skills"
-                  : location.pathname;
+  const isMarketplaceRoute = location.pathname.startsWith(EnterpriseRoute.MarketReview)
+    || location.pathname.startsWith(EnterpriseRoute.TransactionSupervision)
+    || location.pathname.startsWith(EnterpriseRoute.DisputeManagement);
+  const selected = (() => {
+    if (location.pathname === "/enterprise") return EnterpriseRoute.Dashboard;
+    if (location.pathname.startsWith(EnterpriseRoute.MarketReview)) return EnterpriseRoute.MarketReview;
+    if (location.pathname.startsWith(EnterpriseRoute.TransactionSupervision)) return EnterpriseRoute.TransactionSupervision;
+    if (location.pathname.startsWith(EnterpriseRoute.DisputeManagement)) return EnterpriseRoute.DisputeManagement;
+    if (location.pathname.startsWith("/enterprise/platform")) return EnterpriseRoute.Platform;
+    if (location.pathname.startsWith("/enterprise/knowledge")) return EnterpriseRoute.Knowledge;
+    if (location.pathname.startsWith("/enterprise/general-skills")) return EnterpriseRoute.GeneralSkills;
+    if (location.pathname.startsWith("/enterprise/tools")) return EnterpriseRoute.Tools;
+    if (location.pathname.startsWith("/enterprise/scheduled-tasks")) return EnterpriseRoute.ScheduledTasks;
+    if (isDistillRoute) return EnterpriseRoute.Skills;
+    return location.pathname;
+  })();
   const isAgentRosterRoute = location.pathname.startsWith("/enterprise/agents");
   const [lastDistillSearch, setLastDistillSearch] = useState(() =>
     isDistillRoute ? location.search : "",
@@ -271,8 +288,14 @@ function Shell({
       window.removeEventListener(
         "ultrarag-enterprise-agent-scope-change",
         onScopeChange,
-      );
+    );
   }, [agents, auth.user.id]);
+
+  useEffect(() => {
+    if (!selectedAgentId) return;
+    persistSharedAgentScope(selectedAgentId, auth.user.id);
+    emitAgentScopeChange(selectedAgentId);
+  }, [auth.user.id, selectedAgentId]);
 
   useEffect(() => {
     const onCreateAgent = () => openCreateAgentModal();
@@ -296,7 +319,6 @@ function Shell({
             requestedAgentId &&
             selectableRows.some((item) => item.id === requestedAgentId)
           ) {
-            persistSharedAgentScope(requestedAgentId, auth.user.id);
             return requestedAgentId;
           }
           const manageableRows = selectableRows.filter((item) =>
@@ -307,12 +329,6 @@ function Shell({
             : preferredEmployeeAgent(manageableRows)?.id ||
               preferredEmployeeAgent(selectableRows)?.id ||
               "";
-          if (next) {
-            persistSharedAgentScope(next, auth.user.id);
-            if (next !== current) {
-              emitAgentScopeChange(next);
-            }
-          }
           return next;
         });
       })
@@ -326,8 +342,6 @@ function Shell({
 
   function changeAgentScope(agentId: string) {
     setSelectedAgentId(agentId);
-    persistSharedAgentScope(agentId, auth.user.id);
-    emitAgentScopeChange(agentId);
   }
 
   function handleSidebarOpenChange(open: boolean) {
@@ -374,7 +388,7 @@ function Shell({
     : "未选择";
   const selectedAgentCaption = selectedAgent
     ? selectedAgent.is_overall
-      ? "开放广场"
+      ? "公司广场"
       : employeeProfile(selectedAgent).roleName
     : "-";
   function openCreateAgentModal() {
@@ -386,6 +400,11 @@ function Shell({
   }
 
   async function saveAgentCreateModal() {
+    if (agentForm.sourceMode === "external") {
+      setAgentCreateOpen(false);
+      navigate("/enterprise/agents/external/connect");
+      return;
+    }
     const name = agentForm.name.trim();
     if (!name) {
       notify.error("请填写数字员工姓名");
@@ -484,9 +503,9 @@ function Shell({
       />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <div
-          className={`content flex-1 ${isDistillRoute ? "flex min-h-0 flex-col overflow-hidden p-0!" : ""} ${selected === "/enterprise/dashboard" ? "sd1-dashboard-content" : ""} ${selected !== "/enterprise/dashboard" && !isDistillRoute ? "sd1-management-content" : ""}`}
+          className={`content flex-1 ${isDistillRoute ? "flex min-h-0 flex-col overflow-hidden p-0!" : ""} ${isMarketplaceRoute ? "marketplace-content" : ""} ${selected === "/enterprise/dashboard" ? "sd1-dashboard-content" : ""} ${selected !== "/enterprise/dashboard" && !isDistillRoute && !isMarketplaceRoute ? "sd1-management-content" : ""}`}
         >
-          {showModelSetupNotice && (
+          {showModelSetupNotice && !isMarketplaceRoute && (
             <div className="mx-[24px] mt-[18px] mb-[10px] flex shrink-0 flex-col items-start justify-between gap-[12px] rounded-[12px] border border-[#f3d28b] bg-[#fff8e8] px-[18px] py-[12px] text-[#6f4500] shadow-[0_8px_24px_rgba(92,62,0,0.08)] sm:flex-row sm:items-center">
               <div className="flex min-w-0 items-center gap-[10px]">
                 <span className="flex size-[28px] shrink-0 items-center justify-center rounded-[8px] bg-[#ffe7ad] text-[#8a4b00]">
@@ -520,14 +539,14 @@ function Shell({
               onLogout={onLogout}
             />
           </div>
-          {!isDistillRoute && showEmployeeEmptyState && (
+          {!isDistillRoute && !isMarketplaceRoute && showEmployeeEmptyState && (
             <EmptyEmployeeState
               isAdmin={isAdmin}
               onCreate={openCreateAgentModal}
               onBrowsePlatform={() => navigate(EnterpriseRoute.Platform)}
             />
           )}
-          {!isDistillRoute && !showEmployeeEmptyState && (
+          {!isDistillRoute && (!showEmployeeEmptyState || isMarketplaceRoute) && (
             <Routes>
               <Route
                 path="/enterprise"
@@ -554,6 +573,38 @@ function Shell({
                 }
               />
               <Route
+                path="/enterprise/platform/market-reviews"
+                element={
+                  isAdmin
+                    ? <MarketReviewPage />
+                    : <Navigate to={EnterpriseRoute.Publishing} replace />
+                }
+              />
+              <Route
+                path="/enterprise/platform/transaction-supervision"
+                element={
+                  isAdmin
+                    ? <TransactionSupervisionPage />
+                    : <Navigate to={EnterpriseRoute.Orders} replace />
+                }
+              />
+              <Route
+                path="/enterprise/platform/disputes"
+                element={
+                  isAdmin
+                    ? <PlatformDisputesPage />
+                    : <Navigate to={EnterpriseRoute.Orders} replace />
+                }
+              />
+              <Route
+                path="/enterprise/platform/disputes/:caseId"
+                element={
+                  isAdmin
+                    ? <PlatformDisputeDetailPage />
+                    : <Navigate to={EnterpriseRoute.Orders} replace />
+                }
+              />
+              <Route
                 path="/enterprise/dashboard"
                 element={
                   <DashboardPage
@@ -562,6 +613,14 @@ function Shell({
                     onLogout={onLogout}
                   />
                 }
+              />
+              <Route
+                path="/enterprise/agents/external/connect"
+                element={<ExternalAgentEnrollmentPage />}
+              />
+              <Route
+                path="/enterprise/agents/external/:connectionId"
+                element={<ExternalAgentOperationsPage />}
               />
               <Route
                 path="/enterprise/agents"
@@ -764,35 +823,36 @@ function Shell({
           <div className="agent-editor-form min-h-0 flex-1 overflow-y-auto px-[24px] pb-[16px]">
             <label>
               创建方式
-              <div className="inline-flex w-fit gap-[4px] rounded-[10px] border border-border p-[2px]">
+              <div className="grid w-full gap-[6px]">
                 {[
-                  { label: "从广场复制", value: "copy" as const },
-                  { label: "从空白开始", value: "blank" as const },
+                  { label: "从广场招募", description: "复制平台内已有数字员工及已授权资源", value: "copy" as const },
+                  { label: "外接已有 Agent", description: "连接本地或云端 Agent，后续仍在原环境运行", value: "external" as const },
+                  { label: "从空白创建", description: "手工配置一个新的平台数字员工", value: "blank" as const },
                 ].map((option) => (
                   <button
                     key={option.value}
                     type="button"
                     className={cn(
-                      "rounded-[8px] px-[14px] py-[5px] text-[13px] font-medium transition-colors",
+                      "flex flex-col items-start rounded-[9px] border px-[12px] py-[9px] text-left text-[13px] font-medium transition-colors",
                       agentForm.sourceMode === option.value
-                        ? "bg-[#18181a] text-white"
-                        : "text-[#5b6273] hover:text-foreground",
+                        ? "border-[#18181a] bg-[#18181a] text-white"
+                        : "border-border text-[#303541] hover:border-[#aeb5c0]",
                     )}
                     onClick={() =>
                       setAgentForm((prev) => ({
                         ...prev,
                         sourceMode: option.value,
                         copyFromAgentId:
-                          option.value === "blank" ? "" : prev.copyFromAgentId,
+                          option.value !== "copy" ? "" : prev.copyFromAgentId,
                       }))
                     }
                   >
-                    {option.label}
+                    <span>{option.label}</span><small className={agentForm.sourceMode === option.value ? "text-white/65" : "text-[#858c98]"}>{option.description}</small>
                   </button>
                 ))}
               </div>
             </label>
-            <label>
+            {agentForm.sourceMode !== "external" && <label>
               职位
               <Input
                 value={agentForm.roleName}
@@ -804,7 +864,7 @@ function Shell({
                 }
                 placeholder="例如 研发工程师、财务助理"
               />
-            </label>
+            </label>}
             <div className="grid content-start gap-[6px]">
             {agentForm.sourceMode === "copy" && (
               <label>
@@ -835,7 +895,7 @@ function Shell({
                     {sourceAgents.map((agent) => (
                       <SelectItem key={agent.id} value={agent.id}>
                         {agent.is_overall
-                          ? "开放广场"
+                          ? "公司广场"
                           : `${employeeDisplayNameWithCreator(agent)} · ${employeeProfile(agent).roleName}${isGalleryEmployee(agent) ? " · 广场" : ""}`}
                       </SelectItem>
                     ))}
@@ -848,8 +908,13 @@ function Shell({
                 从空白开始创建，不继承任何已有配置。
               </div>
             )}
+            {agentForm.sourceMode === "external" && (
+              <div className="agent-definition-note">
+                下一步将生成一次性配对码。平台默认只接收你确认的能力元数据，不会自动上传源码、知识正文或密钥。
+              </div>
+            )}
             </div>
-            <label>
+            {agentForm.sourceMode !== "external" && <label>
               数字员工姓名
               <Input
                 value={agentForm.name}
@@ -860,8 +925,8 @@ function Shell({
                   }))
                 }
               />
-            </label>
-            <label>
+            </label>}
+            {agentForm.sourceMode !== "external" && <label>
               岗位描述
               <Textarea
                 rows={3}
@@ -874,7 +939,7 @@ function Shell({
                 }
                 placeholder="概括这个数字员工的岗位边界、服务风格和执行重点"
               />
-            </label>
+            </label>}
           </div>
           <div className={cn(DIALOG_FOOTER_CLASS, "shrink-0 border-t border-border")}>
             <UIButton
@@ -888,7 +953,7 @@ function Shell({
               className={DIALOG_PRIMARY_BUTTON_CLASS}
               onClick={() => void saveAgentCreateModal()}
             >
-              创建
+              {agentForm.sourceMode === "external" ? "开始连接" : "创建"}
             </UIButton>
           </div>
         </DialogContent>
@@ -929,6 +994,9 @@ function AuthedApp({
   if (location.pathname.startsWith("/enterprise/chat/session_")) {
     const nextPath = location.pathname.replace(/^\/enterprise\/chat/, EnterpriseRoute.Chat);
     return <Navigate to={`${nextPath}${location.search}`} replace />;
+  }
+  if (isMarketplaceWorkspacePath(location.pathname)) {
+    return <MarketplaceWorkspacePage />;
   }
   if (location.pathname.startsWith(EnterpriseRoute.Workspace)) {
     return (

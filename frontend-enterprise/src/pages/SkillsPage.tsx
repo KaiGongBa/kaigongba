@@ -437,7 +437,7 @@ export default function SkillsPage({
       return;
     }
     if (!importSourceAgentId) {
-      notify.warning(importMode === 'plaza' ? '请选择开放广场' : '请选择复制来源员工');
+      notify.warning(importMode === 'plaza' ? '请选择公司广场' : '请选择复制来源员工');
       return;
     }
     if (importSelectedSkillIds.length === 0) {
@@ -774,9 +774,9 @@ export default function SkillsPage({
         loading={importLoading}
         icon={<IconSkill className="size-[14px] shrink-0" />}
         title={importMode === 'plaza' ? '从广场复制 SOP' : '从数字员工复制 SOP'}
-        sourcePlaceholder={importMode === 'plaza' ? '选择开放广场' : '选择复制来源'}
+        sourcePlaceholder={importMode === 'plaza' ? '选择公司广场' : '选择复制来源'}
         sources={importMode === 'plaza'
-          ? openGalleryImportSourceOptions(agents, '开放广场')
+          ? openGalleryImportSourceOptions(agents, '公司广场')
           : visibleEmployeeAgents(agents, currentUser, { activeOnly: true, excludeAgentId: agentId })
             .map((item) => ({ value: item.id, label: item.name }))}
         sourceId={importSourceAgentId}
@@ -794,7 +794,7 @@ export default function SkillsPage({
         emptyText="没有可复制的 SOP"
         note={
           importMode === 'plaza'
-            ? '从开放广场复制可用 SOP；不可复制内容不会出现在列表。'
+            ? '从公司广场复制内部共享的 SOP；不可复制内容不会出现在列表。'
             : '从数字员工复制可用 SOP；不可见内容不会出现在列表。'
         }
         onSourceChange={(value) => {
@@ -843,7 +843,7 @@ export default function SkillsPage({
         description={
           isOverallAgent
             ? '删除后不会移除历史对话记录，但组织 SOP 列表中将不再显示该流程。'
-            : '这只会在当前数字员工中隐藏该 SOP；开放广场和其他数字员工仍然保留。'
+            : '这只会在当前数字员工中隐藏该 SOP；公司广场和其他数字员工仍然保留。'
         }
         confirmText={isOverallAgent ? '删除' : '移除'}
         onConfirm={() => void confirmDelete()}

@@ -1,4 +1,5 @@
 import { type CSSProperties } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import AppSidebar from '@/components/AppSidebar';
 import { SidebarProvider } from '@/components/ui/sidebar';
@@ -14,6 +15,7 @@ import ChatDialogs from './components/ChatDialogs';
 
 export default function ChatPage() {
   const chat = useChatSession();
+  const navigate = useNavigate();
 
   return (
     <SidebarProvider
@@ -48,6 +50,7 @@ export default function ChatPage() {
           else chat.openGallery();
         }}
         onOpenGallery={chat.openGallery}
+        onMarketplaceNavigate={navigate}
         handoffCount={chat.handoffs.length}
         onOpenHandoffs={chat.openHandoffInbox}
         onRenameSession={chat.openRename}

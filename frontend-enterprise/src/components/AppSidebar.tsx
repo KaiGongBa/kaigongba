@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -57,7 +57,7 @@ type NavItem = {
 };
 
 const PRIMARY_NAV: NavItem[] = [
-  { route: EnterpriseRoute.Platform, label: '开放广场平台', Icon: IconPlatform },
+  { route: EnterpriseRoute.Platform, label: '公司广场', Icon: IconPlatform },
   { route: EnterpriseRoute.Agents, label: '我的数字员工', Icon: IconAgents },
   { route: EnterpriseRoute.Channels, label: '渠道接入', Icon: IconGlobe },
 ];
@@ -79,6 +79,23 @@ const CAPABILITY_NAV: NavItem[] = [
 const SYSTEM_NAV: NavItem[] = [
   { route: EnterpriseRoute.Accounts, label: '账号管理', Icon: IconAccounts },
   { route: EnterpriseRoute.Models, label: '模型配置', Icon: IconModels },
+];
+
+const MARKETPLACE_NAV: NavItem[] = [
+  { route: EnterpriseRoute.AiEmployeeMarket, label: 'AI员工市场', Icon: IconGlobe },
+  { route: EnterpriseRoute.SkillMarket, label: 'Skill市场', Icon: IconViewMasonry },
+  { route: EnterpriseRoute.MyRequirements, label: '我的需求', Icon: IconFile },
+  { route: EnterpriseRoute.Orders, label: '我的订单', Icon: IconClipboard },
+  { route: EnterpriseRoute.Confirmations, label: '待确认', Icon: IconChatBubble },
+  { route: EnterpriseRoute.Publishing, label: '我的发布', Icon: IconEdit },
+  { route: EnterpriseRoute.ProviderWorkbench, label: '服务商工作台', Icon: IconBriefcase },
+  { route: EnterpriseRoute.OrganizationTeam, label: '企业与团队', Icon: IconAccounts },
+];
+
+const PLATFORM_BUSINESS_NAV: NavItem[] = [
+  { route: EnterpriseRoute.MarketReview, label: '市场审核', Icon: IconClipboard },
+  { route: EnterpriseRoute.TransactionSupervision, label: '交易监管', Icon: IconBriefcase },
+  { route: EnterpriseRoute.DisputeManagement, label: '争议处理', Icon: IconHistory },
 ];
 
 function primaryNavItems(isAdmin: boolean): NavItem[] {
@@ -118,6 +135,9 @@ export type AppSidebarChatProps = {
   onOpenGallery: () => void;
   /** Highlights the 数字员工广场 entry as the active menu (chat gallery route). */
   galleryActive?: boolean;
+  /** Highlights the active 市场与交易 entry while the marketplace is open in the chat shell. */
+  marketplaceSelected?: string;
+  onMarketplaceNavigate: (route: string) => void;
   handoffCount?: number;
   onOpenHandoffs?: () => void;
   onRenameSession: (session: ChatSession) => void;
@@ -445,7 +465,7 @@ function CollapsedSidebar({
   return (
     <div className="flex h-full w-(--sidebar-width-icon) shrink-0 flex-col items-center gap-[32px] px-[16px] py-[10px]">
       <div className="flex w-full flex-col items-center gap-[10px]">
-        <button type="button" title="开放广场" className="flex items-center justify-center p-[10px]">
+        <button type="button" title="公司广场" className="flex items-center justify-center p-[10px]">
           <BrandLogo markOnly />
         </button>
         <Tooltip>
@@ -580,7 +600,7 @@ function ManagementSidebar({
       <div className="flex h-full w-(--sidebar-width) shrink-0 flex-col">
       <SidebarHeader className="gap-[24px] px-[20px] pt-[10px] group-data-[collapsible=icon]:px-[20px]">
         <div className="flex items-center justify-between">
-          <button type="button" title="开放广场">
+          <button type="button" title="公司广场">
             <BrandLogo wordmarkClassName="group-data-[collapsible=icon]:hidden" />
           </button>
           {!brandCollapsed && (
@@ -641,6 +661,16 @@ function ManagementSidebar({
                 <CardNavButton key={item.route} item={item} selected={selected} onNavigate={onNavigate} />
               ))}
             </SidebarMenu>
+            {isAdmin && (
+              <>
+                <GroupLabel>平台业务</GroupLabel>
+                <SidebarMenu className="gap-[2px]">
+                  {PLATFORM_BUSINESS_NAV.map((item) => (
+                    <CardNavButton key={item.route} item={item} selected={selected} onNavigate={onNavigate} />
+                  ))}
+                </SidebarMenu>
+              </>
+            )}
           </div>
         </div>
       </SidebarContent>
@@ -966,14 +996,22 @@ function CollapsedChatSidebar({
   onNewConversation,
   onOpenGallery,
   galleryActive = false,
+  marketplaceSelected = '',
+  onMarketplaceNavigate,
+  marketplaceOpen,
+  onToggleMarketplace,
   handoffCount = 0,
   onOpenHandoffs,
   onOpenAdmin,
   onToggle,
 }: Pick<
   AppSidebarChatProps,
-  'sessions' | 'sessionsLoading' | 'agents' | 'activeSessionId' | 'sessionFilter' | 'onSessionFilterChange' | 'sessionFilterOptions' | 'isSessionUnread' | 'onOpenSession' | 'onNewConversation' | 'onOpenGallery' | 'galleryActive' | 'handoffCount' | 'onOpenHandoffs' | 'onOpenAdmin'
-> & { onToggle: () => void }) {
+  'sessions' | 'sessionsLoading' | 'agents' | 'activeSessionId' | 'sessionFilter' | 'onSessionFilterChange' | 'sessionFilterOptions' | 'isSessionUnread' | 'onOpenSession' | 'onNewConversation' | 'onOpenGallery' | 'galleryActive' | 'marketplaceSelected' | 'onMarketplaceNavigate' | 'handoffCount' | 'onOpenHandoffs' | 'onOpenAdmin'
+> & {
+  onToggle: () => void;
+  marketplaceOpen: boolean;
+  onToggleMarketplace: () => void;
+}) {
   return (
     <div className="flex h-full w-(--sidebar-width-icon) shrink-0 flex-col items-center gap-[32px] px-[20px] py-[10px]">
       <div className="flex w-full flex-col items-center gap-[10px]">
@@ -1019,6 +1057,43 @@ function CollapsedChatSidebar({
             数字员工广场
           </TooltipContent>
         </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              onClick={onToggleMarketplace}
+              aria-label="市场与交易"
+              aria-expanded={marketplaceOpen}
+              className={cn(
+                'flex h-[32px] w-full items-center justify-center rounded-[8px] transition-colors',
+                marketplaceSelected
+                  ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                  : 'text-sidebar-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+              )}
+            >
+              <IconViewMasonry className="size-[16px]!" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right" align="center">
+            市场与交易
+          </TooltipContent>
+        </Tooltip>
+
+        {marketplaceOpen && (
+          <div className="flex w-full flex-col items-center gap-[8px]">
+            {MARKETPLACE_NAV.map((item) => (
+              <CollapsedNavButton
+                key={item.route}
+                item={item}
+                selected={marketplaceSelected}
+                onNavigate={onMarketplaceNavigate}
+                radius={8}
+                iconSize={14}
+              />
+            ))}
+          </div>
+        )}
 
         <ChatHandoffButton count={handoffCount} onOpen={onOpenHandoffs} collapsed />
 
@@ -1128,6 +1203,8 @@ function ChatSidebarVariant({
   onNewConversation,
   onOpenGallery,
   galleryActive = false,
+  marketplaceSelected = '',
+  onMarketplaceNavigate,
   handoffCount = 0,
   onOpenHandoffs,
   onRenameSession,
@@ -1137,6 +1214,11 @@ function ChatSidebarVariant({
   const { toggleSidebar, state } = useSidebar();
   const collapsed = state === 'collapsed';
   const showSkeleton = sessionsLoading && sessions.length === 0;
+  const [marketplaceOpen, setMarketplaceOpen] = useState(Boolean(marketplaceSelected));
+
+  useEffect(() => {
+    if (marketplaceSelected) setMarketplaceOpen(true);
+  }, [marketplaceSelected]);
 
   if (collapsed) {
     return (
@@ -1154,6 +1236,10 @@ function ChatSidebarVariant({
           onNewConversation={onNewConversation}
           onOpenGallery={onOpenGallery}
           galleryActive={galleryActive}
+          marketplaceSelected={marketplaceSelected}
+          onMarketplaceNavigate={onMarketplaceNavigate}
+          marketplaceOpen={marketplaceOpen}
+          onToggleMarketplace={() => setMarketplaceOpen((open) => !open)}
           handoffCount={handoffCount}
           onOpenHandoffs={onOpenHandoffs}
           onOpenAdmin={onOpenAdmin}
@@ -1197,6 +1283,42 @@ function ChatSidebarVariant({
               <IconGlobe className="size-[16px]! shrink-0" />
               <span className="truncate">数字员工广场</span>
             </button>
+            <div className="flex flex-col gap-[2px]">
+              <button
+                type="button"
+                onClick={() => setMarketplaceOpen((open) => !open)}
+                aria-expanded={marketplaceOpen}
+                className={cn(
+                  'flex items-center gap-[12px] rounded-[8px] px-[20px] py-[10px] text-left text-[14px] transition-colors',
+                  marketplaceSelected
+                    ? 'bg-sidebar-accent text-sidebar-accent-foreground'
+                    : 'text-[#858b9c] hover:bg-sidebar-accent hover:text-sidebar-accent-foreground',
+                )}
+              >
+                <IconViewMasonry className="size-[16px]! shrink-0" />
+                <span className="min-w-0 flex-1 truncate">市场与交易</span>
+                <IconChevronDown
+                  className={cn(
+                    'size-[14px]! shrink-0 transition-transform',
+                    marketplaceOpen && 'rotate-180',
+                  )}
+                />
+              </button>
+              {marketplaceOpen && (
+                <div className="ml-[20px] border-l border-sidebar-border pl-[8px]">
+                  <SidebarMenu className="gap-[2px]">
+                    {MARKETPLACE_NAV.map((item) => (
+                      <CardNavButton
+                        key={item.route}
+                        item={item}
+                        selected={marketplaceSelected}
+                        onNavigate={onMarketplaceNavigate}
+                      />
+                    ))}
+                  </SidebarMenu>
+                </div>
+              )}
+            </div>
             <ChatHandoffButton count={handoffCount} onOpen={onOpenHandoffs} />
             <div className="h-px w-full bg-sidebar-border" />
             <ChatSessionFilter

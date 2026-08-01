@@ -1,4 +1,5 @@
 import { type CSSProperties } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import { api, TENANT_ID } from '@/api/client';
 import AppSidebar from '@/components/AppSidebar';
@@ -14,6 +15,7 @@ import ChatDialogs from './components/ChatDialogs';
 
 export default function ChatGalleryPage() {
   const chat = useChatSession();
+  const navigate = useNavigate();
   const auth = getEnterpriseAuthSession();
   const isAdmin = isEnterpriseAdmin(auth?.user);
 
@@ -55,6 +57,7 @@ export default function ChatGalleryPage() {
         onOpenSession={chat.openSession}
         onOpenGallery={chat.openGallery}
         galleryActive
+        onMarketplaceNavigate={navigate}
         handoffCount={chat.handoffs.length}
         onOpenHandoffs={chat.openHandoffInbox}
         onRenameSession={chat.openRename}

@@ -298,6 +298,7 @@ export default function AgentsPage({
             onAvatar={() => setAvatarAgent(employee)}
             onEdit={() => setProfileAgent(employee)}
             onChat={() => startEmployeeChat(employee)}
+            onConnection={employee.metadata?.external_connection_id ? () => navigate(`/enterprise/agents/external/${encodeURIComponent(String(employee.metadata?.external_connection_id))}`) : undefined}
           />
         ))}
         {!filteredEmployees.length && (

@@ -6,6 +6,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui';
 import { cn } from '@/lib/utils';
+import { Cable } from 'lucide-react';
 
 import IconChat from '../assets/icons/chat.svg?react';
 import IconEdit from '../assets/icons/edit.svg?react';
@@ -42,6 +43,7 @@ export type EmployeeCardProps = {
   onAvatar: () => void;
   onEdit: () => void;
   onChat: () => void;
+  onConnection?: () => void;
 };
 
 export default function EmployeeCard({
@@ -57,6 +59,7 @@ export default function EmployeeCard({
   onAvatar,
   onEdit,
   onChat,
+  onConnection,
 }: EmployeeCardProps) {
   const profile = employeeProfile(employee);
   const sopCount = resourceCount(employee.resources, 'skill');
@@ -64,10 +67,11 @@ export default function EmployeeCard({
   const kbCount = resourceCount(employee.resources, 'knowledge_base');
   const galleryPublished = isGalleryEmployee(employee);
   const online = employee.status === 'active';
+  const external = employee.metadata?.source_mode === 'external';
 
   // Show raw API values on the card (bypass the SD1 term relabeling in staffdeckDisplayText).
   const rawRoleName = (employee.metadata?.role_name as string | undefined) || profile.roleName;
-  const displayName = employee.is_overall ? '开放广场' : employeeDisplayNameWithCreator(employee);
+  const displayName = employee.is_overall ? '公司广场' : employeeDisplayNameWithCreator(employee);
   const displayDescription = employee.description || '暂无描述';
 
   const stats: Array<{ value: number; label: string }> = [
@@ -129,6 +133,7 @@ export default function EmployeeCard({
               <i className={cn('size-[6px] shrink-0 rounded-full', online ? 'bg-[#22c55e]' : 'bg-[#9ca3af]')} aria-hidden="true" />
               {online ? '在线' : '下线'}
             </span>
+            {external && <span className="ml-[3px] inline-flex rounded-[90px] bg-[#e9f1ff] px-[5px] py-[2px] text-[8px] font-semibold text-[#3f68a6]">外接</span>}
           </div>
         </div>
 
@@ -222,6 +227,16 @@ export default function EmployeeCard({
               <IconImage className="size-[16px]" />
               设置头像
             </DropdownMenuItem>
+            {external && onConnection && (
+              <DropdownMenuItem
+                className={MENU_ITEM_CLASS}
+                onClick={(event) => event.stopPropagation()}
+                onSelect={() => onConnection()}
+              >
+                <Cable className="size-[16px]" />
+                连接管理
+              </DropdownMenuItem>
+            )}
             <DropdownMenuSeparator className="my-[2px] bg-[#eef0f4]" />
             <DropdownMenuItem
               variant="destructive"

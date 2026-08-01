@@ -47,7 +47,7 @@ const STEPS: QuickStartStep[] = [
     side: "right",
   },
   {
-    title: "开放广场 · 共享与复用",
+    title: "公司广场 · 内部共享与复用",
     description: "汇集可共享的 SOP、知识库、技能和工具，新建数字员工时可以直接复制作为起点。",
     route: EnterpriseRoute.Platform,
     target: "route-/enterprise/platform",

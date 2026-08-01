@@ -1,41 +1,32 @@
 import { cn } from '@/lib/utils';
-import logoMark from '../assets/LOGO.svg';
+import logoMark from '../assets/brand/kaigongba-logo-cropped.png';
 
 export type BrandLogoProps = {
-  /** Hide the "OpenBMB / StaffDeck" wordmark and only render the logo mark. */
+  /** Use the compact size in collapsed navigation. */
   markOnly?: boolean;
-  /** Size of the square logo mark in pixels. */
+  /** Requested logo height in pixels. */
   markSize?: number;
   className?: string;
-  /** Extra classes applied to the wordmark wrapper (e.g. to hide it responsively). */
+  /** Kept for call-site compatibility; the complete wordmark is part of the image. */
   wordmarkClassName?: string;
 };
 
-/** Brand logo lockup (logo mark + "OpenBMB" / "StaffDeck" wordmark). Figma node 504:7137. */
+/** 使用用户提供的完整开工吧 Logo 图片。 */
 export default function BrandLogo({
   markOnly = false,
-  markSize = 28,
+  markSize = 36,
   className,
-  wordmarkClassName,
 }: BrandLogoProps) {
+  const displayHeight = markOnly ? markSize : Math.max(markSize, 38);
+
   return (
-    <span className={cn('flex items-center gap-[8px] overflow-hidden p-[4px]', className)}>
+    <span className={cn('flex items-center overflow-hidden p-[2px]', className)}>
       <img
         src={logoMark}
-        alt="StaffDeck"
-        className="shrink-0"
-        style={{ width: markSize, height: markSize }}
+        alt="开工吧"
+        className="shrink-0 object-contain"
+        style={{ width: displayHeight * 1.1, height: displayHeight }}
       />
-      {!markOnly && (
-        <span className={cn('flex flex-col items-center gap-[2px] leading-none', wordmarkClassName)}>
-          {/* <span className="text-[12px] font-semibold leading-none text-[#0f136c]">
-            OpenBMB
-          </span> */}
-          <strong className="text-[17px] font-semibold leading-none text-[#18181a]">
-            StaffDeck
-          </strong>
-        </span>
-      )}
     </span>
   );
 }

@@ -518,7 +518,7 @@ export default function GeneralSkillsPage({ embedded = false, currentUser, onLog
       return;
     }
     if (!agentImportSourceAgentId) {
-      notify.warning(agentImportMode === 'plaza' ? '请选择开放广场' : '请选择复制来源');
+      notify.warning(agentImportMode === 'plaza' ? '请选择公司广场' : '请选择复制来源');
       return;
     }
     if (!agentImportSelectedSkillIds.length) {
@@ -860,9 +860,9 @@ export default function GeneralSkillsPage({ embedded = false, currentUser, onLog
         loading={agentImportLoading}
         icon={<IconSkill className="size-[14px] shrink-0" />}
         title={agentImportMode === 'plaza' ? '从广场复制技能' : '从数字员工复制技能'}
-        sourcePlaceholder={agentImportMode === 'plaza' ? '选择开放广场' : '选择复制来源'}
+        sourcePlaceholder={agentImportMode === 'plaza' ? '选择公司广场' : '选择复制来源'}
         sources={agentImportMode === 'plaza'
-          ? openGalleryImportSourceOptions(agentImportAgents, '开放广场')
+          ? openGalleryImportSourceOptions(agentImportAgents, '公司广场')
           : visibleEmployeeAgents(agentImportAgents, currentUser, { activeOnly: true, excludeAgentId: agentId })
             .map((item) => ({ value: item.id, label: item.name }))}
         sourceId={agentImportSourceAgentId}
@@ -880,7 +880,7 @@ export default function GeneralSkillsPage({ embedded = false, currentUser, onLog
         emptyText="没有可复制的技能"
         note={
           agentImportMode === 'plaza'
-            ? '从开放广场复制可用技能；不可复制内容不会出现在列表。'
+            ? '从公司广场复制内部共享的技能；不可复制内容不会出现在列表。'
             : '从数字员工复制可用技能；不可见内容不会出现在列表。'
         }
         onSourceChange={(value) => {
@@ -900,7 +900,7 @@ export default function GeneralSkillsPage({ embedded = false, currentUser, onLog
         description={
           isOverallAgent
             ? '删除后该技能不会再出现在技能广场中，此操作不可撤销。'
-            : '这只会在当前数字员工中隐藏该技能；开放广场和其他数字员工仍然保留。'
+            : '这只会在当前数字员工中隐藏该技能；公司广场和其他数字员工仍然保留。'
         }
         confirmText={isOverallAgent ? '删除' : '移除'}
         onConfirm={() => void confirmDeleteSkill()}
@@ -1573,7 +1573,7 @@ function GeneralSkillEditorPage({ mode, currentUser, onLogout }: { mode: 'new' |
       return;
     }
     if (!agentImportSourceAgentId) {
-      notify.warning(agentImportMode === 'plaza' ? '请选择开放广场' : '请选择复制来源');
+      notify.warning(agentImportMode === 'plaza' ? '请选择公司广场' : '请选择复制来源');
       return;
     }
     if (!agentImportSelectedSkillIds.length) {
@@ -2364,9 +2364,9 @@ function GeneralSkillEditorPage({ mode, currentUser, onLogout }: { mode: 'new' |
         loading={agentImportLoading}
         icon={<IconSkill className="size-[14px] shrink-0" />}
         title={agentImportMode === 'plaza' ? '从广场复制技能' : '从数字员工复制技能'}
-        sourcePlaceholder={agentImportMode === 'plaza' ? '选择开放广场' : '选择复制来源'}
+        sourcePlaceholder={agentImportMode === 'plaza' ? '选择公司广场' : '选择复制来源'}
         sources={agentImportMode === 'plaza'
-          ? openGalleryImportSourceOptions(agentImportAgents, '开放广场')
+          ? openGalleryImportSourceOptions(agentImportAgents, '公司广场')
           : visibleEmployeeAgents(agentImportAgents, currentUser, { activeOnly: true, excludeAgentId: agentId })
             .map((item) => ({ value: item.id, label: item.name }))}
         sourceId={agentImportSourceAgentId}
@@ -2383,7 +2383,7 @@ function GeneralSkillEditorPage({ mode, currentUser, onLogout }: { mode: 'new' |
         selectedIds={agentImportSelectedSkillIds}
         emptyText="没有可复制的技能"
         note={agentImportMode === 'plaza'
-          ? '从开放广场复制可用技能；不会覆盖当前编辑区内容。'
+          ? '从公司广场复制内部共享的技能；不会覆盖当前编辑区内容。'
           : '从数字员工复制可用技能；不会覆盖当前编辑区内容。'}
         onSourceChange={(value) => {
           setAgentImportSourceAgentId(value);
@@ -2400,7 +2400,7 @@ function GeneralSkillEditorPage({ mode, currentUser, onLogout }: { mode: 'new' |
         title={deleteSkillTarget ? `${isOverallAgent ? '删除' : '移除'}技能「${deleteSkillTarget.name}」？` : ''}
         description={isOverallAgent
           ? '删除后该技能不会再出现在组织技能库中，此操作不可撤销。'
-          : '这只会在当前数字员工中隐藏该技能；开放广场和其他数字员工仍然保留。'}
+          : '这只会在当前数字员工中隐藏该技能；公司广场和其他数字员工仍然保留。'}
         confirmText={isOverallAgent ? '删除' : '移除'}
         onConfirm={() => void runDeleteSkill()}
       />

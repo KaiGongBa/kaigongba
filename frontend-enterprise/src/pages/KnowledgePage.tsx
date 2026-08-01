@@ -551,7 +551,7 @@ export default function KnowledgeManagePage({ currentUser, onLogout }: Knowledge
       return;
     }
     if (!importSourceAgentId) {
-      notify.warning(importMode === 'plaza' ? '请选择开放广场' : '请选择来源员工');
+      notify.warning(importMode === 'plaza' ? '请选择公司广场' : '请选择来源员工');
       return;
     }
     if (importSelectedKnowledgeBaseIds.length === 0) {
@@ -1229,9 +1229,9 @@ export default function KnowledgeManagePage({ currentUser, onLogout }: Knowledge
         loading={importLoading}
         icon={<DatabaseOutlined />}
         title={importMode === 'plaza' ? '从广场复制知识库' : '从数字员工复制知识库'}
-        sourcePlaceholder={importMode === 'plaza' ? '选择开放广场' : '选择来源员工'}
+        sourcePlaceholder={importMode === 'plaza' ? '选择公司广场' : '选择来源员工'}
         sources={importMode === 'plaza'
-          ? openGalleryImportSourceOptions(agents, '开放广场')
+          ? openGalleryImportSourceOptions(agents, '公司广场')
           : visibleEmployeeAgents(agents, currentUser, { activeOnly: true, excludeAgentId: agentId })
             .map((item) => ({ value: item.id, label: item.name }))}
         sourceId={importSourceAgentId}
@@ -1248,7 +1248,7 @@ export default function KnowledgeManagePage({ currentUser, onLogout }: Knowledge
         selectedIds={importSelectedKnowledgeBaseIds}
         emptyText="没有可复制的知识库"
         note={importMode === 'plaza'
-          ? '从开放广场复制可用知识库；不可复制内容不会出现在列表。'
+          ? '从公司广场复制内部共享的知识库；不可复制内容不会出现在列表。'
           : '从数字员工复制可用知识库；不可见内容不会出现在列表。'}
         submitText="复制"
         onSourceChange={(value) => {
@@ -1592,8 +1592,8 @@ export default function KnowledgeManagePage({ currentUser, onLogout }: Knowledge
         onOpenChange={(open) => !open && setDeleteKbTarget(null)}
         title={deleteKbTarget ? `${isOverallAgent ? '删除' : '移除'}知识库：${deleteKbTarget.name}` : ''}
         description={!isOverallAgent
-          ? '这只会在当前数字员工中隐藏该知识库；开放广场和其他数字员工仍然保留。'
-          : '开放广场会永久删除该知识库及其文档、内部索引、引用来源和版本记录。'}
+          ? '这只会在当前数字员工中隐藏该知识库；公司广场和其他数字员工仍然保留。'
+          : '公司广场会永久删除该知识库及其文档、内部索引、引用来源和版本记录。'}
         confirmText={isOverallAgent ? '删除' : '移除'}
         onConfirm={() => void runDeleteKnowledgeBase()}
       />

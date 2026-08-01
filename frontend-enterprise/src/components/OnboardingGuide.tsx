@@ -8,10 +8,10 @@ import {
   XIcon,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
-import galleryImage from "@/assets/onboarding-gallery.png";
-import profileImage from "@/assets/onboarding-profile.png";
+import galleryImage from "@/assets/brand/kaigongba-employees-live-v3.png";
+import profileImage from "@/assets/brand/kaigongba-profile-live-v3.png";
 
-export const ONBOARDING_SEEN_KEY = "staffdeck_onboarding_guide_seen";
+export const ONBOARDING_SEEN_KEY = "kaigongba_onboarding_guide_seen_v2";
 
 /** Custom event that lets any part of the app re-open the onboarding guide. */
 export const OPEN_ONBOARDING_EVENT = "staffdeck-open-onboarding";
@@ -38,7 +38,7 @@ const CARD_BADGE_CLASS =
 const STEPS: GuideStep[] = [
   {
     image: galleryImage,
-    eyebrow: "欢迎使用 StaffDeck",
+    eyebrow: "欢迎使用开工吧",
     titleLines: ["数字员工", "全流程构建与管理平台"],
     description:
       "像招聘、培养、管理真人员工一样，构建你的数字员工团队。把重复的事情交给数字员工，让自己专注更重要的工作。",

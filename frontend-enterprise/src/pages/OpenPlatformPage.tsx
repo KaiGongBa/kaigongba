@@ -72,7 +72,7 @@ const PLATFORM_CONFIGS: PlatformConfig[] = [
   {
     kind: 'agents',
     title: '数字员工广场',
-    subtitle: '已发布到广场，可在对话端直接使用。',
+    subtitle: '公司内部已共享的数字员工，可在对话端直接使用。',
     detail: '选择一个数字员工查看能力、岗位和服务范围。',
     useLabel: '使用此员工',
     metricLabel: '数字员工',
@@ -82,7 +82,7 @@ const PLATFORM_CONFIGS: PlatformConfig[] = [
   {
     kind: 'knowledge',
     title: '知识库广场',
-    subtitle: '发布到广场的知识库，可复制到你的数字员工。',
+    subtitle: '公司内部共享的知识库，可复制到你的数字员工。',
     detail: '从广场复制到当前数字员工的知识库。',
     useLabel: '复制到知识库',
     metricLabel: '知识库',
@@ -92,7 +92,7 @@ const PLATFORM_CONFIGS: PlatformConfig[] = [
   {
     kind: 'general-skills',
     title: '技能广场',
-    subtitle: '浏览器、MCP、查询工具等可复用能力。',
+    subtitle: '公司内部共享的浏览器、MCP、查询工具等可复用能力。',
     detail: '从广场复制到当前数字员工的技能。',
     useLabel: '复制到技能',
     metricLabel: '技能',
@@ -102,7 +102,7 @@ const PLATFORM_CONFIGS: PlatformConfig[] = [
   {
     kind: 'skills',
     title: 'SOP 广场',
-    subtitle: '可复制和复用的业务流程与执行规范。',
+    subtitle: '公司内部可复制和复用的业务流程与执行规范。',
     detail: '从广场复制到当前数字员工的 SOP。',
     useLabel: '复制到 SOP',
     metricLabel: '业务 SOP',
@@ -112,7 +112,7 @@ const PLATFORM_CONFIGS: PlatformConfig[] = [
   {
     kind: 'tools',
     title: '工具广场',
-    subtitle: '可开放给员工调用和测试的工具能力。',
+    subtitle: '公司内部共享给员工调用和测试的工具能力。',
     detail: '前往工具页按现有流程配置和测试工具。',
     useLabel: '前往工具页',
     metricLabel: '工具能力',
@@ -224,7 +224,7 @@ export default function OpenPlatformPage({
       setSkills(skillRows);
       setTools(toolRows);
     } catch (error) {
-      notify.error(error instanceof Error ? error.message : '加载开放广场失败');
+      notify.error(error instanceof Error ? error.message : '加载公司广场失败');
     } finally {
       setLoading(false);
     }
@@ -252,7 +252,7 @@ export default function OpenPlatformPage({
         id: item.id,
         deleteKey: item.id,
         title: employeeDisplayNameWithCreator(item),
-        description: item.description || '广场开放的数字员工。',
+        description: item.description || '公司内部共享的数字员工。',
         meta: profile.roleName,
         tags: [
           item.status === 'active' ? '在线' : '下线',
@@ -268,7 +268,7 @@ export default function OpenPlatformPage({
         id: item.id,
         deleteKey: item.id,
         title: resourceDisplayNameWithCreator(item.name, item),
-        description: item.description || '广场沉淀的知识库。',
+        description: item.description || '公司内部沉淀的共享知识库。',
         meta: `${item.document_count} 文档 / ${item.bucket_count} 目录 / ${item.chunk_count} 引用`,
         tags: [item.version || 'v1.0.0', item.branch_sync_state || '广场版'],
       })),
@@ -503,7 +503,7 @@ export default function OpenPlatformPage({
         title={confirmTarget && config ? `删除${config.metricLabel}「${confirmTarget.item.title}」？` : ''}
         description={confirmTarget?.kind === 'agents'
           ? '删除后该数字员工会从广场和员工列表移除，相关资源绑定也会一并清理。'
-          : '删除后该广场内容会从开放平台移除，已复制到员工侧的引用可能不再可同步。'}
+          : '删除后该共享内容会从公司广场移除，已复制到员工侧的引用可能不再可同步。'}
         loading={Boolean(confirmTarget) && deletingItemKey === (confirmTarget ? platformItemDeleteKey(confirmTarget.kind, confirmTarget.item) : '')}
         onConfirm={() => void runDelete()}
       />
@@ -543,7 +543,8 @@ export default function OpenPlatformPage({
         className="mb-[24px]"
         onLogout={onLogout}
         userName={currentUser?.username}
-        title="开放广场平台"
+        title="公司广场"
+        description="公司内部员工、知识库、技能、SOP 与工具的共享空间"
       />
       <div className="mx-auto grid w-full grid-cols-1 gap-[12px] sm:grid-cols-2 xl:min-h-0 xl:flex-1 xl:grid-cols-5 xl:grid-rows-1">
         {platformStats.map((platform) => {

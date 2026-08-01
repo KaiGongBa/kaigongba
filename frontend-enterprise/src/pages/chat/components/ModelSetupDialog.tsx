@@ -194,8 +194,8 @@ export default function ModelSetupDialog({
               <Input
                 value={form.baseUrl}
                 placeholder={form.apiProtocol === 'openai_chat_completions'
-                  ? '例如 https://llm-center.modelbest.cn/llm/v1'
-                  : '例如 https://llm-center.modelbest.cn/llm'}
+                  ? '例如 https://api.example.com/v1'
+                  : '例如 https://api.example.com'}
                 onChange={(event) => updateForm('baseUrl', event.target.value)}
               />
             </LabeledField>

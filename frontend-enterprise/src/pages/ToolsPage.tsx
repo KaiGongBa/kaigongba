@@ -372,7 +372,7 @@ export default function ToolsPage({ currentUser, onLogout }: ToolPageProps = {})
       return;
     }
     if (!importSourceAgentId) {
-      notify.warning(importMode === 'plaza' ? '请选择开放广场' : '请选择复制来源员工');
+      notify.warning(importMode === 'plaza' ? '请选择公司广场' : '请选择复制来源员工');
       return;
     }
     if (importSelectedToolIds.length === 0) {
@@ -840,9 +840,9 @@ export default function ToolsPage({ currentUser, onLogout }: ToolPageProps = {})
         targetPlaceholder="选择目标员工"
         targets={importTargetCandidates().map((item) => ({ value: item.id, label: item.name }))}
         targetId={importTargetAgentId}
-        sourcePlaceholder={importMode === 'plaza' ? '选择开放广场' : '选择复制来源'}
+        sourcePlaceholder={importMode === 'plaza' ? '选择公司广场' : '选择复制来源'}
         sources={importMode === 'plaza'
-          ? openGalleryImportSourceOptions(agents, '开放广场')
+          ? openGalleryImportSourceOptions(agents, '公司广场')
           : visibleEmployeeAgents(agents, currentUser, { activeOnly: true, excludeAgentId: importTargetAgentId })
             .map((item) => ({ value: item.id, label: item.name }))}
         sourceId={importSourceAgentId}
@@ -860,7 +860,7 @@ export default function ToolsPage({ currentUser, onLogout }: ToolPageProps = {})
         emptyText="没有可复制的工具"
         note={
           importMode === 'plaza'
-            ? '从开放广场复制可用工具；复制后会成为当前员工的本地工具绑定。'
+            ? '从公司广场复制内部共享的工具；复制后会成为当前员工的本地工具绑定。'
             : '从数字员工复制可用工具；不可见内容不会出现在列表。'
         }
         onTargetChange={handleImportTargetChange}

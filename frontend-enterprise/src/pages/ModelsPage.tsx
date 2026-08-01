@@ -499,8 +499,8 @@ export default function ModelsPage({
                 <Input
                   value={form.base_url}
                   placeholder={form.api_protocol === 'openai_chat_completions'
-                    ? 'https://llm-center.modelbest.cn/llm/v1'
-                    : 'https://llm-center.modelbest.cn/llm'}
+                    ? 'https://api.example.com/v1'
+                    : 'https://api.example.com'}
                   onChange={(event) => updateForm('base_url', event.target.value)}
                 />
               </LabeledField>

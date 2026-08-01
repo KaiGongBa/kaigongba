@@ -76,6 +76,18 @@ export const api = {
   postWithSignal: <T>(path: string, body: unknown, signal?: AbortSignal) =>
     request<T>(path, { method: 'POST', body: JSON.stringify(body), signal }),
   postKeepalive: <T>(path: string, body?: unknown) => keepalivePost<T>(path, body),
+  postForm: async <T>(path: string, form: FormData) => {
+    const response = await fetch(`${API_BASE}${path}`, {
+      method: 'POST',
+      headers: { ...authHeader() },
+      body: form,
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new ApiError(response.status, text, response.statusText);
+    }
+    return response.json() as Promise<T>;
+  },
   put: <T>(path: string, body: unknown) => request<T>(path, { method: 'PUT', body: JSON.stringify(body) }),
   delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
   blob: async (path: string) => {
