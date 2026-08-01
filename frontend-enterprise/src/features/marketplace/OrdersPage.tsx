@@ -19,6 +19,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { MarketplaceHeader, MarketplaceState } from './components';
+import { TransactionSectionTabs } from './MarketplaceSectionTabs';
 import { marketplaceRepository } from './repository';
 import type { TransactionOrder } from './types';
 import { useMarketplaceOrganization } from './useMarketplaceOrganization';
@@ -81,6 +82,7 @@ export default function OrdersPage() {
         onOrganizationChange={organization.selectOrganization}
         action={<button type="button" className="marketplace-submit-button" onClick={() => navigate('/enterprise/demands/new')}>发布需求</button>}
       />
+      <TransactionSectionTabs />
 
       <div className="transaction-order-tabs" role="tablist" aria-label="订单角色视角">
         <button type="button" role="tab" aria-selected={perspective === 'buyer'} aria-controls="transaction-orders-panel" className={perspective === 'buyer' ? 'is-active' : ''} onClick={() => selectPerspective('buyer')}>我发起的 <span>{perspective === 'buyer' ? orders.length : ''}</span></button>

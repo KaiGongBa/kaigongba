@@ -87,11 +87,8 @@ const ADMIN_SYSTEM_NAV: NavItem[] = [
 const MARKETPLACE_NAV: NavItem[] = [
   { route: EnterpriseRoute.AiEmployeeMarket, label: 'AI员工市场', Icon: IconGlobe },
   { route: EnterpriseRoute.SkillMarket, label: 'Skill市场', Icon: IconViewMasonry },
-  { route: EnterpriseRoute.MyRequirements, label: '我的需求', Icon: IconFile },
-  { route: EnterpriseRoute.Orders, label: '我的订单', Icon: IconClipboard },
-  { route: EnterpriseRoute.Confirmations, label: '待确认', Icon: IconChatBubble },
-  { route: EnterpriseRoute.Publishing, label: '我的发布', Icon: IconEdit },
-  { route: EnterpriseRoute.ProviderWorkbench, label: '服务商工作台', Icon: IconBriefcase },
+  { route: EnterpriseRoute.Transactions, label: '交易中心', Icon: IconClipboard },
+  { route: EnterpriseRoute.Publishing, label: '服务经营', Icon: IconBriefcase },
 ];
 
 const PLATFORM_BUSINESS_NAV: NavItem[] = [

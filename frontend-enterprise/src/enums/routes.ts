@@ -20,6 +20,7 @@ export enum EnterpriseRoute {
   Models = '/enterprise/models',
   AiEmployeeMarket = '/enterprise/market/agents',
   SkillMarket = '/enterprise/market/skills',
+  Transactions = '/enterprise/transactions',
   Orders = '/enterprise/orders',
   Confirmations = '/enterprise/confirmations',
   Publishing = '/enterprise/publishing',

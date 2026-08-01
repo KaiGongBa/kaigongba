@@ -53,14 +53,15 @@ vi.mock('./DeliverableAcceptancePage', () => ({ default: () => <div data-testid=
 vi.mock('./DisputeCasePage', () => ({ default: () => <div data-testid="dispute-case" /> }));
 vi.mock('./DemoPaymentPage', () => ({ default: () => <div data-testid="payment-order" /> }));
 vi.mock('./ConfirmationCenterPage', () => ({ default: () => <div data-testid="confirmations" /> }));
+vi.mock('./TransactionCenterPage', () => ({ default: () => <div data-testid="transaction-center" /> }));
 vi.mock('./PublishingPage', () => ({ default: () => <div data-testid="publishing" /> }));
 vi.mock('./PublishAIServicePage', () => ({ default: () => <div data-testid="publish-ai-service" /> }));
 vi.mock('./PublishSkillPage', () => ({ default: () => <div data-testid="publish-skill" /> }));
-vi.mock('./ProviderWorkbenchPage', () => ({ default: () => <div data-testid="provider-workbench" /> }));
+vi.mock('./ProviderWorkspacePage', () => ({ default: () => <div data-testid="provider-workbench" /> }));
 vi.mock('./ProviderQuotePage', () => ({ default: () => <div data-testid="provider-quote" /> }));
 vi.mock('./AgreementConfirmPage', () => ({ default: () => <div data-testid="agreement" /> }));
 
-import MarketplaceWorkspacePage, { isMarketplaceWorkspacePath } from './MarketplaceWorkspacePage';
+import MarketplaceWorkspacePage, { isMarketplaceWorkspacePath, selectedMarketplaceRoute } from './MarketplaceWorkspacePage';
 
 afterEach(cleanup);
 
@@ -80,6 +81,7 @@ const routeCases = [
   ['/enterprise/disputes/dispute-1', 'dispute-case'],
   ['/enterprise/payments/payment-1', 'payment-order'],
   ['/enterprise/confirmations', 'confirmations'],
+  ['/enterprise/transactions', 'transaction-center'],
   ['/enterprise/publishing', 'publishing'],
   ['/enterprise/publishing/services/service-1', 'publish-ai-service'],
   ['/enterprise/publishing/skills/skill-1', 'publish-skill'],
@@ -107,5 +109,15 @@ describe('marketplace workspace route compatibility', () => {
     expect(isMarketplaceWorkspacePath('/enterprise/accounts/organization')).toBe(false);
     expect(isMarketplaceWorkspacePath('/enterprise/organization/team')).toBe(false);
     expect(isMarketplaceWorkspacePath('/workspace/gallery')).toBe(false);
+  });
+
+  it('highlights only the two new navigation parents while preserving child URLs', () => {
+    expect(selectedMarketplaceRoute('/enterprise/transactions')).toBe('/enterprise/transactions');
+    expect(selectedMarketplaceRoute('/enterprise/demands/requirement-1')).toBe('/enterprise/transactions');
+    expect(selectedMarketplaceRoute('/enterprise/orders/order-1')).toBe('/enterprise/transactions');
+    expect(selectedMarketplaceRoute('/enterprise/agreements/agreement-1')).toBe('/enterprise/transactions');
+    expect(selectedMarketplaceRoute('/enterprise/provider?view=workbench')).toBe('/enterprise/publishing');
+    expect(selectedMarketplaceRoute('/enterprise/publishing/services/service-1')).toBe('/enterprise/publishing');
+    expect(selectedMarketplaceRoute('/enterprise/market/skills')).toBe('/enterprise/market/skills');
   });
 });

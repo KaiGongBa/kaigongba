@@ -618,8 +618,9 @@ export const marketplaceRepository = {
     organizationId: string,
     perspective: 'buyer' | 'provider' | 'all',
   ): Promise<TransactionOrder[]> {
+    const params = new URLSearchParams({ organizationId, perspective });
     return api.get<TransactionOrder[]>(
-      `/api/transactions/orders${queryString({ organizationId, perspective })}`,
+      `/api/transactions/orders?${params.toString()}`,
     );
   },
 

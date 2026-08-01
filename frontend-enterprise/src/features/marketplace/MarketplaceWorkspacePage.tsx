@@ -22,13 +22,15 @@ const MyRequirementsPage = lazy(() => import('./MyRequirementsPage'));
 const OrdersPage = lazy(() => import('./OrdersPage'));
 const OrderWorkspacePage = lazy(() => import('./OrderWorkspacePage'));
 const ProviderQuotePage = lazy(() => import('./ProviderQuotePage'));
-const ProviderWorkbenchPage = lazy(() => import('./ProviderWorkbenchPage'));
+const ProviderWorkspacePage = lazy(() => import('./ProviderWorkspacePage'));
 const QuoteComparePage = lazy(() => import('./QuoteComparePage'));
 const RequirementDetailPage = lazy(() => import('./RequirementDetailPage'));
+const TransactionCenterPage = lazy(() => import('./TransactionCenterPage'));
 
 const MARKETPLACE_WORKSPACE_PREFIXES = [
   '/enterprise/market',
   '/enterprise/services',
+  '/enterprise/transactions',
   '/enterprise/demands',
   '/enterprise/orders',
   '/enterprise/payments',
@@ -48,13 +50,15 @@ export function isMarketplaceWorkspacePath(pathname: string): boolean {
 export function selectedMarketplaceRoute(pathname: string): string {
   if (pathname.startsWith(EnterpriseRoute.AiEmployeeMarket)) return EnterpriseRoute.AiEmployeeMarket;
   if (pathname.startsWith(EnterpriseRoute.SkillMarket)) return EnterpriseRoute.SkillMarket;
-  if (pathname.startsWith(EnterpriseRoute.Orders)) return EnterpriseRoute.Orders;
-  if (pathname.startsWith('/enterprise/disputes')) return EnterpriseRoute.Orders;
-  if (pathname.startsWith('/enterprise/payments')) return EnterpriseRoute.Orders;
-  if (pathname.startsWith(EnterpriseRoute.Confirmations)) return EnterpriseRoute.Confirmations;
+  if (pathname.startsWith(EnterpriseRoute.Transactions)) return EnterpriseRoute.Transactions;
+  if (pathname.startsWith(EnterpriseRoute.Orders)) return EnterpriseRoute.Transactions;
+  if (pathname.startsWith('/enterprise/disputes')) return EnterpriseRoute.Transactions;
+  if (pathname.startsWith('/enterprise/payments')) return EnterpriseRoute.Transactions;
+  if (pathname.startsWith('/enterprise/agreements')) return EnterpriseRoute.Transactions;
+  if (pathname.startsWith(EnterpriseRoute.Confirmations)) return EnterpriseRoute.Transactions;
+  if (pathname.startsWith(EnterpriseRoute.MyRequirements)) return EnterpriseRoute.Transactions;
   if (pathname.startsWith(EnterpriseRoute.Publishing)) return EnterpriseRoute.Publishing;
-  if (pathname.startsWith(EnterpriseRoute.ProviderWorkbench)) return EnterpriseRoute.ProviderWorkbench;
-  if (pathname.startsWith(EnterpriseRoute.MyRequirements)) return EnterpriseRoute.MyRequirements;
+  if (pathname.startsWith(EnterpriseRoute.ProviderWorkbench)) return EnterpriseRoute.Publishing;
   return pathname;
 }
 
@@ -77,6 +81,10 @@ export default function MarketplaceWorkspacePage() {
           <Route
             path="/enterprise/demands/new"
             element={<Suspense fallback={<MarketplaceRouteLoading />}><DemandCreatePage /></Suspense>}
+          />
+          <Route
+            path="/enterprise/transactions"
+            element={<Suspense fallback={<MarketplaceRouteLoading />}><TransactionCenterPage /></Suspense>}
           />
           <Route
             path="/enterprise/demands"
@@ -125,7 +133,7 @@ export default function MarketplaceWorkspacePage() {
           />
           <Route
             path="/enterprise/provider"
-            element={<Suspense fallback={<MarketplaceRouteLoading />}><ProviderWorkbenchPage /></Suspense>}
+            element={<Suspense fallback={<MarketplaceRouteLoading />}><ProviderWorkspacePage /></Suspense>}
           />
           <Route
             path="/enterprise/provider/quotes/:quoteId"

@@ -2,6 +2,7 @@ import { ArrowRight, BriefcaseBusiness, CheckCircle2, Clock3, FileQuestion, Send
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MarketplaceHeader, MarketplaceState } from './components';
+import { ServiceSectionTabs } from './MarketplaceSectionTabs';
 import { marketplaceRepository } from './repository';
 import { useMarketplaceOrganization } from './useMarketplaceOrganization';
 import { useMarketplaceResource } from './useMarketplaceResource';
@@ -22,12 +23,13 @@ export default function ProviderWorkbenchPage() {
   return (
     <main className="marketplace-page marketplace-management-page transaction-page">
       <MarketplaceHeader
-        title="服务商工作台"
+        title="报价管理"
         organizations={organization.organizations}
         selectedOrganizationId={organization.selected?.id}
         organizationLoading={organization.loading}
         onOrganizationChange={organization.selectOrganization}
       />
+      <ServiceSectionTabs />
       <p className="marketplace-page-subtitle">当前企业以服务方身份处理需求邀请、确认 AI 报价草案并跟踪报价结果；草案不会自动发送。</p>
       {needsOnboarding ? (
         <section className="provider-onboarding-state">
@@ -48,7 +50,7 @@ export default function ProviderWorkbenchPage() {
             <button type="button" role="tab" aria-selected={queue === 'invitations'} className={queue === 'invitations' ? 'is-active' : ''} onClick={() => setQueue('invitations')}><FileQuestion />需求邀请 <span>{workbench.counts.invitations || 0}</span></button>
             <button type="button" role="tab" aria-selected={queue === 'drafts'} className={queue === 'drafts' ? 'is-active' : ''} onClick={() => setQueue('drafts')}><Sparkles />报价待确认 <span>{workbench.counts.pending_confirmation || 0}</span></button>
             <button type="button" role="tab" aria-selected={queue === 'sent'} className={queue === 'sent' ? 'is-active' : ''} onClick={() => setQueue('sent')}><Send />已发送报价 <span>{workbench.counts.sent || 0}</span></button>
-            <div><button type="button" onClick={() => navigate('/enterprise/publishing')}>管理服务商品</button><button type="button" onClick={() => navigate('/enterprise/orders')}>查看承接订单</button></div>
+            <div><button type="button" onClick={() => navigate('/enterprise/publishing')}>管理服务商品</button><button type="button" onClick={() => navigate('/enterprise/provider?view=workbench')}>查看承接订单</button></div>
           </nav>
           {queue === 'invitations' && <section className="marketplace-management-card provider-queue-card" role="tabpanel">
             <div className="marketplace-card-heading"><div><h2>待处理需求邀请</h2><p>查看需求与澄清材料后，选择当前企业已发布的服务生成报价草案。</p></div></div>

@@ -1,0 +1,42 @@
+.workspace-section-tabs {
+  display: flex;
+  width: min(1180px, calc(100% - 48px));
+  gap: 4px;
+  margin: 18px auto 20px;
+  border-bottom: 1px solid #e8ebf0;
+}
+
+.workspace-section-tabs button {
+  position: relative;
+  min-width: 94px;
+  border: 0;
+  padding: 9px 13px 11px;
+  background: transparent;
+  color: #757f9c;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.workspace-section-tabs button::after {
+  position: absolute;
+  right: 12px;
+  bottom: -1px;
+  left: 12px;
+  height: 2px;
+  border-radius: 2px;
+  background: transparent;
+  content: '';
+}
+
+.workspace-section-tabs button.is-active {
+  color: #18181a;
+  font-weight: 650;
+}
+
+.workspace-section-tabs button.is-active::after { background: #18181a; }
+.workspace-section-tabs button:focus-visible { border-radius: 8px; outline: 2px solid #0086ff; outline-offset: 2px; }
+
+@media (max-width: 760px) {
+  .workspace-section-tabs { width: calc(100% - 28px); overflow-x: auto; }
+  .workspace-section-tabs button { flex: none; }
+}

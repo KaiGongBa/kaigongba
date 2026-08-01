@@ -2,6 +2,7 @@ import { FilePlus2, FileText, Search } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { MarketplaceHeader, MarketplaceState } from './components';
+import { TransactionSectionTabs } from './MarketplaceSectionTabs';
 import { marketplaceRepository } from './repository';
 import { useMarketplaceOrganization } from './useMarketplaceOrganization';
 import { useMarketplaceResource } from './useMarketplaceResource';
@@ -45,6 +46,7 @@ export default function MyRequirementsPage() {
           </button>
         )}
       />
+      <TransactionSectionTabs />
       <p className="marketplace-page-subtitle">管理需求版本、匹配邀请、报价与协议状态。</p>
       <section className="marketplace-management-card">
         <div className="marketplace-card-heading">

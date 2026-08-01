@@ -13,6 +13,7 @@ import { useNavigate } from 'react-router-dom';
 import { notify } from '@/components/ui/app-toast';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui';
 import { MarketplaceHeader, MarketplaceState, MarketTabs } from './components';
+import { ServiceSectionTabs } from './MarketplaceSectionTabs';
 import { marketplaceRepository } from './repository';
 import type { PublishingItem } from './types';
 import { useMarketplaceOrganization } from './useMarketplaceOrganization';
@@ -115,6 +116,7 @@ export default function PublishingPage() {
           </div>
         )}
       />
+      <ServiceSectionTabs />
 
       <p className="marketplace-page-subtitle">管理 AI 员工商业服务与第三方 Skill 的版本、审核和上架状态。</p>
 

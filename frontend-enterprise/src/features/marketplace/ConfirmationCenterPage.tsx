@@ -15,6 +15,7 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { MarketplaceHeader, MarketplaceState } from './components';
+import { TransactionSectionTabs } from './MarketplaceSectionTabs';
 import { marketplaceRepository } from './repository';
 import type { ActionItem } from './types';
 import { useMarketplaceOrganization } from './useMarketplaceOrganization';
@@ -55,6 +56,7 @@ export default function ConfirmationCenterPage() {
         onOrganizationChange={organization.selectOrganization}
         action={<button type="button" className="marketplace-secondary-button" onClick={resource.reload}><RefreshCw />刷新</button>}
       />
+      <TransactionSectionTabs />
       <MarketplaceState loading={resource.loading} error={resource.error} onRetry={resource.reload} />
       {resource.data && (
         <>
