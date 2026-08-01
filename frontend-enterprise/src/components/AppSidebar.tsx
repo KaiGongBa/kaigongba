@@ -135,7 +135,7 @@ export type AppSidebarChatProps = {
   onOpenSession: (id: string) => void;
   onNewConversation?: () => void;
   onOpenGallery: () => void;
-  /** Highlights the 数字员工广场 entry as the active menu (chat gallery route). */
+  /** Highlights the 项目中心 entry as the active menu (project-center routes). */
   galleryActive?: boolean;
   /** Highlights the active 市场与交易 entry while the marketplace is open in the chat shell. */
   marketplaceSelected?: string;
@@ -1017,7 +1017,7 @@ function CollapsedChatSidebar({
   return (
     <div className="flex h-full w-(--sidebar-width-icon) shrink-0 flex-col items-center gap-[32px] px-[20px] py-[10px]">
       <div className="flex w-full flex-col items-center gap-[10px]">
-        <button type="button" title="数字员工广场" onClick={onOpenGallery} className="flex items-center justify-center p-[10px]">
+        <button type="button" title="项目中心" onClick={onOpenGallery} className="flex items-center justify-center p-[10px]">
           <BrandLogo markOnly />
         </button>
         <Tooltip>
@@ -1043,7 +1043,7 @@ function CollapsedChatSidebar({
             <button
               type="button"
               onClick={onOpenGallery}
-              aria-label="数字员工广场"
+              aria-label="项目中心"
               aria-current={galleryActive ? 'page' : undefined}
               className={cn(
                 'flex h-[32px] w-full items-center justify-center rounded-[8px] transition-colors',
@@ -1056,7 +1056,7 @@ function CollapsedChatSidebar({
             </button>
           </TooltipTrigger>
           <TooltipContent side="right" align="center">
-            数字员工广场
+            项目中心
           </TooltipContent>
         </Tooltip>
 
@@ -1256,7 +1256,7 @@ function ChatSidebarVariant({
       <div className="flex h-full w-(--sidebar-width) shrink-0 flex-col">
         <SidebarHeader className="gap-[24px] px-[20px] pt-[10px]">
           <div className="flex items-center justify-between">
-            <button type="button" title="数字员工广场" onClick={onOpenGallery}>
+            <button type="button" title="项目中心" onClick={onOpenGallery}>
               <BrandLogo />
             </button>
             <button
@@ -1283,7 +1283,7 @@ function ChatSidebarVariant({
               )}
             >
               <IconGlobe className="size-[16px]! shrink-0" />
-              <span className="truncate">数字员工广场</span>
+              <span className="truncate">项目中心</span>
             </button>
             <div className="flex flex-col gap-[2px]">
               <button

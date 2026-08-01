@@ -22,13 +22,19 @@ function chatRouteParameters(pathname: string) {
   return {};
 }
 
+function projectAgentId(pathname: string) {
+  const match = pathname.match(/^\/workspace\/projects\/agents\/([^/]+)$/);
+  return match ? decodeURIComponent(match[1]) : undefined;
+}
+
 export default function ConversationWorkspaceShell() {
   const location = useLocation();
   const navigate = useNavigate();
   const routeParameters = chatRouteParameters(location.pathname);
   const chat = useChatSession(routeParameters);
   const marketplaceActive = isMarketplaceWorkspacePath(location.pathname);
-  const galleryActive = location.pathname === '/workspace/gallery';
+  const selectedProjectAgentId = projectAgentId(location.pathname);
+  const galleryActive = location.pathname === '/workspace/gallery' || Boolean(selectedProjectAgentId);
   const chatActive = location.pathname.startsWith('/workspace/chat');
 
   return (
@@ -83,7 +89,7 @@ export default function ConversationWorkspaceShell() {
       ) : chatActive ? (
         <ChatPage chat={chat} />
       ) : (
-        <ChatGalleryPage chat={chat} />
+        <ChatGalleryPage chat={chat} selectedAgentId={selectedProjectAgentId} />
       )}
 
       <div data-kai-assistant-host="true" aria-hidden="true" />

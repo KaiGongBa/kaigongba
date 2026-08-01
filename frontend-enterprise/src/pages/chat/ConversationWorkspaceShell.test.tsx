@@ -53,7 +53,7 @@ vi.mock('./components/ChatDialogs', () => ({
 }));
 
 vi.mock('./ChatGalleryPage', () => ({
-  default: ({ chat }: { chat: { instanceId: number } }) => <div data-testid="gallery-content">{chat.instanceId}</div>,
+  default: ({ chat, selectedAgentId }: { chat: { instanceId: number }; selectedAgentId?: string }) => <div data-testid="gallery-content" data-agent={selectedAgentId || ''}>{chat.instanceId}</div>,
 }));
 
 vi.mock('./ChatPage', () => ({
@@ -75,6 +75,7 @@ function RouteDriver() {
       <button type="button" onClick={() => navigate('/enterprise/orders')}>open-market</button>
       <button type="button" onClick={() => navigate('/workspace/chat/session-route-contract')}>open-chat</button>
       <button type="button" onClick={() => navigate('/workspace/gallery')}>open-gallery</button>
+      <button type="button" onClick={() => navigate('/workspace/projects/agents/agent-route-contract')}>open-agent-projects</button>
     </div>
   );
 }
@@ -105,6 +106,10 @@ describe('conversation workspace shell', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'open-gallery' }));
     expect(screen.getByTestId('gallery-content').textContent).toBe('1');
+
+    fireEvent.click(screen.getByRole('button', { name: 'open-agent-projects' }));
+    expect(screen.getByTestId('gallery-content').getAttribute('data-agent')).toBe('agent-route-contract');
+    expect(screen.getByTestId('shared-sidebar').getAttribute('data-gallery')).toBe('true');
     expect(chatInstanceInitializations).toBe(1);
   });
 
