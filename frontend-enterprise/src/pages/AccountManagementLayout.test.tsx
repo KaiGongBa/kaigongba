@@ -66,6 +66,7 @@ describe('account management information architecture', () => {
     await waitFor(() => {
       expect(screen.getByTestId('location').textContent).toBe('/enterprise/accounts/organization');
     });
+    expect(screen.queryByRole('navigation', { name: '账号管理二级导航' })).toBeNull();
     expect(screen.queryByRole('button', { name: '登录账号' })).toBeNull();
     expect(screen.getByTestId('organization-team')).toBeTruthy();
   });

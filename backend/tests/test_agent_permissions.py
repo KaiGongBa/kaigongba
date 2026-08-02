@@ -116,6 +116,36 @@ def test_non_admin_cannot_manage_overall_agent() -> None:
         assert updated.description == "管理员可以维护整体员工"
 
 
+def test_personal_default_employee_cannot_be_deleted() -> None:
+    with _test_session() as db:
+        owner, _other, _admin = _seed_users(db)
+        default_employee = AgentProfile(
+            id="agent_personal_default",
+            tenant_id="tenant_demo",
+            name="owner的数字员工",
+            is_overall=False,
+            metadata_json={
+                "owner_user_id": owner.id,
+                "owner_username": owner.username,
+                "is_default_employee": True,
+                "system_generated_default": True,
+            },
+        )
+        db.add(default_employee)
+        db.commit()
+
+        with pytest.raises(HTTPException) as delete_error:
+            delete_agent(
+                default_employee.id,
+                tenant_id="tenant_demo",
+                db=db,
+                current_user=owner,
+            )
+        assert delete_error.value.status_code == 400
+        assert delete_error.value.detail == "Default employee cannot be deleted"
+        assert db.get(AgentProfile, default_employee.id) is not None
+
+
 def test_resource_binding_requires_agent_manager() -> None:
     with _test_session() as db:
         owner, other, _admin = _seed_users(db)

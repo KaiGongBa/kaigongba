@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Res
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
+from app.agents.default_employee import ensure_personal_default_employee
 from app.db import get_session
 from app.db.models import User, UserAvatar, utc_now
 from app.security.auth import create_access_token, get_current_user, hash_password, verify_password
@@ -205,6 +206,8 @@ def create_user(
         password_hash=hash_password(request.password),
     )
     db.add(user)
+    db.flush()
+    ensure_personal_default_employee(db, user)
     db.commit()
     db.refresh(user)
     return _user_read(user)

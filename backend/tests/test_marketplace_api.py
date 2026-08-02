@@ -77,6 +77,37 @@ def test_marketplace_requires_authentication(
     assert response.status_code == 401
 
 
+def test_organization_switcher_lists_every_active_membership_and_hides_non_members(
+    marketplace_app: tuple[TestClient, object, User],
+) -> None:
+    client, engine, user = marketplace_app
+    headers = _auth_headers(user)
+    with Session(engine) as db:
+        db.add(
+            OrganizationMember(
+                tenant_id=user.tenant_id,
+                organization_id="org_far_mirror",
+                user_id=user.id,
+                role="member",
+                status="inactive",
+            )
+        )
+        db.commit()
+
+    response = client.get("/api/marketplace/organizations", headers=headers)
+
+    assert response.status_code == 200
+    organizations = response.json()
+    assert {item["id"] for item in organizations} == {
+        "org_cloud_ops",
+        "org_demo_buyer",
+        "org_youfu",
+    }
+    assert all(item["role"] in {"owner", "admin"} for item in organizations)
+    assert "org_far_mirror" not in {item["id"] for item in organizations}
+    assert "org_legal_planet" not in {item["id"] for item in organizations}
+
+
 def test_marketplace_reads_persisted_services_with_camel_case_contract(
     marketplace_app: tuple[TestClient, object, User],
 ) -> None:

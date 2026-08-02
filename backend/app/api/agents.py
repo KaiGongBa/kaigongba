@@ -287,6 +287,8 @@ def delete_agent(
     _ensure_can_manage_agent(row, current_user)
     if row.is_overall:
         raise HTTPException(status_code=400, detail="Overall agent cannot be deleted")
+    if (row.metadata_json or {}).get("is_default_employee") is True:
+        raise HTTPException(status_code=400, detail="Default employee cannot be deleted")
     bindings = db.exec(
         select(AgentResourceBinding).where(AgentResourceBinding.agent_id == row.id)
     ).all()

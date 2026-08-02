@@ -85,7 +85,7 @@ Final result: passed
 
 ## 最终检查
 
-- 数据库：Alembic `20260801_0014 (head)`；`PRAGMA integrity_check` 返回 `ok`。
+- 数据库：Alembic `20260802_0015 (head)`；`PRAGMA integrity_check` 返回 `ok`；6 个网页账号均有且仅有 1 个私有默认数字员工。
 - 历史结案单：订单 `completed / 100% / 3`，待办 `0`，3 个里程碑均为 `closed_by_dispute`。
 - 进程：无 `dev_supervisor`；仅保留一组 Uvicorn reload 父子进程和一个 Vite 进程。
 - 后端回归：28 项通过，覆盖争议结案重放、Skill 市场、市场管理、外部 Agent 和 Skill 包安全。

@@ -36,6 +36,8 @@ export type EmployeeCardProps = {
   busy?: boolean;
   /** Show the top-right "更多" actions menu. Hidden on the 对话端 gallery. */
   showMenu?: boolean;
+  /** The account's generated default employee is configurable but cannot be deleted. */
+  deletable?: boolean;
   onOpen: () => void;
   onStatus: (status: 'active' | 'archived') => void;
   onGallery: (published: boolean) => void;
@@ -52,6 +54,7 @@ export default function EmployeeCard({
   selected = false,
   busy = false,
   showMenu = true,
+  deletable = true,
   onOpen,
   onStatus,
   onGallery,
@@ -237,17 +240,21 @@ export default function EmployeeCard({
                 连接管理
               </DropdownMenuItem>
             )}
-            <DropdownMenuSeparator className="my-[2px] bg-[#eef0f4]" />
-            <DropdownMenuItem
-              variant="destructive"
-              className={MENU_ITEM_DANGER_CLASS}
-              disabled={!canManage || busy}
-              onClick={(event) => event.stopPropagation()}
-              onSelect={() => onDelete()}
-            >
-              <IconTrash className="size-[16px]" />
-              删除
-            </DropdownMenuItem>
+            {deletable && (
+              <>
+                <DropdownMenuSeparator className="my-[2px] bg-[#eef0f4]" />
+                <DropdownMenuItem
+                  variant="destructive"
+                  className={MENU_ITEM_DANGER_CLASS}
+                  disabled={!canManage || busy}
+                  onClick={(event) => event.stopPropagation()}
+                  onSelect={() => onDelete()}
+                >
+                  <IconTrash className="size-[16px]" />
+                  删除
+                </DropdownMenuItem>
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

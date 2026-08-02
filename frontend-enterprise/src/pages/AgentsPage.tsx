@@ -22,6 +22,7 @@ import {
   employeeDisplayName,
   employeeDisplayNameWithCreator,
   employeeProfile,
+  isDefaultEmployeeAgent,
 } from '../employee';
 import { emitAgentScopeChange, persistSharedAgentScope } from '../lib/agent-scope-storage';
 import type { AgentProfileRead } from '../types';
@@ -290,6 +291,7 @@ export default function AgentsPage({
             employee={employee}
             busy={selectingAgentId === employee.id}
             canManage={canManageEmployeeAgent(employee, currentUser)}
+            deletable={!isDefaultEmployeeAgent(employee)}
             selected={employee.id === selectedAgentId}
             onOpen={() => void selectEmployee(employee)}
             onStatus={(status) => void updateStatus(employee, status)}

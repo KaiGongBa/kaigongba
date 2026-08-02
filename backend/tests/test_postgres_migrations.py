@@ -27,7 +27,7 @@ def test_postgres_upgrade_downgrade_and_reupgrade() -> None:
 
     command.upgrade(config, "head")
     try:
-        assert _revision(engine) == "20260801_0014"
+        assert _revision(engine) == "20260802_0015"
         assert "transaction_dispute_cases" in inspect(engine).get_table_names()
         assert "transaction_hosted_skill_runs" in inspect(engine).get_table_names()
         assert "external_agent_enrollments" in inspect(engine).get_table_names()
@@ -43,6 +43,10 @@ def test_postgres_upgrade_downgrade_and_reupgrade() -> None:
         assert "external_agent_heartbeats" in inspect(engine).get_table_names()
         assert "external_agent_network_policies" in inspect(engine).get_table_names()
         assert "external_agent_rate_limit_windows" in inspect(engine).get_table_names()
+
+        command.downgrade(config, "20260801_0014")
+        assert _revision(engine) == "20260801_0014"
+        assert "external_agent_heartbeats" in inspect(engine).get_table_names()
 
         command.downgrade(config, "20260801_0013")
         assert _revision(engine) == "20260801_0013"
@@ -74,7 +78,7 @@ def test_postgres_upgrade_downgrade_and_reupgrade() -> None:
         assert "transaction_hosted_skill_runs" not in inspect(engine).get_table_names()
 
         command.upgrade(config, "head")
-        assert _revision(engine) == "20260801_0014"
+        assert _revision(engine) == "20260802_0015"
         assert "transaction_dispute_cases" in inspect(engine).get_table_names()
         assert "transaction_hosted_skill_runs" in inspect(engine).get_table_names()
         assert "external_agent_enrollments" in inspect(engine).get_table_names()

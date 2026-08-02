@@ -63,7 +63,7 @@ RESTORE_STAFFDECK_DATABASE_URL="${staffdeck_restore}" \
 for database_name in kaigongba_transaction_restore_test kaigongba_staffdeck_restore_test; do
     revision="$(docker compose -f "${compose_file}" exec -T postgres \
         psql -U kaigongba -d "${database_name}" -Atc 'SELECT version_num FROM alembic_version')"
-    if [[ "${revision}" != "20260801_0014" ]]; then
+    if [[ "${revision}" != "20260802_0015" ]]; then
         printf 'Restored database %s has unexpected revision %s.\n' \
             "${database_name}" "${revision}" >&2
         exit 1

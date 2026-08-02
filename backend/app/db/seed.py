@@ -5,6 +5,7 @@ from pathlib import Path
 
 from sqlmodel import Session, select
 
+from app.agents.default_employee import ensure_personal_default_employee
 from app import paths
 from app.agents.branching import ensure_open_gallery_binding
 from app.config import get_settings
@@ -960,6 +961,12 @@ def seed_demo_data(session: Session) -> None:
     seed_staffdeck_admin_gallery(session)
     if settings.marketplace_seed_enabled:
         seed_marketplace_development_data(session)
+
+    web_users = session.exec(
+        select(User).where(User.tenant_id == "tenant_demo", User.source == "web")
+    ).all()
+    for web_user in web_users:
+        ensure_personal_default_employee(session, web_user)
 
     default_model = session.exec(
         select(ModelConfig).where(
