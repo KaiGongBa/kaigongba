@@ -23,6 +23,7 @@ import {
   employeeDisplayNameWithCreator,
   employeeProfile,
   isDefaultEmployeeAgent,
+  isEmployeeUsedByCurrentUser,
 } from '../employee';
 import { emitAgentScopeChange, persistSharedAgentScope } from '../lib/agent-scope-storage';
 import type { AgentProfileRead } from '../types';
@@ -80,7 +81,10 @@ export default function AgentsPage({
   }, []);
 
   const employees = useMemo(
-    () => agents.filter((item) => !item.is_overall && canManageEmployeeAgent(item, currentUser)),
+    () => agents.filter((item) => (
+      !item.is_overall
+      && (canManageEmployeeAgent(item, currentUser) || isEmployeeUsedByCurrentUser(item))
+    )),
     [agents, currentUser],
   );
   const offlineEmployees = employees.filter((item) => item.status !== 'active');
@@ -285,24 +289,28 @@ export default function AgentsPage({
       />
 
       <div className="grid auto-rows-[minmax(262px,auto)] grid-cols-1 content-start gap-[32px] sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 max-[900px]:gap-[18px]">
-        {filteredEmployees.map((employee) => (
-          <EmployeeCard
-            key={employee.id}
-            employee={employee}
-            busy={selectingAgentId === employee.id}
-            canManage={canManageEmployeeAgent(employee, currentUser)}
-            deletable={!isDefaultEmployeeAgent(employee)}
-            selected={employee.id === selectedAgentId}
-            onOpen={() => void selectEmployee(employee)}
-            onStatus={(status) => void updateStatus(employee, status)}
-            onGallery={(published) => void updateGalleryState(employee, published)}
-            onDelete={() => setDeleteTarget(employee)}
-            onAvatar={() => setAvatarAgent(employee)}
-            onEdit={() => setProfileAgent(employee)}
-            onChat={() => startEmployeeChat(employee)}
-            onConnection={employee.metadata?.external_connection_id ? () => navigate(`/enterprise/agents/external/${encodeURIComponent(String(employee.metadata?.external_connection_id))}`) : undefined}
-          />
-        ))}
+        {filteredEmployees.map((employee) => {
+          const canManage = canManageEmployeeAgent(employee, currentUser);
+          return (
+            <EmployeeCard
+              key={employee.id}
+              employee={employee}
+              busy={selectingAgentId === employee.id}
+              canManage={canManage}
+              showMenu={canManage}
+              deletable={!isDefaultEmployeeAgent(employee)}
+              selected={employee.id === selectedAgentId}
+              onOpen={() => void selectEmployee(employee)}
+              onStatus={(status) => void updateStatus(employee, status)}
+              onGallery={(published) => void updateGalleryState(employee, published)}
+              onDelete={() => setDeleteTarget(employee)}
+              onAvatar={() => setAvatarAgent(employee)}
+              onEdit={() => setProfileAgent(employee)}
+              onChat={() => startEmployeeChat(employee)}
+              onConnection={employee.metadata?.external_connection_id ? () => navigate(`/enterprise/agents/external/${encodeURIComponent(String(employee.metadata?.external_connection_id))}`) : undefined}
+            />
+          );
+        })}
         {!filteredEmployees.length && (
           <AgentsEmptyState />
         )}
