@@ -6,6 +6,13 @@ import { MemoryRouter, useNavigate } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 let chatInstanceInitializations = 0;
+let mobileViewport = false;
+let sidebarCollapsed = false;
+const toggleSidebar = vi.fn();
+
+vi.mock('@/hooks/use-mobile', () => ({
+  useIsMobile: () => mobileViewport,
+}));
 
 vi.mock('./useChatSession', () => ({
   useChatSession: () => {
@@ -15,8 +22,8 @@ vi.mock('./useChatSession', () => ({
     });
     return {
       instanceId,
-      sidebarCollapsed: false,
-      toggleSidebar: vi.fn(),
+      sidebarCollapsed,
+      toggleSidebar,
       visibleSidebarSessions: [],
       sessionsLoading: false,
       agents: [],
@@ -89,6 +96,9 @@ function RouteDriver() {
 afterEach(() => {
   cleanup();
   chatInstanceInitializations = 0;
+  mobileViewport = false;
+  sidebarCollapsed = false;
+  toggleSidebar.mockClear();
 });
 
 describe('conversation workspace shell', () => {
@@ -127,5 +137,25 @@ describe('conversation workspace shell', () => {
     );
 
     expect(document.querySelector('[data-kai-assistant-host="true"]')).toBeTruthy();
+  });
+
+  it('collapses the shared conversation sidebar on a narrow viewport', () => {
+    mobileViewport = true;
+    const view = render(
+      <MemoryRouter initialEntries={['/enterprise/orders']}>
+        <ConversationWorkspaceShell />
+      </MemoryRouter>,
+    );
+
+    expect(toggleSidebar).toHaveBeenCalledTimes(1);
+
+    sidebarCollapsed = true;
+    mobileViewport = false;
+    view.rerender(
+      <MemoryRouter initialEntries={['/enterprise/orders']}>
+        <ConversationWorkspaceShell />
+      </MemoryRouter>,
+    );
+    expect(toggleSidebar).toHaveBeenCalledTimes(2);
   });
 });

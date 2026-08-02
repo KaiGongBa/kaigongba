@@ -1044,8 +1044,17 @@
 }
 
 .marketplace-breadcrumb strong {
+  flex: none;
   color: #242832;
   font-weight: 620;
+  white-space: nowrap;
+}
+
+.marketplace-breadcrumb > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .service-detail-layout,

@@ -1,8 +1,9 @@
-import type { CSSProperties } from 'react';
+import { useEffect, useRef, type CSSProperties } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 import AppSidebar from '@/components/AppSidebar';
 import { SidebarProvider } from '@/components/ui/sidebar';
+import { useIsMobile } from '@/hooks/use-mobile';
 import MarketplaceWorkspacePage, {
   isMarketplaceWorkspacePath,
   selectedMarketplaceRoute,
@@ -33,10 +34,26 @@ export default function ConversationWorkspaceShell() {
   const navigate = useNavigate();
   const routeParameters = chatRouteParameters(location.pathname);
   const chat = useChatSession(routeParameters);
+  const isMobile = useIsMobile();
+  const restoreExpandedSidebarRef = useRef(false);
   const marketplaceActive = isMarketplaceWorkspacePath(location.pathname);
   const selectedProjectAgentId = projectAgentId(location.pathname);
   const galleryActive = location.pathname === '/workspace/gallery' || Boolean(selectedProjectAgentId);
   const chatActive = location.pathname.startsWith('/workspace/chat');
+
+  useEffect(() => {
+    if (isMobile) {
+      if (!chat.sidebarCollapsed && !restoreExpandedSidebarRef.current) {
+        restoreExpandedSidebarRef.current = true;
+        chat.toggleSidebar();
+      }
+      return;
+    }
+    if (restoreExpandedSidebarRef.current) {
+      if (chat.sidebarCollapsed) chat.toggleSidebar();
+      restoreExpandedSidebarRef.current = false;
+    }
+  }, [chat.sidebarCollapsed, chat.toggleSidebar, isMobile]);
 
   return (
     <SidebarProvider
