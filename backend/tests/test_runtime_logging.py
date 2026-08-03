@@ -73,12 +73,14 @@ def test_runtime_logging_restores_logger_state_after_shutdown(monkeypatch, tmp_p
     logger = logging.getLogger("staffdeck.static")
     logger.setLevel(logging.ERROR)
     logger.propagate = True
+    logger.disabled = True
 
     runtime_logging.configure_runtime_logging()
     runtime_logging.shutdown_runtime_logging()
 
     assert logger.level == logging.ERROR
     assert logger.propagate is True
+    assert logger.disabled is True
 
 
 def test_uncaught_exception_log_excludes_exception_message(monkeypatch, tmp_path: Path) -> None:

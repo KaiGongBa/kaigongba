@@ -314,6 +314,105 @@ export type ModelConfigRead = {
   updated_at: string;
 };
 
+export type AICapabilityRead = {
+  capability: string;
+  available: boolean;
+  source: 'tenant_byok' | 'platform' | 'unavailable';
+  primary_model?: string;
+  fallback_count: number;
+};
+
+export type AICapabilityStatusRead = {
+  tenant_id: string;
+  platform_available: boolean;
+  tenant_byok_available: boolean;
+  effective_source: 'tenant_byok' | 'platform' | 'unavailable';
+  capabilities: AICapabilityRead[];
+};
+
+export type AIModelCatalogRead = {
+  provider_kinds: Array<{ id: string; label: string }>;
+  model_families: Array<{ id: string; label: string }>;
+  capabilities: Array<{ id: string; label: string }>;
+  protocols: Array<'openai_chat_completions' | 'anthropic_messages' | 'gemini_generate_content'>;
+};
+
+export type AIProviderConnectionRead = {
+  id: string;
+  name: string;
+  provider_kind: string;
+  api_protocol: string;
+  base_url?: string;
+  api_key_masked: string;
+  enabled: boolean;
+  trust_status: string;
+  verified_at?: string;
+  verification_error_code?: string;
+  model_count: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AIModelDeploymentRead = {
+  id: string;
+  connection_id: string;
+  connection_name: string;
+  name: string;
+  model: string;
+  model_family: string;
+  temperature: number;
+  max_output_tokens: number;
+  capabilities: string[];
+  protocol_options: Record<string, unknown>;
+  pricing: Record<string, unknown>;
+  enabled: boolean;
+  health_status: string;
+  last_health_check_at?: string;
+  last_error_code?: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AIModelRouteRead = {
+  id: string;
+  capability: string;
+  deployment_id: string;
+  deployment_name: string;
+  connection_id: string;
+  connection_name: string;
+  model: string;
+  model_family: string;
+  priority: number;
+  timeout_seconds: number;
+  retry_count: number;
+  enabled: boolean;
+  available: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AIInvocationAuditRead = {
+  id: string;
+  request_id: string;
+  tenant_id: string;
+  user_id?: string;
+  agent_id?: string;
+  capability: string;
+  operation: string;
+  source_scope: string;
+  provider_connection_id?: string;
+  deployment_id?: string;
+  status: string;
+  attempt_count: number;
+  latency_ms?: number;
+  input_tokens?: number;
+  output_tokens?: number;
+  estimated_cost?: string;
+  error_code?: string;
+  created_at: string;
+  finished_at?: string;
+};
+
 export type PersonaRead = {
   tenant_id: string;
   system_prompt: string;

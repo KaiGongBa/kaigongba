@@ -64,12 +64,12 @@ const STEPS: GuideStep[] = [
     image: profileImage,
     eyebrow: "核心概念",
     titleLines: ["三步搭建你的数字员工"],
-    description: "先给它配大脑，再给它配能力，最后上岗对话。",
+    description: "平台先提供默认大脑，再给员工配置能力，最后上岗对话。",
     cards: [
       {
         icon: <span className={CARD_BADGE_CLASS}>01</span>,
         title: "模型",
-        description: "数字员工的大脑，接入 OpenAI 兼容模型即可。",
+        description: "默认使用平台 AI；企业管理员也可以选择接入自有模型。",
       },
       {
         icon: <span className={CARD_BADGE_CLASS}>02</span>,

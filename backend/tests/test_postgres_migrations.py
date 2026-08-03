@@ -27,7 +27,7 @@ def test_postgres_upgrade_downgrade_and_reupgrade() -> None:
 
     command.upgrade(config, "head")
     try:
-        assert _revision(engine) == "20260802_0015"
+        assert _revision(engine) == "20260803_0016"
         assert "transaction_dispute_cases" in inspect(engine).get_table_names()
         assert "transaction_hosted_skill_runs" in inspect(engine).get_table_names()
         assert "external_agent_enrollments" in inspect(engine).get_table_names()
@@ -43,6 +43,10 @@ def test_postgres_upgrade_downgrade_and_reupgrade() -> None:
         assert "external_agent_heartbeats" in inspect(engine).get_table_names()
         assert "external_agent_network_policies" in inspect(engine).get_table_names()
         assert "external_agent_rate_limit_windows" in inspect(engine).get_table_names()
+        assert "ai_provider_connections" in inspect(engine).get_table_names()
+        assert "ai_model_deployments" in inspect(engine).get_table_names()
+        assert "ai_model_routes" in inspect(engine).get_table_names()
+        assert "ai_model_invocation_audits" in inspect(engine).get_table_names()
 
         command.downgrade(config, "20260801_0014")
         assert _revision(engine) == "20260801_0014"
@@ -78,7 +82,7 @@ def test_postgres_upgrade_downgrade_and_reupgrade() -> None:
         assert "transaction_hosted_skill_runs" not in inspect(engine).get_table_names()
 
         command.upgrade(config, "head")
-        assert _revision(engine) == "20260802_0015"
+        assert _revision(engine) == "20260803_0016"
         assert "transaction_dispute_cases" in inspect(engine).get_table_names()
         assert "transaction_hosted_skill_runs" in inspect(engine).get_table_names()
         assert "external_agent_enrollments" in inspect(engine).get_table_names()
@@ -86,6 +90,10 @@ def test_postgres_upgrade_downgrade_and_reupgrade() -> None:
         assert "external_agent_import_drafts" in inspect(engine).get_table_names()
         assert "external_agent_tasks" in inspect(engine).get_table_names()
         assert "external_agent_heartbeats" in inspect(engine).get_table_names()
+        assert "ai_provider_connections" in inspect(engine).get_table_names()
+        assert "ai_model_deployments" in inspect(engine).get_table_names()
+        assert "ai_model_routes" in inspect(engine).get_table_names()
+        assert "ai_model_invocation_audits" in inspect(engine).get_table_names()
     finally:
         command.upgrade(config, "head")
         engine.dispose()

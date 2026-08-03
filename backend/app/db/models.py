@@ -2589,6 +2589,160 @@ class ModelConfig(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=utc_now)
 
 
+class AIProviderConnection(SQLModel, table=True):
+    """Server-side connection to an AI provider or aggregation platform.
+
+    A connection owns the encrypted credential and can expose many model
+    deployments.  Platform credentials are deliberately kept out of tenant
+    ``ModelConfig`` rows so they are never copied to, or enumerated by, tenant
+    APIs.
+    """
+
+    __tablename__ = "ai_provider_connections"
+    __table_args__ = (
+        UniqueConstraint(
+            "scope",
+            "owner_tenant_id",
+            "name",
+            name="uq_ai_provider_connection_scope_owner_name",
+        ),
+        Index(
+            "ix_ai_provider_connection_scope_enabled",
+            "scope",
+            "enabled",
+        ),
+    )
+
+    id: str = Field(default_factory=lambda: new_id("aiprov"), primary_key=True)
+    scope: str = Field(default="platform", index=True)
+    owner_tenant_id: Optional[str] = Field(default=None, index=True)
+    name: str
+    provider_kind: str = Field(default="openai_compatible", index=True)
+    api_protocol: str = Field(default="openai_chat_completions", index=True)
+    base_url: Optional[str] = None
+    api_key_encrypted: str
+    enabled: bool = Field(default=False, index=True)
+    trust_status: str = Field(default="unverified", index=True)
+    verified_at: Optional[datetime] = None
+    verification_error_code: Optional[str] = None
+    config_revision: int = 1
+    security_revision: int = 1
+    key_revision: int = 1
+    metadata_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    created_by_user_id: str = Field(index=True)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class AIModelDeployment(SQLModel, table=True):
+    """A callable model exposed by an aggregation-platform connection."""
+
+    __tablename__ = "ai_model_deployments"
+    __table_args__ = (
+        UniqueConstraint(
+            "connection_id",
+            "model",
+            name="uq_ai_model_deployment_connection_model",
+        ),
+        Index(
+            "ix_ai_model_deployment_connection_enabled",
+            "connection_id",
+            "enabled",
+        ),
+    )
+
+    id: str = Field(default_factory=lambda: new_id("aimodel"), primary_key=True)
+    connection_id: str = Field(index=True)
+    name: str
+    model: str
+    model_family: str = Field(default="custom", index=True)
+    temperature: float = 0.2
+    max_output_tokens: int = 8192
+    capabilities_json: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    protocol_options_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    pricing_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    enabled: bool = Field(default=False, index=True)
+    health_status: str = Field(default="unknown", index=True)
+    last_health_check_at: Optional[datetime] = None
+    last_error_code: Optional[str] = None
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class AIModelRoute(SQLModel, table=True):
+    """Ordered model route for a platform or tenant AI capability."""
+
+    __tablename__ = "ai_model_routes"
+    __table_args__ = (
+        UniqueConstraint(
+            "scope",
+            "owner_tenant_id",
+            "capability",
+            "priority",
+            name="uq_ai_model_route_scope_owner_capability_priority",
+        ),
+        Index(
+            "ix_ai_model_route_lookup",
+            "scope",
+            "owner_tenant_id",
+            "capability",
+            "enabled",
+            "priority",
+        ),
+    )
+
+    id: str = Field(default_factory=lambda: new_id("airoute"), primary_key=True)
+    scope: str = Field(default="platform", index=True)
+    owner_tenant_id: Optional[str] = Field(default=None, index=True)
+    capability: str = Field(index=True)
+    deployment_id: str = Field(index=True)
+    priority: int = Field(default=100, sa_column=Column(Integer))
+    enabled: bool = Field(default=True, index=True)
+    timeout_seconds: float = 90.0
+    retry_count: int = Field(default=1, sa_column=Column(Integer))
+    created_by_user_id: str = Field(index=True)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class AIModelInvocationAudit(SQLModel, table=True):
+    """Content-minimised audit record for routed model calls."""
+
+    __tablename__ = "ai_model_invocation_audits"
+    __table_args__ = (
+        Index("ix_ai_model_audit_tenant_created", "tenant_id", "created_at"),
+        Index("ix_ai_model_audit_capability_status", "capability", "status"),
+        Index("ix_ai_model_audit_request", "request_id"),
+    )
+
+    id: str = Field(default_factory=lambda: new_id("aiaudit"), primary_key=True)
+    request_id: str = Field(index=True)
+    tenant_id: str = Field(index=True)
+    user_id: Optional[str] = Field(default=None, index=True)
+    agent_id: Optional[str] = Field(default=None, index=True)
+    capability: str = Field(index=True)
+    operation: str = Field(default="generate_text", index=True)
+    source_scope: str = Field(default="platform", index=True)
+    provider_connection_id: Optional[str] = Field(default=None, index=True)
+    deployment_id: Optional[str] = Field(default=None, index=True)
+    status: str = Field(default="started", index=True)
+    attempt_count: int = Field(default=0, sa_column=Column(Integer))
+    latency_ms: Optional[int] = Field(default=None, sa_column=Column(Integer))
+    input_tokens: Optional[int] = Field(default=None, sa_column=Column(Integer))
+    output_tokens: Optional[int] = Field(default=None, sa_column=Column(Integer))
+    estimated_cost: Optional[Decimal] = Field(
+        default=None,
+        sa_column=Column(Numeric(18, 6)),
+    )
+    error_code: Optional[str] = Field(default=None, index=True)
+    prompt_hash: Optional[str] = None
+    response_hash: Optional[str] = None
+    metadata_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    started_at: datetime = Field(default_factory=utc_now)
+    finished_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=utc_now)
+
+
 class PersonaConfig(SQLModel, table=True):
     __tablename__ = "persona_configs"
 

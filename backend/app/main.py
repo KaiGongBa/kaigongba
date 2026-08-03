@@ -24,6 +24,7 @@ from app.api import (
     memories,
     mock,
     model_configs,
+    platform_models,
     persona,
     scheduled_tasks,
     sessions,
@@ -83,6 +84,7 @@ app.include_router(knowledge_bases.router)
 app.include_router(knowledge.router)
 app.include_router(skills.router)
 app.include_router(model_configs.router)
+app.include_router(platform_models.router)
 app.include_router(memories.router)
 app.include_router(feedback.router)
 app.include_router(persona.router)

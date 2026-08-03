@@ -94,7 +94,7 @@ import {
   DIALOG_FOOTER_CLASS,
   DIALOG_PRIMARY_BUTTON_CLASS,
 } from "@/lib/enterprise-ui";
-import type { AgentProfileRead, ModelConfigRead } from "./types";
+import type { AICapabilityStatusRead, AgentProfileRead, ModelConfigRead } from "./types";
 import { useI18n } from "./i18n";
 import MarketReviewPage from "./features/marketplace/MarketReviewPage";
 import TransactionSupervisionPage from "./features/marketplace/TransactionSupervisionPage";
@@ -112,6 +112,7 @@ import "./features/external-agent.css";
 
 const ENTERPRISE_SIDEBAR_STORAGE_KEY = "ultrarag_enterprise_sidebar_expanded";
 const MODEL_CONFIGS_UPDATED_EVENT = "ultrarag-enterprise-model-configs-updated";
+const AI_CAPABILITIES_UPDATED_EVENT = "kaigongba-ai-capabilities-updated";
 type AgentCreateMode = "copy" | "external" | "blank";
 
 type AgentCreateFormState = {
@@ -154,6 +155,8 @@ function Shell({
     useState<AgentCreateFormState>(EMPTY_AGENT_FORM);
   const [modelConfigs, setModelConfigs] = useState<ModelConfigRead[]>([]);
   const [modelConfigsLoaded, setModelConfigsLoaded] = useState(false);
+  const [aiCapabilityStatus, setAiCapabilityStatus] = useState<AICapabilityStatusRead | null>(null);
+  const [aiCapabilityStatusLoaded, setAiCapabilityStatusLoaded] = useState(false);
   const [guidesCompleted, setGuidesCompleted] = useState(() => Boolean(
     window.localStorage.getItem(ONBOARDING_SEEN_KEY)
     && window.localStorage.getItem(QUICK_START_SEEN_KEY),
@@ -212,9 +215,29 @@ function Shell({
       });
   }, []);
 
+  const loadAiCapabilityStatus = useCallback(() => {
+    return api
+      .get<AICapabilityStatusRead>("/api/ai/capabilities/status")
+      .then((status) => {
+        setAiCapabilityStatus(status);
+        setAiCapabilityStatusLoaded(true);
+      })
+      .catch(() => {
+        setAiCapabilityStatus(null);
+        setAiCapabilityStatusLoaded(true);
+      });
+  }, []);
+
   useEffect(() => {
     void loadModelConfigs();
-  }, [loadModelConfigs]);
+    void loadAiCapabilityStatus();
+  }, [loadAiCapabilityStatus, loadModelConfigs]);
+
+  useEffect(() => {
+    const refresh = () => void loadAiCapabilityStatus();
+    window.addEventListener(AI_CAPABILITIES_UPDATED_EVENT, refresh);
+    return () => window.removeEventListener(AI_CAPABILITIES_UPDATED_EVENT, refresh);
+  }, [loadAiCapabilityStatus]);
 
   useEffect(() => {
     const onModelConfigsUpdated = (event: Event) => {
@@ -225,10 +248,11 @@ function Shell({
       } else {
         void loadModelConfigs();
       }
+      void loadAiCapabilityStatus();
     };
     window.addEventListener(MODEL_CONFIGS_UPDATED_EVENT, onModelConfigsUpdated);
     return () => window.removeEventListener(MODEL_CONFIGS_UPDATED_EVENT, onModelConfigsUpdated);
-  }, [loadModelConfigs]);
+  }, [loadAiCapabilityStatus, loadModelConfigs]);
 
   useEffect(() => {
     const onQuickStartCompleted = () => setGuidesCompleted(true);
@@ -351,11 +375,20 @@ function Shell({
   }
 
   const scopeAgents = agents.filter(canUseAgentScope);
-  const hasUsableModelConfig = modelConfigs.some((item) => item.enabled);
-  const showModelSetupNotice = guidesCompleted && modelConfigsLoaded && !hasUsableModelConfig;
+  const hasUsableTenantModelConfig = modelConfigs.some((item) => item.enabled);
+  const hasUsablePlatformModel = Boolean(
+    aiCapabilityStatus?.capabilities.some(
+      (item) => item.capability === "agent_chat" && item.available,
+    ),
+  );
+  const hasUsableModelConfig = hasUsableTenantModelConfig || hasUsablePlatformModel;
+  const showModelSetupNotice = guidesCompleted
+    && modelConfigsLoaded
+    && aiCapabilityStatusLoaded
+    && !hasUsableModelConfig;
   const modelSetupNoticeText = isAdmin
-    ? t("还没有可用模型配置，数字员工暂不能调用模型。请先完成模型配置。")
-    : t("系统管理员尚未配置可用模型，数字员工暂不能调用模型。请联系管理员完成模型配置。");
+    ? t("平台和企业均没有可用模型，数字员工暂不能调用模型。请先配置平台模型或企业自有模型。")
+    : t("平台 AI 服务暂不可用，请联系平台管理员。");
   const selectedAgent = scopeAgents.find((item) => item.id === selectedAgentId);
   const sidebarAgent = selectedAgent;
   // Routes that operate on a specific employee; show the empty guide when none exist.

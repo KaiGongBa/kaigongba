@@ -6,9 +6,14 @@ from types import MappingProxyType
 from typing import Any, Literal, Mapping
 
 from fastapi import HTTPException
-from sqlmodel import Session
+from sqlmodel import Session, select
 
-from app.db.models import ModelConfig
+from app.db.models import (
+    AIModelDeployment,
+    AIModelRoute,
+    AIProviderConnection,
+    ModelConfig,
+)
 from app.llm.model_protocols import (
     ModelApiProtocol,
     current_protocol_options,
@@ -32,6 +37,12 @@ class ResolvedModelConfig:
     security_revision: int
     purpose: Literal["runtime", "verification"]
     timeout_seconds: float | None = None
+    source_scope: Literal["tenant", "platform"] = "tenant"
+    provider_connection_id: str | None = None
+    deployment_id: str | None = None
+    capability: str | None = None
+    retry_count: int = 0
+    routing_candidates: tuple["ResolvedModelConfig", ...] = ()
 
 
 def resolve_model_config_for_runtime(
@@ -60,6 +71,92 @@ def resolve_model_config_for_verification(
         raise HTTPException(status_code=409, detail="MODEL_VERIFICATION_STALE")
     protocol = _protocol(row)
     return _snapshot(row, protocol, purpose="verification")
+
+
+def resolve_platform_models_for_capability(
+    db: Session,
+    tenant_id: str,
+    capability: str,
+) -> tuple[ResolvedModelConfig, ...]:
+    """Resolve the ordered, server-only platform route for one capability.
+
+    Platform provider credentials never become tenant ``ModelConfig`` rows and
+    are therefore not visible through tenant model APIs.  The caller tenant is
+    carried only as execution/audit context.
+    """
+
+    routes = db.exec(
+        select(AIModelRoute)
+        .where(
+            AIModelRoute.scope == "platform",
+            AIModelRoute.owner_tenant_id.is_(None),
+            AIModelRoute.capability == capability,
+            AIModelRoute.enabled == True,  # noqa: E712
+        )
+        .order_by(AIModelRoute.priority, AIModelRoute.created_at)
+    ).all()
+    resolved: list[ResolvedModelConfig] = []
+    for route in routes:
+        deployment = db.get(AIModelDeployment, route.deployment_id)
+        if not deployment or not deployment.enabled:
+            continue
+        connection = db.get(AIProviderConnection, deployment.connection_id)
+        if (
+            not connection
+            or connection.scope != "platform"
+            or connection.owner_tenant_id is not None
+            or not connection.enabled
+            or connection.trust_status != "verified"
+        ):
+            continue
+        if deployment.health_status not in {"healthy", "unknown"}:
+            continue
+        try:
+            protocol = ModelApiProtocol(connection.api_protocol)
+        except ValueError:
+            continue
+        options = current_protocol_options(deployment.protocol_options_json, protocol)
+        resolved.append(
+            ResolvedModelConfig(
+                id=deployment.id,
+                tenant_id=tenant_id,
+                api_protocol=protocol,
+                base_url=connection.base_url,
+                api_key_encrypted=connection.api_key_encrypted,
+                model=deployment.model,
+                temperature=deployment.temperature,
+                max_output_tokens=deployment.max_output_tokens,
+                protocol_options=_freeze(options),
+                legacy_extra_body=_freeze({}),
+                config_revision=connection.config_revision,
+                security_revision=connection.security_revision,
+                purpose="runtime",
+                timeout_seconds=route.timeout_seconds,
+                source_scope="platform",
+                provider_connection_id=connection.id,
+                deployment_id=deployment.id,
+                capability=capability,
+                retry_count=max(0, min(route.retry_count, 3)),
+            )
+        )
+    return tuple(resolved)
+
+
+def resolve_platform_model_for_capability(
+    db: Session,
+    tenant_id: str,
+    capability: str,
+) -> ResolvedModelConfig | None:
+    candidates = resolve_platform_models_for_capability(db, tenant_id, capability)
+    if not candidates:
+        return None
+    primary, *fallbacks = candidates
+    return ResolvedModelConfig(
+        **{
+            **primary.__dict__,
+            "routing_candidates": tuple(fallbacks),
+        }
+    )
 
 
 def _current_model_config(db: Session, tenant_id: str, config_id: str) -> ModelConfig:

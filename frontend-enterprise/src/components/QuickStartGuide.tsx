@@ -33,8 +33,8 @@ type QuickStartStep = {
 
 const STEPS: QuickStartStep[] = [
   {
-    title: "配置模型 API Key",
-    description: "模型是数字员工的大脑。点击「新建模型」，填写 Base URL、Model 和 API Key 即可接入。",
+    title: "平台 AI 与企业自有模型",
+    description: "平台默认提供基础 AI 能力；如需使用企业自己的额度和模型，可在这里添加 BYOK 配置。",
     route: EnterpriseRoute.Models,
     target: "models-create",
     eventName: OPEN_MODEL_CREATE_EVENT,

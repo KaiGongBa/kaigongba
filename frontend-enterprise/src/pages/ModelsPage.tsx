@@ -39,6 +39,7 @@ import { StatusBadge } from './scheduled-tasks/StatusBadge';
 import { useClientPagination } from '../hooks/useClientPagination';
 import type { ModelConfigRead } from '../types';
 import { OPEN_MODEL_CREATE_EVENT } from '@/components/QuickStartGuide';
+import PlatformModelGatewayPanel from './PlatformModelGatewayPanel';
 
 const MODEL_PAGE_SIZE = 8;
 
@@ -386,11 +387,17 @@ export default function ModelsPage({
           className="h-[34px] gap-[4px] rounded-[10px] bg-[#18181a] px-[20px] text-[12px] font-normal text-white hover:bg-[#303030]"
         >
           <IconAdd className="size-[14px]" />
-          新建模型
+          添加企业自有模型
         </UIButton>
       </div>
 
+      <PlatformModelGatewayPanel />
+
       <div className="flex flex-col gap-[24px] rounded-[20px_20px_0_0] bg-white p-[18px_18px_24px_18px] shadow-[0_-4px_16px_0_rgba(0,0,0,0.05)]">
+        <div className="rounded-[12px] border border-[#e7eaf0] bg-[#f8f9fb] px-[14px] py-[11px]">
+          <strong className="text-[13px] text-[#18181a]">企业自有模型（BYOK，可选）</strong>
+          <p className="mt-[3px] text-[11px] text-[#858b9c]">配置后优先使用企业自己的模型和额度；未配置或停用时自动使用平台默认 AI 服务。</p>
+        </div>
         <div className="flex flex-wrap items-stretch gap-[20px]" aria-label="模型统计">
           <StatCard label="模型" value={rows.length} />
           <StatCard label="已启用" value={enabledCount} tone="green" />

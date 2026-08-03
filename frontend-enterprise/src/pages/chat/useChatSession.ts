@@ -35,6 +35,7 @@ import {
 import { notify } from '@/components/ui/app-toast';
 import { useI18n } from '@/i18n';
 import type {
+  AICapabilityStatusRead,
   AgentProfileRead,
   ChatAttachmentRead,
   ChatMessage,
@@ -115,6 +116,7 @@ import {
   upsertStreamingTracePlaceholder,
   upsertTraceStatusPlaceholder,
 } from './chatHelpers';
+
 import {
   createEmptySlot,
   createStreamSlot,
@@ -133,6 +135,7 @@ import {
   type PreparedChatTurn,
 } from './chatQueueStorage';
 
+const AI_CAPABILITIES_UPDATED_EVENT = 'kaigongba-ai-capabilities-updated';
 const CHAT_BASE_PATH = '/workspace/chat';
 const STREAM_TEXT_EVENTS = new Set(['stream_replace', 'stream_delta', 'token']);
 const STREAM_RELAY_RECOVERY_POLL_INTERVAL_MS = 5 * 1000;
@@ -329,6 +332,8 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
   );
   const [modelConfigsLoading, setModelConfigsLoading] = useState(Boolean(auth));
   const [modelConfigsLoadError, setModelConfigsLoadError] = useState('');
+  const [aiCapabilityStatus, setAiCapabilityStatus] = useState<AICapabilityStatusRead | null>(null);
+  const [aiCapabilityLoading, setAiCapabilityLoading] = useState(Boolean(auth));
   const [modelSetupOpen, setModelSetupOpen] = useState(false);
   const [input, setInput] = useState('');
   const [composerAttachments, setComposerAttachments] = useState<ComposerAttachment[]>([]);
@@ -593,10 +598,17 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
     || null
   );
   const canConfigureModels = auth?.user.role === 'admin';
-  const showModelSetupNotice = !modelConfigsLoading && !modelConfigsLoadError && !selectedModelConfig;
+  const hasPlatformAgentChat = Boolean(aiCapabilityStatus?.capabilities.some(
+    (item) => item.capability === 'agent_chat' && item.available,
+  ));
+  const showModelSetupNotice = !modelConfigsLoading
+    && !aiCapabilityLoading
+    && !modelConfigsLoadError
+    && !selectedModelConfig
+    && !hasPlatformAgentChat;
   const modelSetupNoticeText = canConfigureModels
-    ? t('还没有可用模型配置，发送消息前请先完成模型配置。')
-    : t('系统管理员尚未配置可用模型，暂时无法发送消息。请联系管理员完成模型配置。');
+    ? t('平台和企业均没有可用模型，发送消息前请先完成模型配置。')
+    : t('平台 AI 服务暂不可用，请联系平台管理员。');
 
   const changeModelConfig = useCallback((value: string) => {
     setSelectedModelConfigId(value);
@@ -626,7 +638,7 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
   }, [changeModelConfig]);
 
   const ensureModelAvailable = useCallback(() => {
-    if (modelConfigsLoading) {
+    if (modelConfigsLoading || aiCapabilityLoading) {
       notify.warning(t('模型配置正在加载，请稍后再发送'));
       return false;
     }
@@ -634,16 +646,16 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
       notify.error(t('无法读取模型配置，请刷新页面后重试'));
       return false;
     }
-    if (!selectedModelConfig) {
+    if (!selectedModelConfig && !hasPlatformAgentChat) {
       if (canConfigureModels) {
         setModelSetupOpen(true);
       } else {
-        notify.warning(t('系统管理员尚未配置可用模型，请联系管理员完成模型配置'));
+        notify.warning(t('平台 AI 服务暂不可用，请联系平台管理员。'));
       }
       return false;
     }
     return true;
-  }, [canConfigureModels, modelConfigsLoadError, modelConfigsLoading, selectedModelConfig, t]);
+  }, [aiCapabilityLoading, canConfigureModels, hasPlatformAgentChat, modelConfigsLoadError, modelConfigsLoading, selectedModelConfig, t]);
 
   const loadAgents = useCallback(async (preferredAgentId?: string) => {
     setAgentsLoaded(false);
@@ -747,6 +759,35 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
       .finally(() => setModelConfigsLoading(false));
   }, [auth, redirectToLogin, tenantId]);
 
+  const loadAiCapabilityStatus = useCallback(() => {
+    if (!auth) {
+      setAiCapabilityLoading(false);
+      return Promise.resolve();
+    }
+    setAiCapabilityLoading(true);
+    return api
+      .get<AICapabilityStatusRead>('/api/ai/capabilities/status')
+      .then((status) => setAiCapabilityStatus(status))
+      .catch((error) => {
+        if (isAuthError(error)) {
+          redirectToLogin();
+          return;
+        }
+        setAiCapabilityStatus(null);
+      })
+      .finally(() => setAiCapabilityLoading(false));
+  }, [auth, redirectToLogin]);
+
+  useEffect(() => {
+    void loadAiCapabilityStatus();
+  }, [loadAiCapabilityStatus]);
+
+  useEffect(() => {
+    const refresh = () => void loadAiCapabilityStatus();
+    window.addEventListener(AI_CAPABILITIES_UPDATED_EVENT, refresh);
+    return () => window.removeEventListener(AI_CAPABILITIES_UPDATED_EVENT, refresh);
+  }, [loadAiCapabilityStatus]);
+
   useEffect(() => {
     const onModelConfigsUpdated = (event: Event) => {
       const rows = (event as CustomEvent<{ models?: ModelConfigRead[] }>).detail?.models;
@@ -754,6 +795,7 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
       setModelConfigs(rows);
       setModelConfigsLoadError('');
       setModelConfigsLoading(false);
+      void loadAiCapabilityStatus();
       setSelectedModelConfigId((current) => {
         const enabledRows = rows.filter((item) => item.enabled);
         if (current && enabledRows.some((item) => item.id === current)) return current;
@@ -768,15 +810,22 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
     };
     window.addEventListener(MODEL_CONFIGS_UPDATED_EVENT, onModelConfigsUpdated);
     return () => window.removeEventListener(MODEL_CONFIGS_UPDATED_EVENT, onModelConfigsUpdated);
-  }, [tenantId]);
+  }, [loadAiCapabilityStatus, tenantId]);
 
   useEffect(() => {
-    if (!auth || modelConfigsLoading || modelConfigsLoadError || selectedModelConfig) return;
+    if (
+      !auth
+      || modelConfigsLoading
+      || aiCapabilityLoading
+      || modelConfigsLoadError
+      || selectedModelConfig
+      || hasPlatformAgentChat
+    ) return;
     const onboardingSeen = window.localStorage.getItem(ONBOARDING_SEEN_KEY);
     const quickStartSeen = window.localStorage.getItem(QUICK_START_SEEN_KEY);
     if (!onboardingSeen || !quickStartSeen) return;
     setModelSetupOpen(true);
-  }, [auth, modelConfigsLoadError, modelConfigsLoading, selectedModelConfig]);
+  }, [aiCapabilityLoading, auth, hasPlatformAgentChat, modelConfigsLoadError, modelConfigsLoading, selectedModelConfig]);
 
   const toggleTrace = useCallback((turnId: string, isExpanded = false) => {
     if (isExpanded) {

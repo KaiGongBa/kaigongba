@@ -28,6 +28,7 @@ from app.db.models import (
 )
 from app.llm.model_config_resolver import (
     ResolvedModelConfig,
+    resolve_platform_model_for_capability,
     resolve_model_config_for_runtime,
 )
 
@@ -986,7 +987,13 @@ def model_for_agent(
             ModelConfig.enabled == True,  # noqa: E712
         )
     ).first()
-    return _runtime_model(db, tenant_id, model) if model else None
+    if model:
+        return _runtime_model(db, tenant_id, model)
+    capability = "structured_generation" if role in {"router", "reflection"} else "agent_chat"
+    platform_model = resolve_platform_model_for_capability(db, tenant_id, capability)
+    if platform_model is None and capability != "agent_chat":
+        platform_model = resolve_platform_model_for_capability(db, tenant_id, "agent_chat")
+    return platform_model
 
 
 def _runtime_model(
