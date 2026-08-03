@@ -2669,6 +2669,41 @@ class AIModelDeployment(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=utc_now)
 
 
+class AIModelCapabilityCheck(SQLModel, table=True):
+    """Immutable evidence that one deployment passed a business capability check."""
+
+    __tablename__ = "ai_model_capability_checks"
+    __table_args__ = (
+        Index(
+            "ix_ai_model_capability_check_lookup",
+            "deployment_id",
+            "capability",
+            "status",
+            "finished_at",
+        ),
+        Index(
+            "ix_ai_model_capability_check_run",
+            "certification_run_id",
+            "created_at",
+        ),
+    )
+
+    id: str = Field(default_factory=lambda: new_id("aicheck"), primary_key=True)
+    certification_run_id: str = Field(index=True)
+    deployment_id: str = Field(index=True)
+    capability: str = Field(index=True)
+    check_type: str = Field(default="business_contract", index=True)
+    status: str = Field(default="started", index=True)
+    error_code: Optional[str] = Field(default=None, index=True)
+    latency_ms: Optional[int] = Field(default=None, sa_column=Column(Integer))
+    output_hash: Optional[str] = None
+    metadata_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    created_by_user_id: str = Field(index=True)
+    started_at: datetime = Field(default_factory=utc_now)
+    finished_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=utc_now)
+
+
 class AIModelRoute(SQLModel, table=True):
     """Ordered model route for a platform or tenant AI capability."""
 

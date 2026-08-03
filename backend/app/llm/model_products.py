@@ -20,7 +20,11 @@ from app.db.models import (
     utc_now,
 )
 from app.llm.model_config_resolver import resolve_model_config_for_runtime
-from app.llm.platform_gateway import AI_CAPABILITY_IDS, require_platform_admin
+from app.llm.platform_gateway import (
+    AI_CAPABILITY_IDS,
+    capability_certified,
+    require_platform_admin,
+)
 from app.llm.platform_schemas import (
     AIModelOptionRead,
     AIModelOptionsRead,
@@ -462,6 +466,11 @@ def _available_deployments(db: Session, product_id: str) -> list[AIModelDeployme
     for mapping in mappings:
         deployment = db.get(AIModelDeployment, mapping.deployment_id)
         if not deployment or not deployment.enabled or deployment.health_status != "healthy":
+            continue
+        if (
+            "agent_chat" not in set(deployment.capabilities_json or [])
+            or not capability_certified(db, deployment.id, "agent_chat")
+        ):
             continue
         connection = db.get(AIProviderConnection, deployment.connection_id)
         if not connection or not connection.enabled or connection.trust_status != "verified":

@@ -14,8 +14,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.db.models import (
+    AIModelCapabilityCheck,
     AIModelDeployment,
     AIModelInvocationAudit,
+    AIModelProduct,
+    AIModelProductDeployment,
     AIModelRoute,
     AIProviderConnection,
     ModelConfig,
@@ -39,6 +42,9 @@ from app.llm.platform_schemas import (
     AICapabilityStatusRead,
     AIInvocationAuditRead,
     AIModelCatalogRead,
+    AIModelCapabilityCheckRead,
+    AIModelCertificationRequest,
+    AIModelCertificationResponse,
     AIModelDeploymentCreate,
     AIModelDeploymentRead,
     AIModelDeploymentUpdate,
@@ -71,6 +77,15 @@ AI_CAPABILITIES: tuple[tuple[str, str], ...] = (
     ("skill_distillation", "Skill 整理与生成"),
 )
 AI_CAPABILITY_IDS = {item[0] for item in AI_CAPABILITIES}
+PLATFORM_MANAGED_CAPABILITIES = {
+    "structured_generation",
+    "demand_analysis",
+    "matching",
+    "quote_draft",
+    "evidence_summary",
+    "knowledge_processing",
+    "skill_distillation",
+}
 
 PROVIDER_KINDS: tuple[tuple[str, str], ...] = (
     ("crun", "CRUN 聚合平台"),
@@ -109,6 +124,44 @@ RETRYABLE_MODEL_ERRORS = {
 
 T = TypeVar("T")
 CRUN_DEFAULT_BASE_URL = "https://api.crun.ai/api/v1"
+
+CERTIFICATION_JSON_SPECS: dict[str, tuple[str, dict[str, Any], tuple[str, ...]]] = {
+    "structured_generation": (
+        '只返回 JSON object，必须包含布尔字段 "ok"。',
+        {"instruction": "把 ok 设为 true"},
+        ("ok",),
+    ),
+    "demand_analysis": (
+        "你是需求分析认证助手。只返回 JSON object，包含 summary、goals、constraints。",
+        {"requirement": "为企业制作一份招聘流程优化方案，预算五万元，四周交付。"},
+        ("summary", "goals", "constraints"),
+    ),
+    "matching": (
+        "你是服务匹配认证助手。只返回 JSON object，包含 recommended_ids、reasons。",
+        {"demand": "招聘流程优化", "candidates": ["provider_a", "provider_b"]},
+        ("recommended_ids", "reasons"),
+    ),
+    "quote_draft": (
+        "你是报价认证助手。只返回 JSON object，包含 total_price、scope、exclusions、timeline、milestones、acceptance。",
+        {"demand": "招聘流程优化", "budget": 50000, "duration_days": 28},
+        ("total_price", "scope", "exclusions", "timeline", "milestones", "acceptance"),
+    ),
+    "evidence_summary": (
+        "你是证据整理认证助手。只返回 JSON object，包含 facts、evidence、disputed_points、missing_materials。不得输出裁决。",
+        {"materials": ["合同已确认", "第一版交付已提交", "甲方提出修改"]},
+        ("facts", "evidence", "disputed_points", "missing_materials"),
+    ),
+    "knowledge_processing": (
+        "你是知识整理认证助手。只返回 JSON object，包含 title、summary、tags。",
+        {"content": "候选人面试后应在二十四小时内完成评价并记录改进建议。"},
+        ("title", "summary", "tags"),
+    ),
+    "skill_distillation": (
+        "你是 Skill 结构认证助手。只返回 JSON object，包含 skill_name、steps、tool_call；tool_call 必须包含 name 和 arguments。",
+        {"goal": "查询订单状态", "available_tool": "order.get"},
+        ("skill_name", "steps", "tool_call"),
+    ),
+}
 
 
 def require_platform_admin(current_user: User) -> User:
@@ -345,12 +398,25 @@ def verify_model_deployment(
     deployment = _get_deployment(db, deployment_id)
     connection = _get_connection(db, deployment.connection_id)
     config = _deployment_config(connection, deployment, current_user.tenant_id, "verification")
+    certification_run_id = f"aicert_{uuid4().hex}"
+    started_at = utc_now()
+    started = monotonic()
+    verification_capability = "agent_chat"
     try:
         client = LLMClient(replace(config, timeout_seconds=35.0, max_output_tokens=128))
         output = client.generate_text(
             "你是平台模型连接测试助手。请只用一句中文回复连接成功。",
             {"message": "ping"},
         )
+        streamed = "".join(
+            client.generate_text_stream(
+                "你是平台模型流式连接测试助手。请只回复流式连接成功。",
+                {"message": "stream ping"},
+            )
+        )
+        if not streamed.strip():
+            raise LLMError("MODEL_EMPTY_STREAM")
+        verification_capability = "structured_generation"
         parsed = client.generate_json(
             "只返回合法 JSON object。",
             {"message": "返回 {\"ok\": true}"},
@@ -370,6 +436,22 @@ def verify_model_deployment(
         deployment.updated_at = utc_now()
         db.add(connection)
         db.add(deployment)
+        db.add(
+            _capability_check_row(
+                current_user,
+                deployment,
+                certification_run_id,
+                verification_capability,
+                status="failed",
+                started_at=started_at,
+                finished_at=utc_now(),
+                latency_ms=max(0, int((monotonic() - started) * 1000)),
+                error_code=code,
+                metadata={
+                    "operations": _capability_operations(verification_capability)
+                },
+            )
+        )
         db.commit()
         return AIModelVerificationResponse(
             success=False,
@@ -388,8 +470,43 @@ def verify_model_deployment(
         deployment.enabled = True
     connection.updated_at = utc_now()
     deployment.updated_at = utc_now()
+    deployment.capabilities_json = _ordered_capabilities(
+        set(deployment.capabilities_json or [])
+        | {"agent_chat", "structured_generation"}
+    )
     db.add(connection)
     db.add(deployment)
+    finished_at = utc_now()
+    elapsed_ms = max(0, int((monotonic() - started) * 1000))
+    db.add(
+        _capability_check_row(
+            current_user,
+            deployment,
+            certification_run_id,
+            "agent_chat",
+            status="passed",
+            started_at=started_at,
+            finished_at=finished_at,
+            latency_ms=elapsed_ms,
+            output={"text": output, "stream": streamed},
+            metadata={"operations": ["generate_text", "generate_text_stream"]},
+        )
+    )
+    db.add(
+        _capability_check_row(
+            current_user,
+            deployment,
+            certification_run_id,
+            "structured_generation",
+            status="passed",
+            started_at=started_at,
+            finished_at=finished_at,
+            latency_ms=elapsed_ms,
+            output=parsed,
+            metadata={"operations": ["generate_json"]},
+        )
+    )
+    _refresh_linked_product_capabilities(db, deployment)
     db.commit()
     db.refresh(connection)
     db.refresh(deployment)
@@ -400,6 +517,113 @@ def verify_model_deployment(
         connection=_connection_read(db, connection),
         deployment=_deployment_read(db, deployment),
     )
+
+
+def certify_model_deployment(
+    db: Session,
+    current_user: User,
+    deployment_id: str,
+    request: AIModelCertificationRequest,
+) -> AIModelCertificationResponse:
+    require_platform_admin(current_user)
+    deployment = _get_deployment(db, deployment_id)
+    connection = _get_connection(db, deployment.connection_id)
+    if not _deployment_available(connection, deployment):
+        raise HTTPException(
+            status_code=409, detail="AI_MODEL_BASE_VERIFICATION_REQUIRED"
+        )
+    capabilities = _ordered_capabilities(
+        set(request.capabilities or deployment.capabilities_json or [])
+    )
+    if not capabilities:
+        raise HTTPException(status_code=422, detail="AI_MODEL_CAPABILITIES_REQUIRED")
+    for capability in capabilities:
+        _validate_capability(capability)
+
+    run_id = f"aicert_{uuid4().hex}"
+    config = _deployment_config(
+        connection, deployment, current_user.tenant_id, "verification"
+    )
+    checks: list[AIModelCapabilityCheck] = []
+    passed: list[str] = []
+    failed: list[str] = []
+    for capability in capabilities:
+        started_at = utc_now()
+        started = monotonic()
+        output: Any = None
+        error_code: str | None = None
+        metadata = {"operations": _capability_operations(capability)}
+        try:
+            output = _execute_capability_check(config, capability)
+            passed.append(capability)
+            status = "passed"
+        except (LLMError, ValueError) as exc:
+            status = "failed"
+            error_code = _model_error_code(exc) or "AI_MODEL_CAPABILITY_CHECK_FAILED"
+            failed.append(capability)
+        finished_at = utc_now()
+        row = _capability_check_row(
+            current_user,
+            deployment,
+            run_id,
+            capability,
+            status=status,
+            started_at=started_at,
+            finished_at=finished_at,
+            latency_ms=max(0, int((monotonic() - started) * 1000)),
+            output=output,
+            error_code=error_code,
+            metadata=metadata,
+        )
+        checks.append(row)
+        db.add(row)
+
+    retained = set(deployment.capabilities_json or []) - set(capabilities)
+    deployment.capabilities_json = _ordered_capabilities(retained | set(passed))
+    if request.activate and "agent_chat" in passed:
+        deployment.enabled = True
+        deployment.health_status = "healthy"
+        deployment.last_error_code = None
+    elif "agent_chat" in failed:
+        deployment.enabled = False
+        deployment.health_status = "unhealthy"
+        deployment.last_error_code = "AI_MODEL_AGENT_CHAT_CERTIFICATION_FAILED"
+    deployment.last_health_check_at = utc_now()
+    deployment.updated_at = utc_now()
+    db.add(deployment)
+    _refresh_linked_product_capabilities(db, deployment)
+    _commit_or_conflict(db, "AI_MODEL_CAPABILITY_CERTIFICATION_CONFLICT")
+    db.refresh(deployment)
+    return AIModelCertificationResponse(
+        success=not failed,
+        certification_run_id=run_id,
+        certified_capabilities=passed,
+        failed_capabilities=failed,
+        checks=[_capability_check_read(row) for row in checks],
+        deployment=_deployment_read(db, deployment),
+    )
+
+
+def list_capability_checks(
+    db: Session,
+    current_user: User,
+    *,
+    deployment_id: str | None = None,
+    limit: int = 100,
+) -> list[AIModelCapabilityCheckRead]:
+    require_platform_admin(current_user)
+    statement = select(AIModelCapabilityCheck)
+    if deployment_id:
+        _get_deployment(db, deployment_id)
+        statement = statement.where(
+            AIModelCapabilityCheck.deployment_id == deployment_id
+        )
+    rows = db.exec(
+        statement.order_by(AIModelCapabilityCheck.created_at.desc()).limit(
+            max(1, min(limit, 500))
+        )
+    ).all()
+    return [_capability_check_read(row) for row in rows]
 
 
 def list_model_routes(db: Session) -> list[AIModelRouteRead]:
@@ -426,6 +650,13 @@ def upsert_model_route(
     connection = _get_connection(db, deployment.connection_id)
     if request.enabled and not _deployment_available(connection, deployment):
         raise HTTPException(status_code=409, detail="AI_MODEL_ROUTE_TARGET_UNAVAILABLE")
+    if request.enabled and (
+        request.capability not in set(deployment.capabilities_json or [])
+        or not capability_certified(db, deployment.id, request.capability)
+    ):
+        raise HTTPException(
+            status_code=409, detail="AI_MODEL_CAPABILITY_CERTIFICATION_REQUIRED"
+        )
     row = db.exec(
         select(AIModelRoute).where(
             AIModelRoute.scope == "platform",
@@ -586,24 +817,108 @@ class AIModelGateway:
         last_error: LLMError | None = None
         attempts = 0
         for config in candidates:
-            attempts += 1
-            emitted = False
-            try:
-                for chunk in LLMClient(config).generate_text_stream(system_prompt, payload):
-                    emitted = True
-                    yield chunk
-                self._finish_audit(
-                    audit,
+            for retry_index in range(config.retry_count + 1):
+                attempts += 1
+                emitted = False
+                streamed_parts: list[str] = []
+                quota_key = f"{audit.request_id}:attempt:{attempts}"
+                estimated = estimate_credits(
+                    self.db,
                     config,
-                    status="succeeded",
-                    attempts=attempts,
-                    started=started,
+                    input_tokens=_estimated_tokens(
+                        {"system": system_prompt, "payload": payload}
+                    ),
+                    output_tokens=min(config.max_output_tokens, 1024),
                 )
-                return
-            except LLMError as exc:
-                last_error = exc
-                if emitted:
-                    break
+                quota_account, reserved = reserve_quota(
+                    self.db,
+                    tenant_id=self.tenant_id,
+                    user_id=self.user_id,
+                    organization_id=self.organization_id,
+                    credits=estimated,
+                    idempotency_key=f"{quota_key}:reserve",
+                )
+                client = LLMClient(config)
+                try:
+                    with suspend_ai_usage_capture():
+                        for chunk in client.generate_text_stream(
+                            system_prompt, payload
+                        ):
+                            emitted = True
+                            streamed_parts.append(chunk)
+                            yield chunk
+                    self._finish_audit(
+                        audit,
+                        config,
+                        status="succeeded",
+                        attempts=attempts,
+                        started=started,
+                        output="".join(streamed_parts),
+                    )
+                    usage = dict(getattr(client, "last_usage_metrics", {}) or {})
+                    usage["usage_source"] = getattr(
+                        client, "last_usage_source", "none"
+                    )
+                    event = record_usage_event(
+                        self.db,
+                        request_id=audit.request_id,
+                        idempotency_key=audit.request_id,
+                        invocation_audit_id=audit.id,
+                        tenant_id=self.tenant_id,
+                        user_id=self.user_id,
+                        agent_id=self.agent_id,
+                        session_id=self.session_id,
+                        organization_id=self.organization_id,
+                        capability=self.capability,
+                        operation="generate_text_stream",
+                        config=config,
+                        status="succeeded",
+                        usage=usage,
+                        latency_ms=audit.latency_ms,
+                        retry_count=max(0, attempts - 1),
+                        started_at=audit.started_at,
+                        finished_at=audit.finished_at or utc_now(),
+                        prompt_hash=audit.prompt_hash,
+                        response_hash=audit.response_hash,
+                        provider_request_id=getattr(
+                            client, "last_provider_response_id", None
+                        ),
+                        quota_account=quota_account,
+                        reserved_credits=reserved,
+                    )
+                    audit.input_tokens = event.input_tokens
+                    audit.output_tokens = event.output_tokens
+                    audit.estimated_cost = event.provider_cost
+                    self.db.add(audit)
+                    self.db.commit()
+                    return
+                except LLMError as exc:
+                    release_quota(
+                        self.db,
+                        quota_account,
+                        reserved=reserved,
+                        idempotency_key=quota_key,
+                    )
+                    last_error = exc
+                    if emitted or retry_index >= config.retry_count or not _retryable(exc):
+                        break
+                except BaseException:
+                    release_quota(
+                        self.db,
+                        quota_account,
+                        reserved=reserved,
+                        idempotency_key=quota_key,
+                    )
+                    self._finish_audit(
+                        audit,
+                        config,
+                        status="cancelled",
+                        attempts=attempts,
+                        started=started,
+                    )
+                    raise
+            if emitted:
+                break
         self._finish_audit(
             audit,
             candidates[min(attempts - 1, len(candidates) - 1)],
@@ -734,9 +1049,12 @@ class AIModelGateway:
                         self.db, self.tenant_id, tenant_default.id
                     )
                 )
-        return tuple(tenant_candidates) + resolve_platform_models_for_capability(
+        platform_candidates = resolve_platform_models_for_capability(
             self.db, self.tenant_id, self.capability
         )
+        if self.capability in PLATFORM_MANAGED_CAPABILITIES and platform_candidates:
+            return platform_candidates + tuple(tenant_candidates)
+        return tuple(tenant_candidates) + platform_candidates
 
     def _start_audit(
         self,
@@ -842,7 +1160,11 @@ def _route_read(db: Session, row: AIModelRoute) -> AIModelRouteRead:
     deployment = db.get(AIModelDeployment, row.deployment_id)
     connection = db.get(AIProviderConnection, deployment.connection_id) if deployment else None
     available = bool(
-        deployment and connection and _deployment_available(connection, deployment)
+        deployment
+        and connection
+        and _deployment_available(connection, deployment)
+        and row.capability in set(deployment.capabilities_json or [])
+        and capability_certified(db, deployment.id, row.capability)
     )
     return AIModelRouteRead(
         id=row.id,
@@ -1022,6 +1344,153 @@ def _tenant_default_model(db: Session, tenant_id: str) -> ModelConfig | None:
         except HTTPException:
             continue
     return None
+
+
+def _execute_capability_check(
+    config: ResolvedModelConfig, capability: str
+) -> Any:
+    client = LLMClient(replace(config, timeout_seconds=45.0, max_output_tokens=512))
+    if capability == "agent_chat":
+        text_output = client.generate_text(
+            "你是开工吧中文对话能力认证助手。只用一句中文回复认证通过。",
+            {"message": "请完成普通对话认证"},
+        )
+        stream_output = "".join(
+            client.generate_text_stream(
+                "你是开工吧流式对话能力认证助手。只用一句中文回复认证通过。",
+                {"message": "请完成流式对话认证"},
+            )
+        )
+        if not text_output.strip() or not stream_output.strip():
+            raise LLMError("MODEL_EMPTY_STREAM")
+        return {"text": text_output, "stream": stream_output}
+
+    spec = CERTIFICATION_JSON_SPECS.get(capability)
+    if spec is None:
+        raise LLMError("MODEL_CAPABILITY_CHECK_UNSUPPORTED")
+    prompt, payload, required_fields = spec
+    result = client.generate_json(prompt, payload)
+    if not isinstance(result, dict) or any(key not in result for key in required_fields):
+        raise LLMError("MODEL_CAPABILITY_CONTRACT_INVALID")
+    if capability == "skill_distillation":
+        tool_call = result.get("tool_call")
+        if (
+            not isinstance(tool_call, dict)
+            or not isinstance(tool_call.get("name"), str)
+            or not isinstance(tool_call.get("arguments"), dict)
+        ):
+            raise LLMError("MODEL_CAPABILITY_CONTRACT_INVALID")
+    if capability == "evidence_summary" and {
+        "ruling",
+        "decision",
+        "award",
+        "裁决",
+    }.intersection(result):
+        raise LLMError("MODEL_EVIDENCE_SUMMARY_OVERREACH")
+    return result
+
+
+def _capability_operations(capability: str) -> list[str]:
+    if capability == "agent_chat":
+        return ["generate_text", "generate_text_stream"]
+    return ["generate_json"]
+
+
+def _capability_check_row(
+    current_user: User,
+    deployment: AIModelDeployment,
+    run_id: str,
+    capability: str,
+    *,
+    status: str,
+    started_at: Any,
+    finished_at: Any,
+    latency_ms: int,
+    output: Any = None,
+    error_code: str | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> AIModelCapabilityCheck:
+    return AIModelCapabilityCheck(
+        certification_run_id=run_id,
+        deployment_id=deployment.id,
+        capability=capability,
+        check_type=(
+            "chat_and_stream" if capability == "agent_chat" else "structured_json"
+        ),
+        status=status,
+        error_code=error_code,
+        latency_ms=latency_ms,
+        output_hash=_content_hash(output) if output is not None else None,
+        metadata_json=dict(metadata or {}),
+        created_by_user_id=current_user.id,
+        started_at=started_at,
+        finished_at=finished_at,
+    )
+
+
+def _capability_check_read(
+    row: AIModelCapabilityCheck,
+) -> AIModelCapabilityCheckRead:
+    return AIModelCapabilityCheckRead(
+        id=row.id,
+        certification_run_id=row.certification_run_id,
+        deployment_id=row.deployment_id,
+        capability=row.capability,
+        check_type=row.check_type,
+        status=row.status,
+        error_code=row.error_code,
+        latency_ms=row.latency_ms,
+        metadata=dict(row.metadata_json or {}),
+        started_at=row.started_at.isoformat(),
+        finished_at=row.finished_at.isoformat() if row.finished_at else None,
+        created_at=row.created_at.isoformat(),
+    )
+
+
+def _ordered_capabilities(values: set[str]) -> list[str]:
+    return [capability for capability, _label in AI_CAPABILITIES if capability in values]
+
+
+def _refresh_linked_product_capabilities(
+    db: Session, deployment: AIModelDeployment
+) -> None:
+    mappings = db.exec(
+        select(AIModelProductDeployment).where(
+            AIModelProductDeployment.deployment_id == deployment.id
+        )
+    ).all()
+    for mapping in mappings:
+        product = db.get(AIModelProduct, mapping.product_id)
+        if not product:
+            continue
+        sibling_mappings = db.exec(
+            select(AIModelProductDeployment).where(
+                AIModelProductDeployment.product_id == product.id,
+                AIModelProductDeployment.enabled == True,  # noqa: E712
+            )
+        ).all()
+        certified: set[str] = set()
+        for sibling_mapping in sibling_mappings:
+            sibling = db.get(AIModelDeployment, sibling_mapping.deployment_id)
+            if sibling and sibling.enabled and sibling.health_status == "healthy":
+                certified.update(sibling.capabilities_json or [])
+        product.capabilities_json = _ordered_capabilities(certified)
+        product.updated_at = utc_now()
+        db.add(product)
+
+
+def capability_certified(
+    db: Session, deployment_id: str, capability: str
+) -> bool:
+    row = db.exec(
+        select(AIModelCapabilityCheck)
+        .where(
+            AIModelCapabilityCheck.deployment_id == deployment_id,
+            AIModelCapabilityCheck.capability == capability,
+        )
+        .order_by(AIModelCapabilityCheck.finished_at.desc())
+    ).first()
+    return bool(row and row.status == "passed")
 
 
 def _retryable(exc: LLMError) -> bool:

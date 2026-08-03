@@ -92,6 +92,35 @@ class AIModelVerificationResponse(BaseModel):
     deployment: AIModelDeploymentRead
 
 
+class AIModelCertificationRequest(BaseModel):
+    capabilities: list[str] | None = None
+    activate: bool = True
+
+
+class AIModelCapabilityCheckRead(BaseModel):
+    id: str
+    certification_run_id: str
+    deployment_id: str
+    capability: str
+    check_type: str
+    status: str
+    error_code: str | None
+    latency_ms: int | None
+    metadata: dict[str, Any]
+    started_at: str
+    finished_at: str | None
+    created_at: str
+
+
+class AIModelCertificationResponse(BaseModel):
+    success: bool
+    certification_run_id: str
+    certified_capabilities: list[str]
+    failed_capabilities: list[str]
+    checks: list[AIModelCapabilityCheckRead]
+    deployment: AIModelDeploymentRead
+
+
 class AIModelRouteWrite(BaseModel):
     capability: str
     deployment_id: str

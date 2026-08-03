@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from sqlmodel import Session, select
 
 from app.db.models import (
+    AIModelCapabilityCheck,
     AIModelDeployment,
     AIModelProduct,
     AIModelProductDeployment,
@@ -101,7 +102,12 @@ def resolve_platform_models_for_capability(
     resolved: list[ResolvedModelConfig] = []
     for route in routes:
         deployment = db.get(AIModelDeployment, route.deployment_id)
-        if not deployment or not deployment.enabled:
+        if (
+            not deployment
+            or not deployment.enabled
+            or capability not in set(deployment.capabilities_json or [])
+            or not _capability_certified(db, deployment.id, capability)
+        ):
             continue
         connection = db.get(AIProviderConnection, deployment.connection_id)
         if (
@@ -189,6 +195,8 @@ def resolve_platform_models_for_product(
             not deployment
             or not deployment.enabled
             or deployment.health_status not in {"healthy", "unknown"}
+            or "agent_chat" not in set(deployment.capabilities_json or [])
+            or not _capability_certified(db, deployment.id, "agent_chat")
         ):
             continue
         connection = db.get(AIProviderConnection, deployment.connection_id)
@@ -318,6 +326,20 @@ def _is_implicit_legacy_openai(row: ModelConfig, protocol: ModelApiProtocol) -> 
 
 def _freeze(value: dict[str, Any]) -> Mapping[str, Any]:
     return MappingProxyType({key: _freeze_value(item) for key, item in copy.deepcopy(value).items()})
+
+
+def _capability_certified(
+    db: Session, deployment_id: str, capability: str
+) -> bool:
+    row = db.exec(
+        select(AIModelCapabilityCheck)
+        .where(
+            AIModelCapabilityCheck.deployment_id == deployment_id,
+            AIModelCapabilityCheck.capability == capability,
+        )
+        .order_by(AIModelCapabilityCheck.finished_at.desc())
+    ).first()
+    return bool(row and row.status == "passed")
 
 
 def _freeze_value(value: Any) -> Any:

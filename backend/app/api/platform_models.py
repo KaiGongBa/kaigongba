@@ -12,6 +12,9 @@ from app.llm.platform_schemas import (
     AICapabilityStatusRead,
     AIInvocationAuditRead,
     AIModelCatalogRead,
+    AIModelCapabilityCheckRead,
+    AIModelCertificationRequest,
+    AIModelCertificationResponse,
     AIModelDeploymentCreate,
     AIModelDeploymentRead,
     AIModelDeploymentUpdate,
@@ -150,6 +153,39 @@ def verify_platform_deployment(
 ) -> AIModelVerificationResponse:
     return platform_gateway.verify_model_deployment(
         db, current_user, deployment_id, activate=activate
+    )
+
+
+@router.post(
+    "/platform/deployments/{deployment_id}/certify",
+    response_model=AIModelCertificationResponse,
+)
+def certify_platform_deployment(
+    deployment_id: str,
+    request: AIModelCertificationRequest,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+) -> AIModelCertificationResponse:
+    return platform_gateway.certify_model_deployment(
+        db, current_user, deployment_id, request
+    )
+
+
+@router.get(
+    "/platform/capability-checks",
+    response_model=list[AIModelCapabilityCheckRead],
+)
+def list_platform_capability_checks(
+    current_user: CurrentUser,
+    db: DatabaseSession,
+    deployment_id: str | None = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+) -> list[AIModelCapabilityCheckRead]:
+    return platform_gateway.list_capability_checks(
+        db,
+        current_user,
+        deployment_id=deployment_id,
+        limit=limit,
     )
 
 

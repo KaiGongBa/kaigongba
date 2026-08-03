@@ -8,6 +8,7 @@ from sqlalchemy.exc import DatabaseError
 
 
 TABLES = {
+    "ai_model_capability_checks",
     "ai_provider_catalog_models",
     "ai_model_products",
     "ai_model_product_deployments",
@@ -35,7 +36,7 @@ def test_model_product_usage_migration_and_append_only_guards(tmp_path) -> None:
     assert not TABLES.intersection(inspect(engine).get_table_names())
 
     command.upgrade(config, "head")
-    assert _revision(engine) == "20260803_0017"
+    assert _revision(engine) == "20260803_0018"
     assert TABLES.issubset(inspect(engine).get_table_names())
     with engine.begin() as connection:
         connection.execute(
@@ -61,12 +62,36 @@ def test_model_product_usage_migration_and_append_only_guards(tmp_path) -> None:
             connection.execute(
                 text("UPDATE ai_usage_events SET total_tokens = 99 WHERE id = 'aiusage_test'")
             )
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO ai_model_capability_checks (
+                    id, certification_run_id, deployment_id, capability,
+                    check_type, status, metadata_json, created_by_user_id,
+                    started_at, created_at
+                ) VALUES (
+                    'aicheck_test', 'aicert_test', 'aimodel_test', 'agent_chat',
+                    'chat_and_stream', 'passed', '{}', 'user_admin',
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+                )
+                """
+            )
+        )
+    with pytest.raises(DatabaseError):
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "UPDATE ai_model_capability_checks SET status = 'failed' "
+                    "WHERE id = 'aicheck_test'"
+                )
+            )
 
     command.downgrade(config, "20260803_0016")
     assert _revision(engine) == "20260803_0016"
     assert not TABLES.intersection(inspect(engine).get_table_names())
     command.upgrade(config, "head")
-    assert _revision(engine) == "20260803_0017"
+    assert _revision(engine) == "20260803_0018"
     engine.dispose()
 
 

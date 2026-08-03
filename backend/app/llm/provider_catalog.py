@@ -18,7 +18,7 @@ from app.db.models import (
     User,
     utc_now,
 )
-from app.llm.platform_gateway import AI_CAPABILITY_IDS, require_platform_admin
+from app.llm.platform_gateway import require_platform_admin
 from app.llm.platform_schemas import (
     AIProviderCatalogModelRead,
     AIProviderCatalogSyncRequest,
@@ -35,9 +35,18 @@ NON_CHAT_MODEL_MARKERS = (
     "tts",
     "speech",
     "whisper",
+    "audio",
+    "music",
+    "image",
     "image-gen",
     "stable-diffusion",
+    "video",
+    "sora",
+    "seedream",
+    "flux-",
+    "wan-",
 )
+BASE_CHAT_CAPABILITIES = ("agent_chat", "structured_generation")
 
 
 def sync_provider_catalog(
@@ -48,7 +57,11 @@ def sync_provider_catalog(
 ) -> AIProviderCatalogSyncResponse:
     require_platform_admin(current_user)
     connection = _connection(db, connection_id)
-    payload = _fetch_catalog(connection)
+    try:
+        payload = _fetch_catalog(connection)
+    except HTTPException as exc:
+        _record_catalog_sync_failure(db, connection, str(exc.detail))
+        raise
     models = _catalog_items(payload)
     now = utc_now()
     existing = {
@@ -56,6 +69,14 @@ def sync_provider_catalog(
         for row in db.exec(
             select(AIProviderCatalogModel).where(
                 AIProviderCatalogModel.connection_id == connection.id
+            )
+        ).all()
+    }
+    deployments = {
+        row.model: row
+        for row in db.exec(
+            select(AIModelDeployment).where(
+                AIModelDeployment.connection_id == connection.id
             )
         ).all()
     }
@@ -94,6 +115,7 @@ def sync_provider_catalog(
             )
             created_count += 1
         else:
+            was_unavailable = row.availability_status == "unavailable"
             row.display_name = _display_name(item, model_id)
             row.owned_by = _optional_text(item.get("owned_by"))
             row.model_family = family
@@ -104,6 +126,17 @@ def sync_provider_catalog(
             row.last_seen_at = now
             row.updated_at = now
             updated_count += 1
+            deployment = deployments.get(model_id)
+            if (
+                was_unavailable
+                and deployment
+                and deployment.health_status == "unavailable"
+            ):
+                deployment.health_status = "unknown"
+                deployment.last_error_code = None
+                deployment.last_health_check_at = now
+                deployment.updated_at = now
+                db.add(deployment)
         db.add(row)
         if request.create_product_drafts and capabilities:
             created_deployment, created_product = _ensure_product_draft(
@@ -121,6 +154,14 @@ def sync_provider_catalog(
         row.availability_status = "unavailable"
         row.updated_at = now
         db.add(row)
+        deployment = deployments.get(model_id)
+        if deployment:
+            deployment.enabled = False
+            deployment.health_status = "unavailable"
+            deployment.last_error_code = "AI_PROVIDER_MODEL_UNAVAILABLE"
+            deployment.last_health_check_at = now
+            deployment.updated_at = now
+            db.add(deployment)
 
     connection.metadata_json = {
         **(connection.metadata_json or {}),
@@ -218,13 +259,35 @@ def infer_model_capabilities(model_id: str, item: dict[str, Any]) -> list[str]:
     value = model_id.lower()
     if any(marker in value for marker in NON_CHAT_MODEL_MARKERS):
         return []
+    model_type = str(item.get("type") or item.get("model_type") or "").lower()
+    if model_type and model_type not in {
+        "chat",
+        "text",
+        "completion",
+        "reasoning",
+        "language",
+        "llm",
+        "multimodal",
+    }:
+        return []
+    output_modalities = item.get("output_modalities") or item.get("modalities")
+    if isinstance(output_modalities, list):
+        normalized_modalities = {str(item).lower() for item in output_modalities}
+        if normalized_modalities and not normalized_modalities.intersection(
+            {"text", "chat", "reasoning"}
+        ):
+            return []
     declared = item.get("capabilities")
     if isinstance(declared, list) and not any(
         str(value).lower() in {"chat", "text", "completion", "reasoning", "vision"}
         for value in declared
     ):
         return []
-    return sorted(AI_CAPABILITY_IDS)
+    # Remote catalogs describe technical model capabilities, not permission to
+    # run Kaigongba business workflows.  New deployments therefore begin with
+    # the two base capabilities and earn business capabilities through the
+    # explicit certification matrix added in 5D-3.
+    return list(BASE_CHAT_CAPABILITIES)
 
 
 def product_category(model_id: str) -> str:
@@ -253,7 +316,12 @@ def product_feature_tags(model_id: str, context_window: int | None) -> list[str]
 
 
 def _fetch_catalog(connection: AIProviderConnection) -> dict[str, Any]:
-    key = decrypt_secret(connection.api_key_encrypted)
+    try:
+        key = decrypt_secret(connection.api_key_encrypted)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=409, detail="AI_PROVIDER_KEY_DECRYPTION_FAILED"
+        ) from exc
     if not key:
         raise HTTPException(status_code=409, detail="AI_PROVIDER_KEY_MISSING")
     base_url = (connection.base_url or "").strip().rstrip("/")
@@ -415,5 +483,27 @@ def _sanitized_catalog_item(item: dict[str, Any]) -> dict[str, Any]:
         "context_length",
         "max_context_tokens",
         "capabilities",
+        "type",
+        "model_type",
+        "modalities",
+        "input_modalities",
+        "output_modalities",
     }
     return {key: item[key] for key in allowed if key in item}
+
+
+def _record_catalog_sync_failure(
+    db: Session, connection: AIProviderConnection, error_code: str
+) -> None:
+    now = utc_now()
+    connection.metadata_json = {
+        **(connection.metadata_json or {}),
+        "catalog_sync": {
+            "status": "failed",
+            "synced_at": now.isoformat(),
+            "error_code": error_code,
+        },
+    }
+    connection.updated_at = now
+    db.add(connection)
+    db.commit()
