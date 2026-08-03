@@ -544,6 +544,7 @@ def quota_read(account: AIQuotaAccount | None) -> AIQuotaRead:
             available_credits="0",
             percent_used=0,
             hard_limit=False,
+            warning_threshold_percent=80,
         )
     granted = account.granted_credits or Decimal("0")
     used = account.consumed_credits or Decimal("0")
@@ -558,6 +559,7 @@ def quota_read(account: AIQuotaAccount | None) -> AIQuotaRead:
         available_credits=str(_available(account)),
         percent_used=round(percent, 2),
         hard_limit=account.hard_limit,
+        warning_threshold_percent=account.warning_threshold_percent,
     )
 
 

@@ -95,3 +95,59 @@ Final result: passed
 - 可访问性：新增筛选、标签、列表行操作与关闭按钮具备可访问名称或标准 ARIA 状态。
 
 唯一非阻塞提示是 Vite 的主包体积告警；不影响本轮功能与页面验收，后续可在性能阶段做代码分包。
+
+---
+
+# 5D-3 平台模型能力、成本与额度设计 QA
+
+日期：2026-08-03
+范围：平台模型能力认证、CRUN 全量目录保留、模型价格版本、租户额度及聊天模型准入。
+
+## 参考与实现证据
+
+参考图：
+
+- `../product-design-audit/5d3-model-admin-preview/5d3-capability-certification.png`
+- `../product-design-audit/5d3-model-admin-preview/5d3-cost-quota.png`
+
+最终实现截图：
+
+- `../product-design-audit/5d3-model-admin-preview/implementation-capability-certification.png`
+- `../product-design-audit/5d3-model-admin-preview/implementation-cost-quota.png`
+
+同状态并排对照图：
+
+- `../product-design-audit/5d3-model-admin-preview/comparison-capability-certification.png`
+- `../product-design-audit/5d3-model-admin-preview/comparison-cost-quota.png`
+
+四张源图与实现图均为 1280 × 720、1x 密度；对照图仅水平拼接，没有缩放或裁切。
+
+## 数据与业务规则
+
+- CRUN 目录同步不再按聊天能力删除模型。图像、视频、音频、Embedding、Rerank 均创建部署和产品草稿，并使用对应分类与标签。
+- 非聊天模型继续出现在平台模型和产品库存中，显示“非聊天模型 · 已保留目录”和“待接入专用运行时”。
+- 聊天框下拉只展示连接可用、部署健康、产品可见且已通过 `agent_chat` 认证的模型；这是聊天运行时准入，不是删除非聊天模型。
+- 能力认证支持基础对话、结构化 JSON 及需求分析、服务匹配、报价草案、争议证据摘要、知识整理、Skill 整理等业务能力；认证结果追加留存。
+- 成本与额度页显示 30 天 Token、预估成本、已计费额度、额度使用率、价格版本和当前租户额度；未配置价格的模型仍记录 Token，但显示未计价。
+
+## 视觉与交互检查
+
+- 能力认证弹窗已对齐参考图的双栏结构、两列能力选项、最近结果区、费用提示和主次按钮层级。
+- 成本与额度页已对齐参考图的四项指标、价格版本表格、租户额度卡及黄色未计价提示；保留现有开工吧管理端侧栏与页面骨架。
+- 鼠标验证通过：平台模型标签、认证弹窗、业务能力选择、取消关闭、成本与额度标签均可操作。
+- 无障碍结构检查通过：标签使用按钮语义，能力选项使用复选框，弹窗具有对话框与标题语义，表格保留行列标题。
+- 清理临时验收记录后重新加载 `/enterprise/models`，测试连接、测试部署、测试产品、测试认证、测试价格、测试额度和测试用量均为 0 条；页面没有新增 error 或 warning。
+
+第一轮对照发现指标图标、主按钮颜色和认证文案密度与目标图不一致，已改为无指标图标、黑色主按钮和更短的中文能力标签。第二轮对照未发现 P0、P1 或 P2 视觉问题。实现与参考的主要可接受差异来自真实应用中保留的 StaffDeck 员工侧栏、企业 BYOK 区域及真实数据名称；未删除或覆盖这些既有功能。
+
+## 自动化验证
+
+- 后端定向：`8 passed`，并通过 Ruff；覆盖全量目录、非聊天产品保留和聊天选择器隔离。
+- 后端全量：`1303 passed, 4 skipped`。
+- 前端定向：`4 passed`。
+- 前端全量：`97 passed`。
+- TypeScript 与 Vite 生产构建：通过。
+
+真实 CRUN 调用验收不使用曾出现在对话中的密钥；待用户轮换并在服务端录入新密钥后，再执行真实目录同步、认证调用、Token 计量与失败回退验收。该外部凭证门槛不影响本轮页面和业务规则实现的通过结论。
+
+Final result: passed

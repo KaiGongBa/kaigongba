@@ -371,6 +371,7 @@ class AIQuotaRead(BaseModel):
     available_credits: str
     percent_used: float
     hard_limit: bool
+    warning_threshold_percent: int = 80
 
 
 class AIUsageTotalsRead(BaseModel):

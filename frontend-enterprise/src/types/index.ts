@@ -419,17 +419,7 @@ export type AgentModelPolicyRead = {
 };
 
 export type AIUsageSummaryRead = {
-  quota: {
-    account_id?: string;
-    cycle_start?: string;
-    cycle_end?: string;
-    granted_credits: string;
-    reserved_credits: string;
-    consumed_credits: string;
-    available_credits: string;
-    percent_used: number;
-    hard_limit: boolean;
-  };
+  quota: AIQuotaRead;
   totals: {
     request_count: number;
     input_tokens: number;
@@ -441,6 +431,58 @@ export type AIUsageSummaryRead = {
   };
   trend: Array<{ date: string; total_tokens: number; billable_credits: string; request_count: number }>;
   by_agent: Array<{ agent_id?: string; agent_name: string; total_tokens: number; request_count: number; billable_credits: string }>;
+};
+
+export type AIQuotaRead = {
+  account_id?: string;
+  cycle_start?: string;
+  cycle_end?: string;
+  granted_credits: string;
+  reserved_credits: string;
+  consumed_credits: string;
+  available_credits: string;
+  percent_used: number;
+  hard_limit: boolean;
+  warning_threshold_percent: number;
+};
+
+export type AIModelCapabilityCheckRead = {
+  id: string;
+  certification_run_id: string;
+  deployment_id: string;
+  capability: string;
+  check_type: string;
+  status: 'passed' | 'failed' | 'running' | string;
+  error_code?: string;
+  latency_ms?: number;
+  metadata: Record<string, unknown>;
+  started_at: string;
+  finished_at?: string;
+  created_at: string;
+};
+
+export type AIModelCertificationResponse = {
+  success: boolean;
+  certification_run_id: string;
+  certified_capabilities: string[];
+  failed_capabilities: string[];
+  checks: AIModelCapabilityCheckRead[];
+  deployment: AIModelDeploymentRead;
+};
+
+export type AIPriceVersionRead = {
+  id: string;
+  deployment_id: string;
+  currency: string;
+  input_per_million: string;
+  output_per_million: string;
+  cached_input_per_million: string;
+  reasoning_per_million: string;
+  credits_per_currency_unit: string;
+  source: string;
+  effective_from: string;
+  effective_to?: string;
+  created_at: string;
 };
 
 export type AIModelDeploymentRead = {

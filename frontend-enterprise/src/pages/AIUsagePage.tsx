@@ -16,6 +16,7 @@ const EMPTY_USAGE: AIUsageSummaryRead = {
     available_credits: '0',
     percent_used: 0,
     hard_limit: false,
+    warning_threshold_percent: 80,
   },
   totals: {
     request_count: 0,

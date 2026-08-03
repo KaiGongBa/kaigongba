@@ -39,7 +39,18 @@ from app.llm.platform_schemas import (
 from app.security.permissions import agent_owned_by_user, is_admin_user
 
 
-PRODUCT_CATEGORIES = {"general", "reasoning", "coding", "long_context", "multimodal"}
+PRODUCT_CATEGORIES = {
+    "general",
+    "reasoning",
+    "coding",
+    "long_context",
+    "multimodal",
+    "image_generation",
+    "video_generation",
+    "audio_generation",
+    "embedding",
+    "rerank",
+}
 PRODUCT_VISIBILITY_MODES = {"all", "allowlist"}
 MODEL_SELECTION_MODES = {"auto", "platform_product", "enterprise_model"}
 SESSION_SELECTION_MODES = {"inherit", *MODEL_SELECTION_MODES}

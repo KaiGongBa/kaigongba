@@ -125,12 +125,15 @@ def test_crun_catalog_sync_creates_hidden_dynamic_product_drafts(
         )
 
         assert result.discovered_count == 3
-        assert result.deployment_draft_count == 2
-        assert result.product_draft_count == 2
+        assert result.deployment_draft_count == 3
+        assert result.product_draft_count == 3
         assert len(db.exec(select(AIProviderCatalogModel)).all()) == 3
         products = db.exec(select(AIModelProduct)).all()
-        assert len(products) == 2
+        assert len(products) == 3
         assert all(not row.enabled and not row.visible_to_users for row in products)
+        embedding = next(row for row in products if row.category == "embedding")
+        assert embedding.capabilities_json == []
+        assert embedding.feature_tags_json == ["向量化"]
         assert list_products(db, _user("member")) == []
 
 
@@ -162,8 +165,8 @@ def test_catalog_sync_is_idempotent_and_marks_missing_models_unavailable(
         assert first.created_count == 3
         assert repeated.created_count == 0
         assert repeated.updated_count == 3
-        assert len(db.exec(select(AIModelDeployment)).all()) == 2
-        assert len(db.exec(select(AIModelProduct)).all()) == 2
+        assert len(db.exec(select(AIModelDeployment)).all()) == 3
+        assert len(db.exec(select(AIModelProduct)).all()) == 3
 
         monkeypatch.setattr(
             "app.llm.provider_catalog.httpx.get",
@@ -181,7 +184,7 @@ def test_catalog_sync_is_idempotent_and_marks_missing_models_unavailable(
         assert rows["deepseek-v3.1"].availability_status == "available"
         assert rows["moonshot-kimi-k2"].availability_status == "unavailable"
         assert rows["text-embedding-v4"].availability_status == "unavailable"
-        assert len(db.exec(select(AIModelProduct)).all()) == 2
+        assert len(db.exec(select(AIModelProduct)).all()) == 5
         kimi_deployment = db.exec(
             select(AIModelDeployment).where(
                 AIModelDeployment.model == "moonshot-kimi-k2"
@@ -192,7 +195,7 @@ def test_catalog_sync_is_idempotent_and_marks_missing_models_unavailable(
         assert kimi_deployment.last_error_code == "AI_PROVIDER_MODEL_UNAVAILABLE"
 
 
-def test_catalog_filters_non_language_models_and_records_sync_failures(
+def test_catalog_retains_non_language_models_and_records_sync_failures(
     tmp_path, monkeypatch
 ) -> None:
     with _db(tmp_path) as db:
@@ -215,12 +218,41 @@ def test_catalog_filters_non_language_models_and_records_sync_failures(
         )
 
         assert result.discovered_count == 3
-        assert result.product_draft_count == 1
-        deployment = db.exec(select(AIModelDeployment)).one()
-        assert deployment.capabilities_json == [
+        assert result.product_draft_count == 3
+        deployments = {
+            row.model: row for row in db.exec(select(AIModelDeployment)).all()
+        }
+        assert deployments["deepseek-v3.1"].capabilities_json == [
             "agent_chat",
             "structured_generation",
         ]
+        assert deployments["sora-video-2"].capabilities_json == []
+        assert deployments["gpt-image-1"].capabilities_json == []
+        products = {row.category: row for row in db.exec(select(AIModelProduct)).all()}
+        assert set(products) == {"general", "video_generation", "image_generation"}
+        assert products["video_generation"].feature_tags_json == ["视频生成"]
+        assert products["image_generation"].feature_tags_json == ["图像生成"]
+
+        # Non-chat models remain in the managed catalog/product inventory, but
+        # they must not leak into the chat selector before a dedicated runtime
+        # and an agent_chat certification exist.
+        video_product = products["video_generation"]
+        video_product.enabled = True
+        video_product.visible_to_users = True
+        video_deployment = deployments["sora-video-2"]
+        video_deployment.enabled = True
+        video_deployment.health_status = "healthy"
+        stored_connection = db.get(AIProviderConnection, connection.id)
+        stored_connection.enabled = True
+        stored_connection.trust_status = "verified"
+        db.add(video_product)
+        db.add(video_deployment)
+        db.add(stored_connection)
+        db.commit()
+        assert [row.id for row in list_products(db, _user("member"))] == [
+            video_product.id
+        ]
+        assert model_options(db, _user("member")).platform_models == []
 
         monkeypatch.setattr(
             "app.llm.provider_catalog.httpx.get",

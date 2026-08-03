@@ -138,7 +138,11 @@ def sync_provider_catalog(
                 deployment.updated_at = now
                 db.add(deployment)
         db.add(row)
-        if request.create_product_drafts and capabilities:
+        # The provider catalog is an inventory, not a chat-only allowlist.
+        # Keep image/video/audio/embedding/rerank models as disabled drafts so
+        # the platform can productize them in their own runtime later.  Chat
+        # surfaces still require an agent_chat certification before exposure.
+        if request.create_product_drafts:
             created_deployment, created_product = _ensure_product_draft(
                 db, current_user, connection, row
             )
@@ -290,8 +294,35 @@ def infer_model_capabilities(model_id: str, item: dict[str, Any]) -> list[str]:
     return list(BASE_CHAT_CAPABILITIES)
 
 
-def product_category(model_id: str) -> str:
+def product_category(model_id: str, item: dict[str, Any] | None = None) -> str:
     value = model_id.lower()
+    item = item or {}
+    model_type = str(item.get("type") or item.get("model_type") or "").lower()
+    output_modalities = item.get("output_modalities") or item.get("modalities")
+    modalities = (
+        {str(modality).lower() for modality in output_modalities}
+        if isinstance(output_modalities, list)
+        else set()
+    )
+    if model_type in {"embedding", "embeddings"} or any(
+        marker in value for marker in ("embedding", "embed-")
+    ):
+        return "embedding"
+    if model_type in {"rerank", "reranker"} or "rerank" in value:
+        return "rerank"
+    if model_type in {"video", "video_generation"} or "video" in modalities or any(
+        marker in value for marker in ("video", "sora", "wan-")
+    ):
+        return "video_generation"
+    if model_type in {"image", "image_generation"} or "image" in modalities or any(
+        marker in value
+        for marker in ("image", "seedream", "stable-diffusion", "flux-")
+    ):
+        return "image_generation"
+    if model_type in {"audio", "speech", "tts", "music"} or modalities.intersection(
+        {"audio", "speech", "music"}
+    ) or any(marker in value for marker in ("audio", "speech", "tts", "music", "whisper")):
+        return "audio_generation"
     if any(marker in value for marker in ("vision", "-vl", "vl-", "multimodal")):
         return "multimodal"
     if any(marker in value for marker in ("coder", "coding", "code-")):
@@ -301,15 +332,29 @@ def product_category(model_id: str) -> str:
     return "general"
 
 
-def product_feature_tags(model_id: str, context_window: int | None) -> list[str]:
+def product_feature_tags(
+    model_id: str,
+    context_window: int | None,
+    item: dict[str, Any] | None = None,
+) -> list[str]:
     tags: list[str] = []
-    category = product_category(model_id)
+    category = product_category(model_id, item)
     if category == "reasoning":
         tags.append("深度推理")
     elif category == "coding":
         tags.append("代码能力")
     elif category == "multimodal":
         tags.append("多模态")
+    elif category == "image_generation":
+        tags.append("图像生成")
+    elif category == "video_generation":
+        tags.append("视频生成")
+    elif category == "audio_generation":
+        tags.append("音频生成")
+    elif category == "embedding":
+        tags.append("向量化")
+    elif category == "rerank":
+        tags.append("结果重排")
     if context_window and context_window >= 128_000:
         tags.append("长上下文")
     return tags
@@ -392,14 +437,17 @@ def _ensure_product_draft(
     product = db.exec(select(AIModelProduct).where(AIModelProduct.slug == slug)).first()
     created_product = product is None
     if product is None:
+        catalog_item = dict(catalog.raw_json or {})
         product = AIModelProduct(
             slug=slug,
             display_name=catalog.display_name,
-            category=product_category(catalog.provider_model_id),
+            category=product_category(catalog.provider_model_id, catalog_item),
             model_family=catalog.model_family,
             capabilities_json=list(catalog.capabilities_json or []),
             feature_tags_json=product_feature_tags(
-                catalog.provider_model_id, catalog.context_window_tokens
+                catalog.provider_model_id,
+                catalog.context_window_tokens,
+                catalog_item,
             ),
             context_window_tokens=catalog.context_window_tokens,
             visible_to_users=False,
