@@ -39,6 +39,7 @@ from app.transaction.schemas import (
     QuoteSelectionRequest,
     QuoteUpdate,
     RequirementDetailRead,
+    RequirementAIAnalysisRead,
     RequirementSummaryRead,
     RequirementWrite,
 )
@@ -70,6 +71,15 @@ def create_requirement(
     db: DatabaseSession,
 ) -> RequirementDetailRead:
     return service.create_requirement(db, current_user, request)
+
+
+@router.post("/requirements/analyze", response_model=RequirementAIAnalysisRead)
+def analyze_requirement(
+    request: RequirementWrite,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+) -> RequirementAIAnalysisRead:
+    return service.analyze_requirement(db, current_user, request)
 
 
 @router.get(

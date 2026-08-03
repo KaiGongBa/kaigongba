@@ -39,6 +39,7 @@ import IconToggle from '../assets/icons/action-toggle.svg?react';
 import IconHeaderCollapse from '../assets/icons/header-collapse.svg?react';
 import IconAccounts from '../assets/icons/sys-accounts.svg?react';
 import IconModels from '../assets/icons/sys-models.svg?react';
+import IconUsage from '../assets/icons/sys-usage.svg?react';
 import IconChevronDown from '../assets/icons/chevron-down.svg?react';
 import IconAdd from '../assets/icons/add.svg?react';
 import IconSort from '../assets/icons/sort.svg?react';
@@ -78,6 +79,7 @@ const CAPABILITY_NAV: NavItem[] = [
 
 const SYSTEM_NAV: NavItem[] = [
   { route: EnterpriseRoute.Accounts, label: '账号管理', Icon: IconAccounts },
+  { route: EnterpriseRoute.AIUsage, label: 'AI 用量', Icon: IconUsage },
 ];
 
 const ADMIN_SYSTEM_NAV: NavItem[] = [

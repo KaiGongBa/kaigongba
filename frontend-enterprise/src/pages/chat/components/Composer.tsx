@@ -1,6 +1,7 @@
 import type { FormEvent } from 'react';
 import { useEffect, useRef, useState } from 'react';
 
+import { api } from '@/api/client';
 import EmployeeAvatar from '@/components/EmployeeAvatar';
 import StaffdeckIcon from '@/components/StaffdeckIcon';
 import {
@@ -13,6 +14,7 @@ import { HoverCard, HoverCardContent, HoverCardTrigger } from '@/components/ui/h
 import { employeeDisplayName } from '@/employee';
 import { cn } from '@/lib/utils';
 import { useI18n } from '@/i18n';
+import type { AIUsageSummaryRead } from '@/types';
 
 import {
   CHAT_COMPOSER_ACTIONS_ROW_CLASS,
@@ -45,7 +47,7 @@ import {
   CHAT_MODEL_MENU_ITEM_CLASS,
   CHAT_MODEL_MENU_NAME_CLASS,
 } from '../chatPageStyles';
-import { attachmentTypeLabel, modelDetailText, modelDisplayName } from '../chatHelpers';
+import { attachmentTypeLabel } from '../chatHelpers';
 import type { UseChatSession } from '../useChatSession';
 
 export default function Composer({ chat }: { chat: UseChatSession }) {
@@ -69,9 +71,12 @@ export default function Composer({ chat }: { chat: UseChatSession }) {
     emptyRoleSummary,
     emptyProfileTags,
     emptyStats,
-    enabledModelConfigs,
+    modelOptions,
+    modelOptionsLoading,
+    selectedModelChoice,
+    selectedModelProduct,
     selectedModelConfig,
-    changeModelConfig,
+    changeModelOption,
     showModelSetupNotice,
     modelSetupNoticeText,
     canConfigureModels,
@@ -93,6 +98,14 @@ export default function Composer({ chat }: { chat: UseChatSession }) {
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [scheduleIntentHovered, setScheduleIntentHovered] = useState(false);
+  const [usageSummary, setUsageSummary] = useState<AIUsageSummaryRead | null>(null);
+
+  useEffect(() => {
+    void api
+      .get<AIUsageSummaryRead>('/api/ai/usage/summary?days=30')
+      .then(setUsageSummary)
+      .catch(() => setUsageSummary(null));
+  }, []);
 
   useEffect(() => {
     const element = textareaRef.current;
@@ -359,29 +372,74 @@ export default function Composer({ chat }: { chat: UseChatSession }) {
                   <button
                     type="button"
                     className={CHAT_COMPOSER_MODEL_BTN_CLASS}
-                    disabled={!enabledModelConfigs.length}
+                    disabled={modelOptionsLoading}
                   >
-                    <span>{selectedModelConfig ? modelDisplayName(selectedModelConfig) : '默认模型'}</span>
+                    <span>
+                      {selectedModelChoice === 'auto'
+                        ? '智能匹配'
+                        : selectedModelProduct?.display_name
+                          || selectedModelConfig?.name
+                          || '智能匹配'}
+                    </span>
                     <StaffdeckIcon name="arrow" size={14} style={{ transform: 'rotate(90deg)' }} />
                   </button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" side="top" className={cn(CHAT_MENU_CONTENT_CLASS, 'max-h-[360px] min-w-[240px] overflow-y-auto')}>
-                  {enabledModelConfigs.length === 0 ? (
-                    <DropdownMenuItem className={CHAT_MENU_ITEM_CLASS} disabled>暂无可用模型</DropdownMenuItem>
-                  ) : (
-                    enabledModelConfigs.map((model) => (
+                <DropdownMenuContent align="end" side="top" className={cn(CHAT_MENU_CONTENT_CLASS, 'max-h-[420px] min-w-[280px] overflow-y-auto')}>
+                  <DropdownMenuItem
+                    className={CHAT_MODEL_MENU_ITEM_CLASS}
+                    onSelect={() => changeModelOption('auto')}
+                  >
+                    <span className={CHAT_MODEL_MENU_COPY_CLASS}>
+                      <span className={CHAT_MODEL_MENU_NAME_CLASS}>智能匹配</span>
+                      <span className={CHAT_MODEL_MENU_DETAIL_CLASS}>根据任务自动选择稳定可用模型</span>
+                    </span>
+                    {selectedModelChoice === 'auto' && <StaffdeckIcon name="check" size={15} />}
+                  </DropdownMenuItem>
+
+                  {modelOptions.platform_models.length > 0 && (
+                    <div className="px-[10px] pb-[4px] pt-[8px] text-[10px] text-[#858b9c]">平台模型</div>
+                  )}
+                  {modelOptions.platform_models.map((model) => (
+                    <DropdownMenuItem
+                      key={model.id}
+                      className={CHAT_MODEL_MENU_ITEM_CLASS}
+                      onSelect={() => changeModelOption(`platform:${model.id}`)}
+                    >
+                      <span className={CHAT_MODEL_MENU_COPY_CLASS}>
+                        <span className={CHAT_MODEL_MENU_NAME_CLASS}>{model.display_name}</span>
+                        <span className={CHAT_MODEL_MENU_DETAIL_CLASS}>
+                          {[model.model_family, ...model.feature_tags].filter(Boolean).join(' · ') || '平台托管'}
+                        </span>
+                      </span>
+                      {selectedModelChoice === `platform:${model.id}` && <StaffdeckIcon name="check" size={15} />}
+                    </DropdownMenuItem>
+                  ))}
+
+                  {modelOptions.enterprise_models.length > 0 && (
+                    <div className="px-[10px] pb-[4px] pt-[8px] text-[10px] text-[#858b9c]">企业自有模型</div>
+                  )}
+                  {modelOptions.enterprise_models.map((model) => (
                       <DropdownMenuItem
                         key={model.id}
                         className={CHAT_MODEL_MENU_ITEM_CLASS}
-                        onSelect={() => changeModelConfig(model.id)}
+                        onSelect={() => changeModelOption(`enterprise:${model.id}`)}
                       >
                         <span className={CHAT_MODEL_MENU_COPY_CLASS}>
-                          <span className={CHAT_MODEL_MENU_NAME_CLASS}>{modelDisplayName(model)}</span>
-                          <span className={CHAT_MODEL_MENU_DETAIL_CLASS}>{modelDetailText(model)}</span>
+                          <span className={CHAT_MODEL_MENU_NAME_CLASS}>{model.display_name}</span>
+                          <span className={CHAT_MODEL_MENU_DETAIL_CLASS}>{model.description || '企业自有 API'}</span>
                         </span>
-                        {selectedModelConfig?.id === model.id && <StaffdeckIcon name="check" size={15} />}
+                        {selectedModelChoice === `enterprise:${model.id}` && <StaffdeckIcon name="check" size={15} />}
                       </DropdownMenuItem>
-                    ))
+                  ))}
+                  {!modelOptionsLoading
+                    && modelOptions.platform_models.length === 0
+                    && modelOptions.enterprise_models.length === 0 && (
+                    <DropdownMenuItem className={CHAT_MENU_ITEM_CLASS} disabled>暂无已发布模型</DropdownMenuItem>
+                  )}
+                  {usageSummary?.quota.account_id && (
+                    <div className="mx-[6px] mt-[6px] border-t border-[#edf0f5] px-[6px] pt-[8px] text-[10px] text-[#858b9c]">
+                      本期剩余 {usageSummary.quota.available_credits} 点 · 已用 {usageSummary.quota.percent_used}%
+                    </div>
                   )}
                 </DropdownMenuContent>
               </DropdownMenu>

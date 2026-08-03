@@ -36,6 +36,17 @@ class RequirementWrite(TransactionWriteModel):
         return self
 
 
+class RequirementAIAnalysisRead(MarketplaceReadModel):
+    summary: str
+    completeness_score: int
+    clarified_requirements: list[str]
+    missing_information: list[str]
+    suggested_deliverables: list[dict[str, Any]]
+    suggested_acceptance_criteria: list[str]
+    risk_flags: list[str]
+    generated_by: str
+
+
 class RequirementSummaryRead(MarketplaceReadModel):
     id: str
     code: str

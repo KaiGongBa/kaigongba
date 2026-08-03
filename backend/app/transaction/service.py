@@ -48,6 +48,8 @@ from app.db.models import (
     utc_now,
 )
 from app.execution import service as execution_service
+from app.llm import LLMError
+from app.llm.platform_gateway import AIModelGateway
 from app.security.permissions import is_admin_user
 from app.transaction.object_storage import (
     DownloadTarget,
@@ -94,6 +96,7 @@ from app.transaction.schemas import (
     QuoteUpdate,
     QuoteVersionRead,
     RequirementDetailRead,
+    RequirementAIAnalysisRead,
     RequirementSummaryRead,
     RequirementVersionRead,
     RequirementWrite,
@@ -115,6 +118,42 @@ EDITABLE_QUOTE_STATES = {
     "sent",
 }
 TERMINAL_PAYMENT_STATES = {"succeeded", "failed", "cancelled", "timed_out"}
+
+
+def analyze_requirement(
+    db: Session,
+    current_user: User,
+    request: RequirementWrite,
+) -> RequirementAIAnalysisRead:
+    _require_manager(db, current_user, request.organization_id)
+    gateway = AIModelGateway(
+        db,
+        tenant_id=current_user.tenant_id,
+        capability="demand_analysis",
+        user_id=current_user.id,
+        organization_id=request.organization_id,
+    )
+    try:
+        result = gateway.generate_json(
+            """你是开工吧需求分析助手。只整理和补全采购需求，不改变预算、工期或用户明确约束。
+只返回 JSON object，字段为 summary、completeness_score、clarified_requirements、missing_information、
+suggested_deliverables、suggested_acceptance_criteria、risk_flags。不得输出成交建议或虚构事实。""",
+            request.model_dump(mode="json"),
+        )
+    except LLMError as exc:
+        raise HTTPException(status_code=503, detail="AI_DEMAND_ANALYSIS_UNAVAILABLE") from exc
+    return RequirementAIAnalysisRead(
+        summary=str(result.get("summary") or request.description[:300]),
+        completeness_score=max(0, min(100, int(result.get("completeness_score") or 0))),
+        clarified_requirements=_string_list(result.get("clarified_requirements"), 20),
+        missing_information=_string_list(result.get("missing_information"), 20),
+        suggested_deliverables=_dict_list(result.get("suggested_deliverables"), 20),
+        suggested_acceptance_criteria=_string_list(
+            result.get("suggested_acceptance_criteria"), 20
+        ),
+        risk_flags=_string_list(result.get("risk_flags"), 20),
+        generated_by="platform_ai_gateway",
+    )
 
 
 def create_payment_order(
@@ -2027,6 +2066,25 @@ def _run_matching(
         score, reasons = _match_score(requirement, requirement_version, service)
         candidates.append((score, service, provider, reasons))
     candidates.sort(key=lambda item: (item[0], item[1].rating), reverse=True)
+    ai_rankings = _ai_match_rankings(
+        db,
+        current_user,
+        requirement,
+        requirement_version,
+        candidates[:50],
+    )
+    if ai_rankings:
+        candidates = [
+            (
+                int(ai_rankings.get(service.id, {}).get("score", score)),
+                service,
+                provider,
+                _string_list(ai_rankings.get(service.id, {}).get("reasons"), 5)
+                or reasons,
+            )
+            for score, service, provider, reasons in candidates
+        ]
+        candidates.sort(key=lambda item: (item[0], item[1].rating), reverse=True)
     invited_provider_ids: set[str] = set()
     for score, service, provider, reasons in candidates:
         if len(invited_provider_ids) >= invite_limit:
@@ -2034,6 +2092,17 @@ def _run_matching(
         if provider.organization_id in invited_provider_ids:
             continue
         invited_provider_ids.add(provider.organization_id)
+        ai_risk_flags = _string_list(
+            ai_rankings.get(service.id, {}).get("risk_flags"), 5
+        )
+        risk_flags = list(
+            dict.fromkeys(
+                [
+                    *ai_risk_flags,
+                    *([] if provider.verification_status == "verified" else ["服务商待验证"]),
+                ]
+            )
+        )
         recommendation = db.exec(
             select(TransactionMatchRecommendation).where(
                 TransactionMatchRecommendation.requirement_id == requirement.id,
@@ -2048,13 +2117,12 @@ def _run_matching(
                 provider_organization_id=provider.organization_id,
                 score=score,
                 reasons_json=reasons,
-                risk_flags_json=[]
-                if provider.verification_status == "verified"
-                else ["服务商待验证"],
+                risk_flags_json=risk_flags,
             )
         else:
             recommendation.score = score
             recommendation.reasons_json = reasons
+            recommendation.risk_flags_json = risk_flags
             recommendation.generated_at = utc_now()
         db.add(recommendation)
         db.flush()
@@ -2083,6 +2151,81 @@ def _run_matching(
     requirement.status = "matching"
     requirement.updated_at = utc_now()
     db.add(requirement)
+
+
+def _ai_match_rankings(
+    db: Session,
+    current_user: User,
+    requirement: TransactionRequirement,
+    requirement_version: TransactionRequirementVersion,
+    candidates: list[
+        tuple[int, MarketplaceAIService, MarketplaceProviderProfile, list[str]]
+    ],
+) -> dict[str, dict[str, Any]]:
+    if not candidates:
+        return {}
+    gateway = AIModelGateway(
+        db,
+        tenant_id=current_user.tenant_id,
+        capability="matching",
+        user_id=current_user.id,
+        organization_id=requirement.buyer_organization_id,
+    )
+    payload = {
+        "requirement": {
+            "title": requirement.title,
+            "category": requirement.category,
+            "description": requirement_version.description,
+            "deliverables": requirement_version.deliverables_json,
+            "acceptance_criteria": requirement_version.acceptance_criteria_json,
+            "budget_min": str(requirement.budget_min_amount),
+            "budget_max": str(requirement.budget_max_amount),
+        },
+        "candidates": [
+            {
+                "service_id": service.id,
+                "name": service.name,
+                "category": service.category,
+                "description": service.description,
+                "verified": service.verified,
+                "rating": str(service.rating),
+                "on_time_rate": service.on_time_rate,
+                "baseline_score": score,
+                "baseline_reasons": reasons,
+            }
+            for score, service, _provider, reasons in candidates
+        ],
+    }
+    try:
+        result = gateway.generate_json(
+            """你是开工吧服务匹配助手。只能从给定候选中排序，不能新增服务商。
+只返回 JSON object：{\"recommendations\":[{\"service_id\":\"...\",\"score\":0-100,
+\"reasons\":[\"...\"],\"risk_flags\":[\"...\"]}]}。理由必须可由输入事实支持。""",
+            payload,
+        )
+    except LLMError:
+        return {}
+    valid_ids = {service.id for _score, service, _provider, _reasons in candidates}
+    values = result.get("recommendations")
+    if not isinstance(values, list):
+        return {}
+    rankings: dict[str, dict[str, Any]] = {}
+    for item in values:
+        if not isinstance(item, dict):
+            continue
+        service_id = str(item.get("service_id") or "")
+        if service_id not in valid_ids:
+            continue
+        try:
+            score = max(0, min(100, int(item.get("score") or 0)))
+        except (TypeError, ValueError):
+            continue
+        rankings[service_id] = {
+            "score": score,
+            "reasons": _string_list(item.get("reasons"), 5),
+            "risk_flags": _string_list(item.get("risk_flags"), 5),
+        }
+    return rankings
 
 
 def _generate_quote_version(
@@ -2163,6 +2306,62 @@ def _generate_quote_version(
             "amount": str(final_amount),
         },
     ]
+    delivery_days = _delivery_days(requirement)
+    included_revisions = service_version.included_revisions
+    exclusions = list(snapshot.get("exclusions") or [])
+    additional_terms = "本报价为电子报价，须经服务方管理员确认后发送；双方确认协议后生效。"
+    ai_draft: dict[str, Any] = {}
+    if not generator_skill_id:
+        ai_draft = _platform_ai_quote_draft(
+            db,
+            current_user,
+            requirement,
+            requirement_version,
+            service,
+            service_version,
+            total,
+            milestones,
+        )
+    if ai_draft:
+        scope = _string_list(ai_draft.get("service_scope"), 30) or scope
+        exclusions = _string_list(ai_draft.get("exclusions"), 30) or exclusions
+        acceptance = (
+            _string_list(ai_draft.get("acceptance_criteria"), 30) or acceptance
+        )
+        delivery_days = _bounded_int(
+            ai_draft.get("delivery_days"), delivery_days, 1, 365
+        )
+        included_revisions = _bounded_int(
+            ai_draft.get("included_revisions"), included_revisions, 0, 99
+        )
+        additional_terms = (
+            str(ai_draft.get("additional_terms") or "").strip()[:3000]
+            or additional_terms
+        )
+        generated_milestones = _dict_list(ai_draft.get("milestones"), 3)
+        for index, item in enumerate(generated_milestones):
+            if index >= len(milestones):
+                break
+            milestone = milestones[index]
+            milestone["name"] = str(item.get("name") or milestone["name"])[:100]
+            milestone["description"] = str(
+                item.get("description") or milestone["description"]
+            )[:1000]
+            milestone["input_materials"] = (
+                _string_list(item.get("input_materials"), 20)
+                or milestone["input_materials"]
+            )
+            milestone["deliverables"] = (
+                _string_list(item.get("deliverables"), 20)
+                or milestone["deliverables"]
+            )
+            milestone["acceptance_criteria"] = (
+                _string_list(item.get("acceptance_criteria"), 20)
+                or milestone["acceptance_criteria"]
+            )
+            milestone["duration_days"] = _bounded_int(
+                item.get("duration_days"), milestone["duration_days"], 1, 365
+            )
     version = TransactionQuoteVersion(
         tenant_id=current_user.tenant_id,
         quote_id=quote.id,
@@ -2170,13 +2369,13 @@ def _generate_quote_version(
         status="ai_draft",
         total_amount=total,
         valid_until=utc_now() + timedelta(days=7),
-        delivery_days=_delivery_days(requirement),
-        included_revisions=service_version.included_revisions,
+        delivery_days=delivery_days,
+        included_revisions=included_revisions,
         service_scope_json=scope,
-        exclusions_json=list(snapshot.get("exclusions") or []),
+        exclusions_json=exclusions,
         milestones_json=milestones,
         acceptance_criteria_json=acceptance,
-        additional_terms="本报价为电子报价，须经服务方管理员确认后发送；双方确认协议后生效。",
+        additional_terms=additional_terms,
         generation_method=("third_party_skill" if generator_skill_id else "platform_ai"),
         generator_skill_id=generator_skill_id,
         generator_skill_version=generator_skill_version,
@@ -2186,12 +2385,63 @@ def _generate_quote_version(
             "service_version": service_version.version,
             "service_version_id": service_version.id,
             "pricing_rule": "服务基价、交付物数量、验收项和预算边界综合生成",
+            "ai_gateway_used": bool(ai_draft),
         },
         created_by_user_id=current_user.id,
     )
     db.add(version)
     db.flush()
     return version
+
+
+def _platform_ai_quote_draft(
+    db: Session,
+    current_user: User,
+    requirement: TransactionRequirement,
+    requirement_version: TransactionRequirementVersion,
+    service: MarketplaceAIService,
+    service_version: MarketplaceAIServiceVersion,
+    total: Decimal,
+    baseline_milestones: list[dict[str, Any]],
+) -> dict[str, Any]:
+    provider = db.get(MarketplaceProviderProfile, service.provider_id)
+    gateway = AIModelGateway(
+        db,
+        tenant_id=current_user.tenant_id,
+        capability="quote_draft",
+        user_id=current_user.id,
+        organization_id=provider.organization_id if provider else None,
+    )
+    try:
+        return gateway.generate_json(
+            """你是开工吧报价草案助手。只根据给定需求、已发布服务快照和确定的总价起草报价。
+不得扩大服务范围、减少验收要求或改变总价。只返回 JSON object，字段：service_scope、exclusions、
+delivery_days、included_revisions、milestones、acceptance_criteria、additional_terms。
+milestones 最多 3 项；金额由交易系统计算，不要输出金额。草案必须由服务方管理员确认后才能发送。""",
+            {
+                "requirement": {
+                    "title": requirement.title,
+                    "category": requirement.category,
+                    "description": requirement_version.description,
+                    "deliverables": requirement_version.deliverables_json,
+                    "acceptance_criteria": requirement_version.acceptance_criteria_json,
+                    "desired_delivery_at": requirement.desired_delivery_at,
+                },
+                "service": {
+                    "name": service.name,
+                    "description": service.description,
+                    "snapshot": service_version.snapshot_json,
+                    "included_revisions": service_version.included_revisions,
+                },
+                "fixed_total_amount": str(total),
+                "baseline_milestones": [
+                    {key: value for key, value in item.items() if key != "amount"}
+                    for item in baseline_milestones
+                ],
+            },
+        )
+    except LLMError:
+        return {}
 
 
 def _requirement_summary(
@@ -3380,3 +3630,28 @@ def _user_name(user: User | None) -> str:
     if not user:
         return "未知用户"
     return user.display_name or user.username
+
+
+def _string_list(value: Any, limit: int) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    result: list[str] = []
+    for item in value[:limit]:
+        text = str(item or "").strip()
+        if text:
+            result.append(text)
+    return result
+
+
+def _dict_list(value: Any, limit: int) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [dict(item) for item in value[:limit] if isinstance(item, dict)]
+
+
+def _bounded_int(value: Any, fallback: int, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return fallback
+    return max(minimum, min(maximum, parsed))

@@ -29,7 +29,7 @@ def test_platform_model_gateway_migration_upgrade_downgrade_reupgrade(tmp_path) 
     metadata.drop_all(bind=engine)
     assert not TABLES.intersection(inspect(engine).get_table_names())
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "20260803_0016")
     assert _revision(engine) == "20260803_0016"
     assert TABLES.issubset(inspect(engine).get_table_names())
 
@@ -37,7 +37,7 @@ def test_platform_model_gateway_migration_upgrade_downgrade_reupgrade(tmp_path) 
     assert _revision(engine) == "20260802_0015"
     assert not TABLES.intersection(inspect(engine).get_table_names())
 
-    command.upgrade(config, "head")
+    command.upgrade(config, "20260803_0016")
     assert _revision(engine) == "20260803_0016"
     assert TABLES.issubset(inspect(engine).get_table_names())
     engine.dispose()

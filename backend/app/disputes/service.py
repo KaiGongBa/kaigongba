@@ -71,6 +71,8 @@ from app.disputes.schemas import (
     MediationResponseCreate,
     TimelineEventRead,
 )
+from app.llm import LLMError
+from app.llm.platform_gateway import AIModelGateway
 from app.security.permissions import is_admin_user
 
 MANAGER_ROLES = {
@@ -533,6 +535,49 @@ def generate_evidence_summary(
     categories: dict[str, int] = {}
     for item in evidence:
         categories[item.source_type] = categories.get(item.source_type, 0) + 1
+    open_requests = db.exec(
+        select(TransactionDisputeEvidenceRequest).where(
+            TransactionDisputeEvidenceRequest.case_id == case.id,
+            TransactionDisputeEvidenceRequest.status == "open",
+        )
+    ).all()
+    ai_assistance: dict[str, Any] = {}
+    order = db.get(TransactionOrder, case.order_id)
+    gateway = AIModelGateway(
+        db,
+        tenant_id=current_user.tenant_id,
+        capability="evidence_summary",
+        user_id=current_user.id,
+        organization_id=order.buyer_organization_id if order else None,
+    )
+    try:
+        ai_assistance = gateway.generate_json(
+            """你是开工吧平台争议处理的证据整理助手，不是仲裁员。
+只能中立归纳双方主张、证据时间线、已证实事实、相互矛盾之处和缺失材料；
+不得建议退款、放款、责任比例或裁决结果。只返回 JSON object：neutral_summary、timeline、
+supported_facts、contradictions、missing_items。""",
+            {
+                "case": {
+                    "statement": case.statement,
+                    "response_statement": case.response_statement,
+                    "claim": case.claim,
+                    "disputed_amount": str(case.disputed_amount),
+                },
+                "evidence": [
+                    {
+                        "evidence_id": item.id,
+                        "title": item.title,
+                        "source_type": item.source_type,
+                        "digest": item.snapshot_digest,
+                        "created_at": item.created_at.isoformat(),
+                    }
+                    for item in evidence[-100:]
+                ],
+                "open_requests": [item.title for item in open_requests],
+            },
+        )
+    except LLMError:
+        ai_assistance = {}
     case.ai_summary_json = {
         "mode": "evidence_assistant",
         "disclaimer": "仅用于整理证据，不构成平台处理结论或自动裁决。",
@@ -554,16 +599,19 @@ def generate_evidence_summary(
             }
             for item in evidence[-20:]
         ],
-        "missing_items": [
-            item.title
-            for item in db.exec(
-                select(TransactionDisputeEvidenceRequest).where(
-                    TransactionDisputeEvidenceRequest.case_id == case.id,
-                    TransactionDisputeEvidenceRequest.status == "open",
-                )
-            ).all()
-        ],
-        "generated_by": "platform_evidence_assistant_v1",
+        "missing_items": [item.title for item in open_requests],
+        "assistant_summary": {
+            "neutral_summary": str(ai_assistance.get("neutral_summary") or "").strip(),
+            "timeline": _safe_dict_list(ai_assistance.get("timeline"), 100),
+            "supported_facts": _safe_string_list(ai_assistance.get("supported_facts"), 100),
+            "contradictions": _safe_string_list(ai_assistance.get("contradictions"), 100),
+            "missing_items": _safe_string_list(ai_assistance.get("missing_items"), 100),
+        }
+        if ai_assistance
+        else None,
+        "generated_by": (
+            "platform_ai_gateway" if ai_assistance else "platform_evidence_assistant_fallback"
+        ),
     }
     case.ai_summary_generated_at = utc_now()
     case.updated_at = utc_now()
@@ -2231,3 +2279,20 @@ def _digest(payload: dict[str, Any]) -> str:
         payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str
     )
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def _safe_string_list(value: Any, limit: int) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    result: list[str] = []
+    for item in value[:limit]:
+        text = str(item or "").strip()
+        if text:
+            result.append(text)
+    return result
+
+
+def _safe_dict_list(value: Any, limit: int) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [dict(item) for item in value[:limit] if isinstance(item, dict)]

@@ -49,6 +49,13 @@ from app.llm.platform_schemas import (
     AIProviderConnectionRead,
     AIProviderConnectionUpdate,
 )
+from app.llm.usage import (
+    estimate_credits,
+    record_usage_event,
+    release_quota,
+    reserve_quota,
+)
+from app.llm.usage_context import suspend_ai_usage_capture
 from app.security.encryption import decrypt_secret, encrypt_secret, mask_secret
 from app.security.permissions import is_admin_user
 
@@ -66,6 +73,7 @@ AI_CAPABILITIES: tuple[tuple[str, str], ...] = (
 AI_CAPABILITY_IDS = {item[0] for item in AI_CAPABILITIES}
 
 PROVIDER_KINDS: tuple[tuple[str, str], ...] = (
+    ("crun", "CRUN 聚合平台"),
     ("openai_compatible", "OpenAI 兼容聚合平台"),
     ("siliconflow", "硅基流动"),
     ("volcengine_ark", "火山方舟 / 豆包"),
@@ -100,6 +108,7 @@ RETRYABLE_MODEL_ERRORS = {
 }
 
 T = TypeVar("T")
+CRUN_DEFAULT_BASE_URL = "https://api.crun.ai/api/v1"
 
 
 def require_platform_admin(current_user: User) -> User:
@@ -138,14 +147,15 @@ def create_provider_connection(
     name = request.name.strip()
     if not name or not request.api_key.strip():
         raise HTTPException(status_code=422, detail="AI_PROVIDER_NAME_AND_KEY_REQUIRED")
-    _validate_provider(request.provider_kind, request.api_protocol, request.base_url)
+    base_url = _provider_base_url(request.provider_kind, request.base_url)
+    _validate_provider(request.provider_kind, request.api_protocol, base_url)
     row = AIProviderConnection(
         scope="platform",
         owner_tenant_id=None,
         name=name,
         provider_kind=request.provider_kind,
         api_protocol=request.api_protocol,
-        base_url=request.base_url,
+        base_url=base_url,
         api_key_encrypted=encrypt_secret(request.api_key),
         enabled=False,
         trust_status="unverified",
@@ -168,13 +178,23 @@ def update_provider_connection(
     row = _get_connection(db, connection_id)
     protocol = request.api_protocol or row.api_protocol
     provider_kind = request.provider_kind or row.provider_kind
-    base_url = request.base_url if "base_url" in request.model_fields_set else row.base_url
+    base_url = (
+        _provider_base_url(provider_kind, request.base_url)
+        if "base_url" in request.model_fields_set or provider_kind != row.provider_kind
+        else row.base_url
+    )
     _validate_provider(provider_kind, protocol, base_url)
     security_changed = False
     for field in ("provider_kind", "api_protocol", "base_url"):
         if field not in request.model_fields_set:
-            continue
-        value = getattr(request, field)
+            if field == "base_url" and provider_kind != row.provider_kind:
+                value = base_url
+            else:
+                continue
+        else:
+            value = getattr(request, field)
+            if field == "base_url":
+                value = base_url
         if value != getattr(row, field):
             setattr(row, field, value)
             security_changed = True
@@ -525,6 +545,8 @@ class AIModelGateway:
         capability: str,
         user_id: str | None = None,
         agent_id: str | None = None,
+        organization_id: str | None = None,
+        session_id: str | None = None,
         tenant_model_config_id: str | None = None,
     ) -> None:
         _validate_capability(capability)
@@ -533,6 +555,8 @@ class AIModelGateway:
         self.capability = capability
         self.user_id = user_id
         self.agent_id = agent_id
+        self.organization_id = organization_id
+        self.session_id = session_id
         self.tenant_model_config_id = tenant_model_config_id
 
     def generate_text(self, system_prompt: str, payload: dict[str, Any] | str) -> str:
@@ -607,8 +631,27 @@ class AIModelGateway:
         for config in candidates:
             for retry_index in range(config.retry_count + 1):
                 attempts += 1
+                quota_key = f"{audit.request_id}:attempt:{attempts}"
+                estimated = estimate_credits(
+                    self.db,
+                    config,
+                    input_tokens=_estimated_tokens(
+                        {"system": system_prompt, "payload": payload}
+                    ),
+                    output_tokens=min(config.max_output_tokens, 1024),
+                )
+                quota_account, reserved = reserve_quota(
+                    self.db,
+                    tenant_id=self.tenant_id,
+                    user_id=self.user_id,
+                    organization_id=self.organization_id,
+                    credits=estimated,
+                    idempotency_key=f"{quota_key}:reserve",
+                )
                 try:
-                    output = call(LLMClient(config))
+                    client = LLMClient(config)
+                    with suspend_ai_usage_capture():
+                        output = call(client)
                     self._finish_audit(
                         audit,
                         config,
@@ -617,8 +660,50 @@ class AIModelGateway:
                         started=started,
                         output=output,
                     )
+                    usage = dict(getattr(client, "last_usage_metrics", {}) or {})
+                    usage["usage_source"] = getattr(
+                        client, "last_usage_source", "none"
+                    )
+                    event = record_usage_event(
+                        self.db,
+                        request_id=audit.request_id,
+                        idempotency_key=audit.request_id,
+                        invocation_audit_id=audit.id,
+                        tenant_id=self.tenant_id,
+                        user_id=self.user_id,
+                        agent_id=self.agent_id,
+                        session_id=self.session_id,
+                        organization_id=self.organization_id,
+                        capability=self.capability,
+                        operation=operation,
+                        config=config,
+                        status="succeeded",
+                        usage=usage,
+                        latency_ms=audit.latency_ms,
+                        retry_count=max(0, attempts - 1),
+                        started_at=audit.started_at,
+                        finished_at=audit.finished_at or utc_now(),
+                        prompt_hash=audit.prompt_hash,
+                        response_hash=audit.response_hash,
+                        provider_request_id=getattr(
+                            client, "last_provider_response_id", None
+                        ),
+                        quota_account=quota_account,
+                        reserved_credits=reserved,
+                    )
+                    audit.input_tokens = event.input_tokens
+                    audit.output_tokens = event.output_tokens
+                    audit.estimated_cost = event.provider_cost
+                    self.db.add(audit)
+                    self.db.commit()
                     return output
                 except LLMError as exc:
+                    release_quota(
+                        self.db,
+                        quota_account,
+                        reserved=reserved,
+                        idempotency_key=quota_key,
+                    )
                     last_error = exc
                     if retry_index >= config.retry_count or not _retryable(exc):
                         break
@@ -826,6 +911,13 @@ def _validate_provider(provider_kind: str, protocol: str, base_url: str | None) 
     validate_model_base_url(base_url)
 
 
+def _provider_base_url(provider_kind: str, base_url: str | None) -> str | None:
+    normalized = (base_url or "").strip().rstrip("/") or None
+    if provider_kind == "crun" and not normalized:
+        return CRUN_DEFAULT_BASE_URL
+    return normalized
+
+
 def _validate_deployment(
     protocol: str,
     name: str,
@@ -959,6 +1051,14 @@ def _content_hash(value: Any) -> str:
     except (TypeError, ValueError):
         serialized = str(value)
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def _estimated_tokens(value: Any) -> int:
+    try:
+        serialized = json.dumps(value, ensure_ascii=False, default=str)
+    except (TypeError, ValueError):
+        serialized = str(value)
+    return max(1, (len(serialized) + 3) // 4)
 
 
 def _commit_or_conflict(db: Session, detail: str) -> None:

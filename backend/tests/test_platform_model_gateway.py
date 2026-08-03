@@ -107,6 +107,7 @@ def test_catalog_includes_common_chinese_models_and_aggregators() -> None:
         "qwen",
     }
     assert {item["id"] for item in catalog.provider_kinds} >= {
+        "crun",
         "openai_compatible",
         "siliconflow",
         "volcengine_ark",

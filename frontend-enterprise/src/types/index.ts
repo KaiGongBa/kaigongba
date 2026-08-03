@@ -353,6 +353,96 @@ export type AIProviderConnectionRead = {
   updated_at: string;
 };
 
+export type AIProviderCatalogSyncResponse = {
+  connection_id: string;
+  discovered_count: number;
+  created_count: number;
+  updated_count: number;
+  unavailable_count: number;
+  deployment_draft_count: number;
+  product_draft_count: number;
+  synced_at: string;
+};
+
+export type AIModelProductRead = {
+  id: string;
+  slug: string;
+  display_name: string;
+  description?: string;
+  category: string;
+  model_family: string;
+  capabilities: string[];
+  feature_tags: string[];
+  context_window_tokens?: number;
+  usage_tier: string;
+  visibility_mode: string;
+  visible_to_users: boolean;
+  enabled: boolean;
+  is_default: boolean;
+  sort_order: number;
+  available: boolean;
+  backing_deployment_count: number;
+  available_deployment_count: number;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AIModelOptionRead = {
+  id: string;
+  source: 'platform_product' | 'enterprise_model';
+  display_name: string;
+  description?: string;
+  category: string;
+  model_family: string;
+  feature_tags: string[];
+  context_window_tokens?: number;
+  usage_tier: string;
+  is_default: boolean;
+};
+
+export type AIModelOptionsRead = {
+  smart_match_available: boolean;
+  platform_models: AIModelOptionRead[];
+  enterprise_models: AIModelOptionRead[];
+};
+
+export type AgentModelPolicyRead = {
+  id?: string;
+  tenant_id: string;
+  agent_id: string;
+  selection_mode: 'auto' | 'platform_product' | 'enterprise_model';
+  model_product_id?: string;
+  tenant_model_config_id?: string;
+  allow_platform_fallback: boolean;
+  updated_at?: string;
+};
+
+export type AIUsageSummaryRead = {
+  quota: {
+    account_id?: string;
+    cycle_start?: string;
+    cycle_end?: string;
+    granted_credits: string;
+    reserved_credits: string;
+    consumed_credits: string;
+    available_credits: string;
+    percent_used: number;
+    hard_limit: boolean;
+  };
+  totals: {
+    request_count: number;
+    input_tokens: number;
+    output_tokens: number;
+    total_tokens: number;
+    platform_cost: string;
+    billable_credits: string;
+    byok_tokens: number;
+  };
+  trend: Array<{ date: string; total_tokens: number; billable_credits: string; request_count: number }>;
+  by_agent: Array<{ agent_id?: string; agent_name: string; total_tokens: number; request_count: number; billable_credits: string }>;
+};
+
 export type AIModelDeploymentRead = {
   id: string;
   connection_id: string;

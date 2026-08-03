@@ -70,6 +70,7 @@ from app.db.models import (
     AgentProfile,
     AgentResourceBinding,
     ChatSession,
+    ChatSessionModelSelection,
     GeneralSkill,
     HumanHandoffRequest,
     Message,
@@ -91,8 +92,10 @@ from app.knowledge.citations import (
 )
 from app.llm import LLMClient, LLMError
 from app.llm.model_config_resolver import (
+    resolve_platform_model_for_product,
     resolve_model_config_for_runtime,
 )
+from app.llm.usage_context import update_ai_usage_session
 from app.llm.stage_protocol import stage_payload, unified_system_prompt
 from app.memory.jobs import enqueue_memory_capture
 from app.memory.service import MemoryService, memory_read
@@ -4758,7 +4761,43 @@ class AgentLoop:
             self.db.flush()
         elif not chat_session.agent_id and request.agent_id:
             chat_session.agent_id = request.agent_id
+        update_ai_usage_session(chat_session.id)
+        self._persist_session_model_selection(request, chat_session)
         return chat_session
+
+    def _persist_session_model_selection(
+        self, request: ChatTurnRequest, chat_session: ChatSession
+    ) -> None:
+        if not request.user_id:
+            return
+        mode = request.model_selection_mode or (
+            "platform_product"
+            if request.model_product_id
+            else "enterprise_model"
+            if request.model_config_id
+            else "inherit"
+        )
+        row = self.db.exec(
+            select(ChatSessionModelSelection).where(
+                ChatSessionModelSelection.session_id == chat_session.id
+            )
+        ).first()
+        if row is None:
+            row = ChatSessionModelSelection(
+                tenant_id=request.tenant_id,
+                user_id=request.user_id,
+                session_id=chat_session.id,
+                selection_mode=mode,
+                model_product_id=request.model_product_id,
+                tenant_model_config_id=request.model_config_id,
+            )
+        else:
+            row.selection_mode = mode
+            row.model_product_id = request.model_product_id
+            row.tenant_model_config_id = request.model_config_id
+            row.updated_at = utc_now()
+        self.db.add(row)
+        self.db.flush()
 
     def _finish_stale_completed_skill(
         self, tenant_id: str, chat_session: ChatSession, skills: list[Skill]
@@ -4934,6 +4973,14 @@ class AgentLoop:
         agent_id: str | None = None,
         role: str = "default",
     ) -> ModelConfig | None:
+        if request.model_product_id and request.model_config_id:
+            raise AgentLoopPreconditionError(
+                "conflicting_model_selection", "一次只能选择一个平台模型或企业自有模型。"
+            )
+        if request.model_product_id:
+            return resolve_platform_model_for_product(
+                self.db, request.tenant_id, request.model_product_id
+            )
         if request.model_config_id:
             row = self.db.get(ModelConfig, request.model_config_id)
             if not row or row.tenant_id != request.tenant_id:

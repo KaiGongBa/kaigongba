@@ -36,6 +36,7 @@ import { notify } from '@/components/ui/app-toast';
 import { useI18n } from '@/i18n';
 import type {
   AICapabilityStatusRead,
+  AIModelOptionsRead,
   AgentProfileRead,
   ChatAttachmentRead,
   ChatMessage,
@@ -147,6 +148,7 @@ const SCHEDULE_WEEKDAY_LABELS = ['周一', '周二', '周三', '周四', '周五
 const ENTERPRISE_SIDEBAR_STORAGE_KEY = 'ultrarag_enterprise_sidebar_expanded';
 const MISSING_MODEL_CONFIG_PATTERN = /missing_model_config|missing model config|没有默认模型配置|没有可用模型|模型配置不存在|模型未配置/i;
 const MODEL_CONFIGS_UPDATED_EVENT = 'ultrarag-enterprise-model-configs-updated';
+const MODEL_OPTION_STORAGE_PREFIX = 'kaigongba_chat_model_option';
 const ONBOARDING_SEEN_KEY = 'staffdeck_onboarding_guide_seen';
 const QUICK_START_SEEN_KEY = 'staffdeck_quick_start_guide_seen';
 
@@ -167,6 +169,10 @@ function isMissingModelConfigurationError(value: unknown): boolean {
 
 function chatSessionPath(id: string): string {
   return `${CHAT_BASE_PATH}/${id}`;
+}
+
+function modelOptionStorageKey(tenantId: string): string {
+  return `${MODEL_OPTION_STORAGE_PREFIX}:${tenantId}`;
 }
 
 function queuedTurnPreview(turn: PreparedChatTurn): ChatMessage {
@@ -327,9 +333,18 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
     || 'all'
   ));
   const [modelConfigs, setModelConfigs] = useState<ModelConfigRead[]>([]);
-  const [selectedModelConfigId, setSelectedModelConfigId] = useState(
+  const [, setSelectedModelConfigId] = useState(
     () => window.localStorage.getItem(modelStorageKey(tenantId)) || '',
   );
+  const [modelOptions, setModelOptions] = useState<AIModelOptionsRead>({
+    smart_match_available: false,
+    platform_models: [],
+    enterprise_models: [],
+  });
+  const [selectedModelChoice, setSelectedModelChoice] = useState(
+    () => window.localStorage.getItem(modelOptionStorageKey(tenantId)) || 'auto',
+  );
+  const [modelOptionsLoading, setModelOptionsLoading] = useState(Boolean(auth));
   const [modelConfigsLoading, setModelConfigsLoading] = useState(Boolean(auth));
   const [modelConfigsLoadError, setModelConfigsLoadError] = useState('');
   const [aiCapabilityStatus, setAiCapabilityStatus] = useState<AICapabilityStatusRead | null>(null);
@@ -591,33 +606,52 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
     navigate('/workspace/gallery', { replace: true });
   }, [navigate, routeTargetsPlatformAssistant]);
   const enabledModelConfigs = useMemo(() => modelConfigs.filter((item) => item.enabled), [modelConfigs]);
-  const selectedModelConfig = (
-    enabledModelConfigs.find((item) => item.id === selectedModelConfigId)
-    || enabledModelConfigs.find((item) => item.is_default)
-    || enabledModelConfigs[0]
-    || null
-  );
+  const selectedPlatformProductId = selectedModelChoice.startsWith('platform:')
+    ? selectedModelChoice.slice('platform:'.length)
+    : '';
+  const selectedEnterpriseModelId = selectedModelChoice.startsWith('enterprise:')
+    ? selectedModelChoice.slice('enterprise:'.length)
+    : '';
+  const selectedModelProduct = modelOptions.platform_models.find(
+    (item) => item.id === selectedPlatformProductId,
+  ) || null;
+  const selectedModelConfig = selectedEnterpriseModelId
+    ? enabledModelConfigs.find((item) => item.id === selectedEnterpriseModelId) || null
+    : null;
   const canConfigureModels = auth?.user.role === 'admin';
   const hasPlatformAgentChat = Boolean(aiCapabilityStatus?.capabilities.some(
     (item) => item.capability === 'agent_chat' && item.available,
   ));
   const showModelSetupNotice = !modelConfigsLoading
+    && !modelOptionsLoading
     && !aiCapabilityLoading
     && !modelConfigsLoadError
-    && !selectedModelConfig
-    && !hasPlatformAgentChat;
+    && !hasPlatformAgentChat
+    && enabledModelConfigs.length === 0;
   const modelSetupNoticeText = canConfigureModels
     ? t('平台和企业均没有可用模型，发送消息前请先完成模型配置。')
     : t('平台 AI 服务暂不可用，请联系平台管理员。');
+
+  const changeModelOption = useCallback((value: string) => {
+    setSelectedModelChoice(value);
+    window.localStorage.setItem(modelOptionStorageKey(tenantId), value);
+    if (value.startsWith('enterprise:')) {
+      const configId = value.slice('enterprise:'.length);
+      setSelectedModelConfigId(configId);
+      window.localStorage.setItem(modelStorageKey(tenantId), configId);
+    }
+  }, [tenantId]);
 
   const changeModelConfig = useCallback((value: string) => {
     setSelectedModelConfigId(value);
     if (value) {
       window.localStorage.setItem(modelStorageKey(tenantId), value);
+      changeModelOption(`enterprise:${value}`);
     } else {
       window.localStorage.removeItem(modelStorageKey(tenantId));
+      changeModelOption('auto');
     }
-  }, [tenantId]);
+  }, [changeModelOption, tenantId]);
 
   const completeModelSetup = useCallback((model: ModelConfigRead) => {
     const next = [...modelConfigs.filter((item) => item.id !== model.id), model];
@@ -627,18 +661,24 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
     changeModelConfig(model.id);
   }, [changeModelConfig, modelConfigs]);
 
-  const invalidateModelSelection = useCallback((modelId?: string) => {
+  const invalidateModelSelection = useCallback((modelId?: string, productId?: string) => {
     if (modelId) {
       setModelConfigs((current) => current.filter((item) => item.id !== modelId));
-    } else {
-      setModelConfigs([]);
     }
-    changeModelConfig('');
-    setModelSetupOpen(true);
-  }, [changeModelConfig]);
+    if (productId) {
+      setModelOptions((current) => ({
+        ...current,
+        platform_models: current.platform_models.filter((item) => item.id !== productId),
+      }));
+    }
+    changeModelOption('auto');
+    if (!hasPlatformAgentChat && enabledModelConfigs.length === 0) {
+      setModelSetupOpen(true);
+    }
+  }, [changeModelOption, enabledModelConfigs.length, hasPlatformAgentChat]);
 
   const ensureModelAvailable = useCallback(() => {
-    if (modelConfigsLoading || aiCapabilityLoading) {
+    if (modelConfigsLoading || modelOptionsLoading || aiCapabilityLoading) {
       notify.warning(t('模型配置正在加载，请稍后再发送'));
       return false;
     }
@@ -646,7 +686,12 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
       notify.error(t('无法读取模型配置，请刷新页面后重试'));
       return false;
     }
-    if (!selectedModelConfig && !hasPlatformAgentChat) {
+    const selectedChoiceAvailable = selectedModelChoice === 'auto'
+      ? hasPlatformAgentChat || enabledModelConfigs.length > 0
+      : selectedModelChoice.startsWith('platform:')
+        ? Boolean(selectedModelProduct)
+        : Boolean(selectedModelConfig);
+    if (!selectedChoiceAvailable) {
       if (canConfigureModels) {
         setModelSetupOpen(true);
       } else {
@@ -655,7 +700,7 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
       return false;
     }
     return true;
-  }, [aiCapabilityLoading, canConfigureModels, hasPlatformAgentChat, modelConfigsLoadError, modelConfigsLoading, selectedModelConfig, t]);
+  }, [aiCapabilityLoading, canConfigureModels, enabledModelConfigs.length, hasPlatformAgentChat, modelConfigsLoadError, modelConfigsLoading, modelOptionsLoading, selectedModelChoice, selectedModelConfig, selectedModelProduct, t]);
 
   const loadAgents = useCallback(async (preferredAgentId?: string) => {
     setAgentsLoaded(false);
@@ -759,6 +804,29 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
       .finally(() => setModelConfigsLoading(false));
   }, [auth, redirectToLogin, tenantId]);
 
+  const loadModelOptions = useCallback(() => {
+    if (!auth) {
+      setModelOptionsLoading(false);
+      return Promise.resolve();
+    }
+    setModelOptionsLoading(true);
+    return api
+      .get<AIModelOptionsRead>('/api/ai/models/options')
+      .then((value) => setModelOptions(value))
+      .catch((error) => {
+        if (isAuthError(error)) {
+          redirectToLogin();
+          return;
+        }
+        setModelOptions({ smart_match_available: false, platform_models: [], enterprise_models: [] });
+      })
+      .finally(() => setModelOptionsLoading(false));
+  }, [auth, redirectToLogin]);
+
+  useEffect(() => {
+    void loadModelOptions();
+  }, [loadModelOptions]);
+
   const loadAiCapabilityStatus = useCallback(() => {
     if (!auth) {
       setAiCapabilityLoading(false);
@@ -796,6 +864,7 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
       setModelConfigsLoadError('');
       setModelConfigsLoading(false);
       void loadAiCapabilityStatus();
+      void loadModelOptions();
       setSelectedModelConfigId((current) => {
         const enabledRows = rows.filter((item) => item.enabled);
         if (current && enabledRows.some((item) => item.id === current)) return current;
@@ -810,22 +879,38 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
     };
     window.addEventListener(MODEL_CONFIGS_UPDATED_EVENT, onModelConfigsUpdated);
     return () => window.removeEventListener(MODEL_CONFIGS_UPDATED_EVENT, onModelConfigsUpdated);
-  }, [loadAiCapabilityStatus, tenantId]);
+  }, [loadAiCapabilityStatus, loadModelOptions, tenantId]);
+
+  useEffect(() => {
+    if (!auth || !sessionId) return;
+    void api
+      .get<{
+        selection_mode: 'inherit' | 'auto' | 'platform_product' | 'enterprise_model';
+        model_product_id?: string;
+        tenant_model_config_id?: string;
+      }>(`/api/ai/sessions/${encodeURIComponent(sessionId)}/model-selection?tenant_id=${encodeURIComponent(tenantId)}`)
+      .then((selection) => {
+        if (selection.selection_mode === 'platform_product' && selection.model_product_id) {
+          setSelectedModelChoice(`platform:${selection.model_product_id}`);
+        } else if (selection.selection_mode === 'enterprise_model' && selection.tenant_model_config_id) {
+          setSelectedModelChoice(`enterprise:${selection.tenant_model_config_id}`);
+        } else if (selection.selection_mode === 'auto') {
+          setSelectedModelChoice('auto');
+        }
+      })
+      .catch(() => undefined);
+  }, [auth, sessionId, tenantId]);
 
   useEffect(() => {
     if (
       !auth
-      || modelConfigsLoading
-      || aiCapabilityLoading
-      || modelConfigsLoadError
-      || selectedModelConfig
-      || hasPlatformAgentChat
+      || !showModelSetupNotice
     ) return;
     const onboardingSeen = window.localStorage.getItem(ONBOARDING_SEEN_KEY);
     const quickStartSeen = window.localStorage.getItem(QUICK_START_SEEN_KEY);
     if (!onboardingSeen || !quickStartSeen) return;
     setModelSetupOpen(true);
-  }, [aiCapabilityLoading, auth, hasPlatformAgentChat, modelConfigsLoadError, modelConfigsLoading, selectedModelConfig]);
+  }, [auth, showModelSetupNotice]);
 
   const toggleTrace = useCallback((turnId: string, isExpanded = false) => {
     if (isExpanded) {
@@ -2284,7 +2369,7 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
     if (item.event === 'stream_interrupted' || item.event === 'error_occurred') {
       const interruptedStreamTurnId = eventStream.turnId || traceTurnId;
       if (isMissingModelConfigurationError(item.data)) {
-        invalidateModelSelection(selectedModelConfigId);
+        invalidateModelSelection(selectedModelConfig?.id, selectedModelProduct?.id);
       }
       finishTrace(traceTurnId, true);
       if (!shouldTouchStream) {
@@ -2357,7 +2442,7 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
     }
     if (item.event === 'error') {
       if (isMissingModelConfigurationError(item.data)) {
-        invalidateModelSelection(selectedModelConfigId);
+        invalidateModelSelection(selectedModelConfig?.id, selectedModelProduct?.id);
       }
       if (!shouldTouchStream) {
         finishTrace(traceTurnId, true);
@@ -2400,7 +2485,8 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
     loadTraces,
     notifyStore,
     notifyStream,
-    selectedModelConfigId,
+    selectedModelConfig?.id,
+    selectedModelProduct?.id,
     notifyTrace,
     ensureStreamingTraceMessage,
     syncTurnUntilAssistant,
@@ -3020,6 +3106,8 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
         interaction_mode: resolvedInteractionMode,
         client_timezone: getClientTimeZone(),
         model_config_id: prepared.modelConfigId,
+        model_product_id: prepared.modelProductId,
+        model_selection_mode: prepared.modelSelectionMode,
       };
       if (!startedAsDraftConversation) {
         requestBody.session_id = currentConversationId;
@@ -3086,7 +3174,7 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
         finishTrace(getStreamSlot(liveConversationId).turnId || turnId, true);
         clearStreamSlot(liveConversationId, true);
         clearRunningTurn();
-        invalidateModelSelection(prepared.modelConfigId);
+        invalidateModelSelection(prepared.modelConfigId, prepared.modelProductId);
         notifyStream();
         return;
       }
@@ -3197,6 +3285,12 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
       attachments: readyComposerAttachments.map(toRequestAttachment),
       interactionMode: resolvedInteractionMode,
       modelConfigId: selectedModelConfig?.id,
+      modelProductId: selectedModelProduct?.id,
+      modelSelectionMode: selectedModelChoice === 'auto'
+        ? 'auto'
+        : selectedModelChoice.startsWith('platform:')
+          ? 'platform_product'
+          : 'enterprise_model',
       createdAt: new Date().toISOString(),
     };
     setInput('');
@@ -3232,7 +3326,9 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
     readyComposerAttachments,
     replyToHandoff,
     selectedAgentId,
+    selectedModelChoice,
     selectedModelConfig?.id,
+    selectedModelProduct?.id,
     sessionId,
     sessions,
     sessionsLoading,
@@ -3244,11 +3340,7 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
     const nextTurn = queuedTurnsRef.current[0];
     if (!nextTurn) return;
     if (sessionsLoading) return;
-    if (modelConfigsLoading || modelConfigsLoadError) return;
-    if (!selectedModelConfig) {
-      if (canConfigureModels) setModelSetupOpen(true);
-      return;
-    }
+    if (modelConfigsLoading || modelOptionsLoading || modelConfigsLoadError) return;
     const queuedSession = sessions.find((item) => item.id === nextTurn.conversationId);
     if (
       queuedSession
@@ -3276,13 +3368,12 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
   }, [
     executePreparedTurn,
     getStreamSlot,
-    canConfigureModels,
     modelConfigsLoadError,
     modelConfigsLoading,
+    modelOptionsLoading,
     notifyQueue,
     persistQueuedTurns,
     runningTurn,
-    selectedModelConfig,
     sessions,
     sessionsLoading,
   ]);
@@ -3394,7 +3485,12 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
     isComposing,
     setIsComposing,
     enabledModelConfigs,
+    modelOptions,
+    modelOptionsLoading,
+    selectedModelChoice,
+    selectedModelProduct,
     selectedModelConfig,
+    changeModelOption,
     changeModelConfig,
     showModelSetupNotice,
     modelSetupNoticeText,

@@ -143,6 +143,10 @@ class ChatTurnRequest(BaseModel):
     session_id: Optional[str] = None
     agent_id: Optional[str] = None
     model_config_id: Optional[str] = None
+    model_product_id: Optional[str] = None
+    model_selection_mode: Optional[
+        Literal["auto", "platform_product", "enterprise_model"]
+    ] = None
     client_turn_id: Optional[str] = None
     user_id: Optional[str] = None
     message: str

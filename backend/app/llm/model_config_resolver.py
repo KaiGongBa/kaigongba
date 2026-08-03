@@ -10,6 +10,8 @@ from sqlmodel import Session, select
 
 from app.db.models import (
     AIModelDeployment,
+    AIModelProduct,
+    AIModelProductDeployment,
     AIModelRoute,
     AIProviderConnection,
     ModelConfig,
@@ -40,6 +42,7 @@ class ResolvedModelConfig:
     source_scope: Literal["tenant", "platform"] = "tenant"
     provider_connection_id: str | None = None
     deployment_id: str | None = None
+    model_product_id: str | None = None
     capability: str | None = None
     retry_count: int = 0
     routing_candidates: tuple["ResolvedModelConfig", ...] = ()
@@ -150,6 +153,91 @@ def resolve_platform_model_for_capability(
     candidates = resolve_platform_models_for_capability(db, tenant_id, capability)
     if not candidates:
         return None
+    primary, *fallbacks = candidates
+    return ResolvedModelConfig(
+        **{
+            **primary.__dict__,
+            "routing_candidates": tuple(fallbacks),
+        }
+    )
+
+
+def resolve_platform_models_for_product(
+    db: Session,
+    tenant_id: str,
+    product_id: str,
+) -> tuple[ResolvedModelConfig, ...]:
+    product = db.get(AIModelProduct, product_id)
+    if (
+        not product
+        or not product.enabled
+        or not product.visible_to_users
+    ):
+        raise HTTPException(status_code=404, detail="AI_MODEL_PRODUCT_NOT_FOUND")
+    mappings = db.exec(
+        select(AIModelProductDeployment)
+        .where(
+            AIModelProductDeployment.product_id == product.id,
+            AIModelProductDeployment.enabled == True,  # noqa: E712
+        )
+        .order_by(AIModelProductDeployment.priority, AIModelProductDeployment.created_at)
+    ).all()
+    resolved: list[ResolvedModelConfig] = []
+    for mapping in mappings:
+        deployment = db.get(AIModelDeployment, mapping.deployment_id)
+        if (
+            not deployment
+            or not deployment.enabled
+            or deployment.health_status not in {"healthy", "unknown"}
+        ):
+            continue
+        connection = db.get(AIProviderConnection, deployment.connection_id)
+        if (
+            not connection
+            or connection.scope != "platform"
+            or connection.owner_tenant_id is not None
+            or not connection.enabled
+            or connection.trust_status != "verified"
+        ):
+            continue
+        try:
+            protocol = ModelApiProtocol(connection.api_protocol)
+        except ValueError:
+            continue
+        options = current_protocol_options(deployment.protocol_options_json, protocol)
+        resolved.append(
+            ResolvedModelConfig(
+                id=deployment.id,
+                tenant_id=tenant_id,
+                api_protocol=protocol,
+                base_url=connection.base_url,
+                api_key_encrypted=connection.api_key_encrypted,
+                model=deployment.model,
+                temperature=deployment.temperature,
+                max_output_tokens=deployment.max_output_tokens,
+                protocol_options=_freeze(options),
+                legacy_extra_body=_freeze({}),
+                config_revision=connection.config_revision,
+                security_revision=connection.security_revision,
+                purpose="runtime",
+                timeout_seconds=90.0,
+                source_scope="platform",
+                provider_connection_id=connection.id,
+                deployment_id=deployment.id,
+                model_product_id=product.id,
+                capability="agent_chat",
+                retry_count=1,
+            )
+        )
+    if not resolved:
+        raise HTTPException(status_code=409, detail="AI_MODEL_PRODUCT_UNAVAILABLE")
+    return tuple(resolved)
+
+
+def resolve_platform_model_for_product(
+    db: Session, tenant_id: str, product_id: str
+) -> ResolvedModelConfig:
+    candidates = resolve_platform_models_for_product(db, tenant_id, product_id)
     primary, *fallbacks = candidates
     return ResolvedModelConfig(
         **{

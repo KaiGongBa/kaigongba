@@ -2743,6 +2743,337 @@ class AIModelInvocationAudit(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now)
 
 
+class AIProviderCatalogModel(SQLModel, table=True):
+    """A provider model discovered from its remote model-catalog endpoint."""
+
+    __tablename__ = "ai_provider_catalog_models"
+    __table_args__ = (
+        UniqueConstraint(
+            "connection_id",
+            "provider_model_id",
+            name="uq_ai_provider_catalog_connection_model",
+        ),
+        Index(
+            "ix_ai_provider_catalog_connection_availability",
+            "connection_id",
+            "availability_status",
+        ),
+    )
+
+    id: str = Field(default_factory=lambda: new_id("aicat"), primary_key=True)
+    connection_id: str = Field(index=True)
+    provider_model_id: str = Field(index=True)
+    display_name: str
+    owned_by: Optional[str] = None
+    model_family: str = Field(default="custom", index=True)
+    capabilities_json: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    context_window_tokens: Optional[int] = Field(default=None, sa_column=Column(Integer))
+    availability_status: str = Field(default="available", index=True)
+    raw_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    first_seen_at: datetime = Field(default_factory=utc_now)
+    last_seen_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class AIModelProduct(SQLModel, table=True):
+    """User-facing logical model independent of an upstream provider."""
+
+    __tablename__ = "ai_model_products"
+    __table_args__ = (
+        UniqueConstraint("slug", name="uq_ai_model_product_slug"),
+        Index("ix_ai_model_product_visibility", "enabled", "visible_to_users"),
+    )
+
+    id: str = Field(default_factory=lambda: new_id("aiprod"), primary_key=True)
+    slug: str = Field(index=True)
+    display_name: str
+    description: Optional[str] = None
+    category: str = Field(default="general", index=True)
+    model_family: str = Field(default="custom", index=True)
+    capabilities_json: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    feature_tags_json: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    context_window_tokens: Optional[int] = Field(default=None, sa_column=Column(Integer))
+    usage_tier: str = Field(default="standard", index=True)
+    visibility_mode: str = Field(default="all", index=True)
+    visible_to_users: bool = Field(default=False, index=True)
+    enabled: bool = Field(default=False, index=True)
+    is_default: bool = Field(default=False, index=True)
+    sort_order: int = Field(default=100, sa_column=Column(Integer))
+    metadata_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    created_by_user_id: str = Field(index=True)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class AIModelProductDeployment(SQLModel, table=True):
+    """Ordered provider deployments backing one logical model product."""
+
+    __tablename__ = "ai_model_product_deployments"
+    __table_args__ = (
+        UniqueConstraint(
+            "product_id",
+            "deployment_id",
+            name="uq_ai_model_product_deployment",
+        ),
+        UniqueConstraint(
+            "product_id",
+            "priority",
+            name="uq_ai_model_product_priority",
+        ),
+    )
+
+    id: str = Field(default_factory=lambda: new_id("aipmap"), primary_key=True)
+    product_id: str = Field(index=True)
+    deployment_id: str = Field(index=True)
+    priority: int = Field(default=100, sa_column=Column(Integer))
+    enabled: bool = Field(default=True, index=True)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class AIModelProductAccess(SQLModel, table=True):
+    """Allowlist entry used while a model product is in controlled rollout."""
+
+    __tablename__ = "ai_model_product_access"
+    __table_args__ = (
+        UniqueConstraint(
+            "product_id",
+            "target_type",
+            "target_id",
+            name="uq_ai_model_product_access_target",
+        ),
+    )
+
+    id: str = Field(default_factory=lambda: new_id("aiaccess"), primary_key=True)
+    product_id: str = Field(index=True)
+    target_type: str = Field(index=True)
+    target_id: str = Field(index=True)
+    enabled: bool = Field(default=True, index=True)
+    created_by_user_id: str = Field(index=True)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class AgentModelPolicy(SQLModel, table=True):
+    """Model-selection policy owned by a digital employee."""
+
+    __tablename__ = "agent_model_policies"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "agent_id", name="uq_agent_model_policy"),
+    )
+
+    id: str = Field(default_factory=lambda: new_id("aipolicy"), primary_key=True)
+    tenant_id: str = Field(index=True)
+    agent_id: str = Field(index=True)
+    selection_mode: str = Field(default="auto", index=True)
+    model_product_id: Optional[str] = Field(default=None, index=True)
+    tenant_model_config_id: Optional[str] = Field(default=None, index=True)
+    allow_platform_fallback: bool = True
+    updated_by_user_id: str = Field(index=True)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class ChatSessionModelSelection(SQLModel, table=True):
+    """Persistent per-session override without mutating legacy session rows."""
+
+    __tablename__ = "chat_session_model_selections"
+    __table_args__ = (
+        UniqueConstraint("session_id", name="uq_chat_session_model_selection"),
+    )
+
+    id: str = Field(default_factory=lambda: new_id("aisel"), primary_key=True)
+    tenant_id: str = Field(index=True)
+    user_id: str = Field(index=True)
+    session_id: str = Field(index=True)
+    selection_mode: str = Field(default="inherit", index=True)
+    model_product_id: Optional[str] = Field(default=None, index=True)
+    tenant_model_config_id: Optional[str] = Field(default=None, index=True)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class AIPriceVersion(SQLModel, table=True):
+    """Immutable price snapshot used to calculate one usage event."""
+
+    __tablename__ = "ai_price_versions"
+    __table_args__ = (
+        Index("ix_ai_price_deployment_effective", "deployment_id", "effective_from"),
+    )
+
+    id: str = Field(default_factory=lambda: new_id("aiprice"), primary_key=True)
+    deployment_id: str = Field(index=True)
+    currency: str = Field(default="CNY", index=True)
+    input_per_million: Decimal = Field(sa_column=Column(Numeric(18, 8)))
+    output_per_million: Decimal = Field(sa_column=Column(Numeric(18, 8)))
+    cached_input_per_million: Decimal = Field(
+        default=Decimal("0"), sa_column=Column(Numeric(18, 8))
+    )
+    reasoning_per_million: Decimal = Field(
+        default=Decimal("0"), sa_column=Column(Numeric(18, 8))
+    )
+    credits_per_currency_unit: Decimal = Field(
+        default=Decimal("1"), sa_column=Column(Numeric(18, 8))
+    )
+    source: str = Field(default="operator", index=True)
+    effective_from: datetime = Field(default_factory=utc_now, index=True)
+    effective_to: Optional[datetime] = Field(default=None, index=True)
+    created_by_user_id: str = Field(index=True)
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class AIQuotaAccount(SQLModel, table=True):
+    """Current quota counters; the immutable ledger remains authoritative."""
+
+    __tablename__ = "ai_quota_accounts"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "organization_id",
+            "user_id",
+            "cycle_start",
+            name="uq_ai_quota_account_cycle",
+        ),
+    )
+
+    id: str = Field(default_factory=lambda: new_id("aiquota"), primary_key=True)
+    tenant_id: str = Field(index=True)
+    organization_id: Optional[str] = Field(default=None, index=True)
+    user_id: Optional[str] = Field(default=None, index=True)
+    cycle_start: date = Field(index=True)
+    cycle_end: date = Field(index=True)
+    granted_credits: Decimal = Field(
+        default=Decimal("0"), sa_column=Column(Numeric(18, 6))
+    )
+    reserved_credits: Decimal = Field(
+        default=Decimal("0"), sa_column=Column(Numeric(18, 6))
+    )
+    consumed_credits: Decimal = Field(
+        default=Decimal("0"), sa_column=Column(Numeric(18, 6))
+    )
+    hard_limit: bool = True
+    warning_threshold_percent: int = Field(default=80, sa_column=Column(Integer))
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
+class AIUsageEvent(SQLModel, table=True):
+    """Append-only, content-minimised record for a completed model call."""
+
+    __tablename__ = "ai_usage_events"
+    __table_args__ = (
+        UniqueConstraint("request_id", name="uq_ai_usage_event_request"),
+        UniqueConstraint("idempotency_key", name="uq_ai_usage_event_idempotency"),
+        Index("ix_ai_usage_tenant_created", "tenant_id", "created_at"),
+        Index("ix_ai_usage_user_created", "user_id", "created_at"),
+        Index("ix_ai_usage_agent_created", "agent_id", "created_at"),
+    )
+
+    id: str = Field(default_factory=lambda: new_id("aiusage"), primary_key=True)
+    request_id: str = Field(index=True)
+    idempotency_key: str = Field(index=True)
+    invocation_audit_id: Optional[str] = Field(default=None, index=True)
+    tenant_id: str = Field(index=True)
+    organization_id: Optional[str] = Field(default=None, index=True)
+    user_id: Optional[str] = Field(default=None, index=True)
+    agent_id: Optional[str] = Field(default=None, index=True)
+    session_id: Optional[str] = Field(default=None, index=True)
+    order_id: Optional[str] = Field(default=None, index=True)
+    milestone_id: Optional[str] = Field(default=None, index=True)
+    sop_run_id: Optional[str] = Field(default=None, index=True)
+    node_run_id: Optional[str] = Field(default=None, index=True)
+    capability: str = Field(index=True)
+    operation: str = Field(index=True)
+    source_scope: str = Field(index=True)
+    model_product_id: Optional[str] = Field(default=None, index=True)
+    provider_connection_id: Optional[str] = Field(default=None, index=True)
+    deployment_id: Optional[str] = Field(default=None, index=True)
+    provider_request_id: Optional[str] = Field(default=None, index=True)
+    status: str = Field(index=True)
+    usage_source: str = Field(default="provider", index=True)
+    input_tokens: int = Field(default=0, sa_column=Column(Integer))
+    output_tokens: int = Field(default=0, sa_column=Column(Integer))
+    cached_input_tokens: int = Field(default=0, sa_column=Column(Integer))
+    reasoning_tokens: int = Field(default=0, sa_column=Column(Integer))
+    total_tokens: int = Field(default=0, sa_column=Column(Integer))
+    latency_ms: Optional[int] = Field(default=None, sa_column=Column(Integer))
+    retry_count: int = Field(default=0, sa_column=Column(Integer))
+    provider_cost: Decimal = Field(
+        default=Decimal("0"), sa_column=Column(Numeric(18, 8))
+    )
+    billable_credits: Decimal = Field(
+        default=Decimal("0"), sa_column=Column(Numeric(18, 6))
+    )
+    price_version_id: Optional[str] = Field(default=None, index=True)
+    prompt_hash: Optional[str] = None
+    response_hash: Optional[str] = None
+    started_at: datetime = Field(index=True)
+    finished_at: datetime = Field(index=True)
+    metadata_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class AIQuotaLedger(SQLModel, table=True):
+    """Append-only credit movements, including reservation and release."""
+
+    __tablename__ = "ai_quota_ledger"
+    __table_args__ = (
+        UniqueConstraint("idempotency_key", name="uq_ai_quota_ledger_idempotency"),
+        Index("ix_ai_quota_ledger_account_created", "account_id", "created_at"),
+    )
+
+    id: str = Field(default_factory=lambda: new_id("ailedger"), primary_key=True)
+    account_id: str = Field(index=True)
+    usage_event_id: Optional[str] = Field(default=None, index=True)
+    event_type: str = Field(index=True)
+    amount: Decimal = Field(sa_column=Column(Numeric(18, 6)))
+    balance_after: Decimal = Field(sa_column=Column(Numeric(18, 6)))
+    idempotency_key: str = Field(index=True)
+    metadata_json: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    created_by_user_id: Optional[str] = Field(default=None, index=True)
+    created_at: datetime = Field(default_factory=utc_now)
+
+
+class AIUsageDaily(SQLModel, table=True):
+    """Rebuildable daily aggregate for dashboards."""
+
+    __tablename__ = "ai_usage_daily"
+    __table_args__ = (
+        UniqueConstraint(
+            "usage_date",
+            "tenant_id",
+            "organization_id",
+            "user_id",
+            "agent_id",
+            "model_product_id",
+            "source_scope",
+            name="uq_ai_usage_daily_dimensions",
+        ),
+    )
+
+    id: str = Field(default_factory=lambda: new_id("aiuday"), primary_key=True)
+    usage_date: date = Field(index=True)
+    tenant_id: str = Field(index=True)
+    organization_id: Optional[str] = Field(default=None, index=True)
+    user_id: Optional[str] = Field(default=None, index=True)
+    agent_id: Optional[str] = Field(default=None, index=True)
+    model_product_id: Optional[str] = Field(default=None, index=True)
+    source_scope: str = Field(index=True)
+    request_count: int = Field(default=0, sa_column=Column(Integer))
+    input_tokens: int = Field(default=0, sa_column=Column(Integer))
+    output_tokens: int = Field(default=0, sa_column=Column(Integer))
+    cached_input_tokens: int = Field(default=0, sa_column=Column(Integer))
+    reasoning_tokens: int = Field(default=0, sa_column=Column(Integer))
+    total_tokens: int = Field(default=0, sa_column=Column(Integer))
+    provider_cost: Decimal = Field(
+        default=Decimal("0"), sa_column=Column(Numeric(18, 8))
+    )
+    billable_credits: Decimal = Field(
+        default=Decimal("0"), sa_column=Column(Numeric(18, 6))
+    )
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
 class PersonaConfig(SQLModel, table=True):
     __tablename__ = "persona_configs"
 

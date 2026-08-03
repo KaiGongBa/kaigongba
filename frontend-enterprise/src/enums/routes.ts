@@ -18,6 +18,7 @@ export enum EnterpriseRoute {
   OrganizationTeam = '/enterprise/accounts/organization',
   OrganizationTeamLegacy = '/enterprise/organization/team',
   Models = '/enterprise/models',
+  AIUsage = '/enterprise/ai-usage',
   AiEmployeeMarket = '/enterprise/market/agents',
   SkillMarket = '/enterprise/market/skills',
   Transactions = '/enterprise/transactions',

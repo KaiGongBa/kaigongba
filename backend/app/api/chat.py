@@ -23,7 +23,9 @@ from app.db import engine, get_session
 from app.db.models import (
     AgentEvent,
     AgentProfile,
+    AIModelProduct,
     ChatSession,
+    ChatSessionModelSelection,
     HumanHandoffRequest,
     KnowledgeChunk,
     KnowledgeConcept,
@@ -39,6 +41,8 @@ from app.db.models import (
 from app.feedback import enqueue_feedback_analysis
 from app.knowledge.citations import CITATION_EXCERPT_CHAR_LIMIT, compact_knowledge_citation_labels
 from app.llm import LLMClient, LLMError
+from app.llm.model_products import product_accessible
+from app.llm.usage_context import AIUsageCollector, bind_ai_usage_collector
 from app.observability.spans import (
     bind_span_sink,
     llm_operation,
@@ -287,6 +291,10 @@ def _user_message_metadata(request: ChatTurnRequest) -> dict[str, object]:
         metadata["interaction_mode"] = "scheduled_task"
     if request.model_config_id:
         metadata["model_config_id"] = request.model_config_id
+    if request.model_product_id:
+        metadata["model_product_id"] = request.model_product_id
+    if request.model_selection_mode:
+        metadata["model_selection_mode"] = request.model_selection_mode
     if request.attachments:
         metadata["attachments"] = [item.model_dump(mode="json") for item in request.attachments]
     return metadata
@@ -916,6 +924,7 @@ def chat_turn(
         request = _bind_request_to_session_agent(db, request, chat_session, current_user)
     else:
         _ensure_chat_agent_available(db, request.tenant_id, request.agent_id, current_user)
+    _validate_requested_model_selection(db, current_user, request)
     ensure_tenant(db, request.tenant_id)
     if not request.message.strip() and not request.attachments:
         raise HTTPException(status_code=400, detail="Message cannot be empty")
@@ -925,7 +934,16 @@ def chat_turn(
             response, _draft = scheduled_response
             _schedule_session_title_summary(request.tenant_id, request.user_id, response.session_id, request.agent_id)
             return response
-    response = AgentLoop(db).handle_turn(request)
+    usage_collector = AIUsageCollector(
+        tenant_id=request.tenant_id,
+        user_id=request.user_id,
+        agent_id=request.agent_id,
+        session_id=request.session_id,
+    )
+    with bind_ai_usage_collector(usage_collector):
+        response = AgentLoop(db).handle_turn(request)
+    usage_collector.set_session(response.session_id)
+    usage_collector.flush()
     _schedule_session_title_summary(request.tenant_id, request.user_id, response.session_id, request.agent_id)
     if request.interaction_mode == "scheduled_task" and request.agent_id:
         draft = detect_scheduled_task_draft(
@@ -956,6 +974,7 @@ def chat_stream(
         request = _bind_request_to_session_agent(db, request, chat_session, current_user)
     else:
         _ensure_chat_agent_available(db, request.tenant_id, request.agent_id, current_user)
+    _validate_requested_model_selection(db, current_user, request)
     if not request.message.strip() and not request.attachments:
         raise HTTPException(status_code=400, detail="Message cannot be empty")
 
@@ -976,6 +995,14 @@ def chat_stream(
 
     def run_stream_worker() -> None:
         span_sink_token = None
+        usage_collector = AIUsageCollector(
+            tenant_id=request.tenant_id,
+            user_id=request.user_id,
+            agent_id=request.agent_id,
+            session_id=request.session_id,
+        )
+        usage_binding = bind_ai_usage_collector(usage_collector)
+        usage_binding.__enter__()
         try:
             with Session(engine) as worker_db:
                 span_turn_id = {"value": ""}
@@ -1199,6 +1226,9 @@ def chat_stream(
             if isinstance(exc, (KeyboardInterrupt, SystemExit)):
                 raise
         finally:
+            usage_collector.set_session(source_session_id["value"] or request.session_id)
+            usage_binding.__exit__(None, None, None)
+            usage_collector.flush()
             if span_sink_token is not None:
                 reset_span_sink(span_sink_token)
             session_id = source_session_id["value"] or request.session_id or ""
@@ -2159,6 +2189,37 @@ def _bind_request_to_session_agent(
     chat_session: ChatSession,
     current_user: User,
 ) -> ChatTurnRequest:
+    if (
+        request.model_selection_mode is None
+        and not request.model_product_id
+        and not request.model_config_id
+    ):
+        selection = db.exec(
+            select(ChatSessionModelSelection).where(
+                ChatSessionModelSelection.session_id == chat_session.id
+            )
+        ).first()
+        if selection:
+            request = request.model_copy(
+                update={
+                    "model_product_id": (
+                        selection.model_product_id
+                        if selection.selection_mode == "platform_product"
+                        else None
+                    ),
+                    "model_config_id": (
+                        selection.tenant_model_config_id
+                        if selection.selection_mode == "enterprise_model"
+                        else None
+                    ),
+                    "model_selection_mode": (
+                        selection.selection_mode
+                        if selection.selection_mode
+                        in {"auto", "platform_product", "enterprise_model"}
+                        else None
+                    ),
+                }
+            )
     if chat_session.agent_id:
         if request.agent_id and request.agent_id != chat_session.agent_id:
             raise HTTPException(status_code=409, detail="Session is already bound to another agent")
@@ -2170,6 +2231,41 @@ def _bind_request_to_session_agent(
     db.add(chat_session)
     db.commit()
     return request.model_copy(update={"agent_id": agent.id})
+
+
+def _validate_requested_model_selection(
+    db: Session, current_user: User, request: ChatTurnRequest
+) -> None:
+    if request.model_product_id and request.model_config_id:
+        raise HTTPException(status_code=422, detail="AI_MODEL_SELECTION_CONFLICT")
+    if request.model_selection_mode == "platform_product" and not request.model_product_id:
+        raise HTTPException(status_code=422, detail="AI_MODEL_PRODUCT_REQUIRED")
+    if request.model_selection_mode == "enterprise_model" and not request.model_config_id:
+        raise HTTPException(status_code=422, detail="AI_MODEL_CONFIG_REQUIRED")
+    if request.model_selection_mode == "auto" and (
+        request.model_product_id or request.model_config_id
+    ):
+        raise HTTPException(status_code=422, detail="AI_MODEL_AUTO_SELECTION_CONFLICT")
+    if request.model_product_id and request.model_selection_mode not in {
+        None,
+        "platform_product",
+    }:
+        raise HTTPException(status_code=422, detail="AI_MODEL_SELECTION_CONFLICT")
+    if request.model_config_id and request.model_selection_mode not in {
+        None,
+        "enterprise_model",
+    }:
+        raise HTTPException(status_code=422, detail="AI_MODEL_SELECTION_CONFLICT")
+    if not request.model_product_id:
+        return
+    product = db.get(AIModelProduct, request.model_product_id)
+    if (
+        not product
+        or not product.enabled
+        or not product.visible_to_users
+        or not product_accessible(db, product, current_user)
+    ):
+        raise HTTPException(status_code=404, detail="AI_MODEL_PRODUCT_NOT_FOUND")
 
 
 def _ensure_chat_session_available(db: Session, tenant_id: str, user_id: str, session_id: str) -> ChatSession:

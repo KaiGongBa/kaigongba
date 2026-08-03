@@ -3,13 +3,14 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-const apiState = vi.hoisted(() => ({ get: vi.fn() }));
+const apiState = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), put: vi.fn() }));
 
 vi.mock('@/api/client', () => ({
+  TENANT_ID: 'tenant_demo',
   api: {
     get: apiState.get,
-    post: vi.fn(),
-    put: vi.fn(),
+    post: apiState.post,
+    put: apiState.put,
     delete: vi.fn(),
   },
 }));
@@ -19,6 +20,8 @@ import PlatformModelGatewayPanel from './PlatformModelGatewayPanel';
 afterEach(() => {
   cleanup();
   apiState.get.mockReset();
+  apiState.post.mockReset();
+  apiState.put.mockReset();
 });
 
 describe('PlatformModelGatewayPanel', () => {
@@ -121,5 +124,57 @@ describe('PlatformModelGatewayPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '能力路由 1' }));
     expect(screen.getByText('数字员工与开小花对话')).toBeTruthy();
     expect(screen.getByText(/P10 · DeepSeek V3.1 · 聚合平台 A/)).toBeTruthy();
+  });
+
+  it('syncs the provider catalog without exposing the provider key', async () => {
+    apiState.get.mockImplementation(async (url: string) => {
+      if (url === '/api/ai/catalog') {
+        return {
+          provider_kinds: [{ id: 'crun', label: 'CRUN 聚合平台' }],
+          model_families: [],
+          capabilities: [],
+          protocols: ['openai_chat_completions'],
+        };
+      }
+      if (url === '/api/ai/capabilities/status') {
+        return { platform_available: false, capabilities: [] };
+      }
+      if (url === '/api/ai/platform/connections') {
+        return [{
+          id: 'aiprov_crun',
+          name: 'CRUN 主连接',
+          provider_kind: 'crun',
+          api_protocol: 'openai_chat_completions',
+          base_url: 'https://api.crun.ai/api/v1',
+          api_key_masked: 'ak_****test',
+          enabled: true,
+          trust_status: 'pending',
+          model_count: 0,
+          created_at: '2026-08-03T00:00:00Z',
+          updated_at: '2026-08-03T00:00:00Z',
+        }];
+      }
+      return [];
+    });
+    apiState.post.mockResolvedValue({
+      connection_id: 'aiprov_crun',
+      discovered_count: 24,
+      created_count: 24,
+      updated_count: 0,
+      unavailable_count: 0,
+      deployment_draft_count: 20,
+      product_draft_count: 20,
+      synced_at: '2026-08-03T00:00:00Z',
+    });
+
+    render(<PlatformModelGatewayPanel />);
+    await waitFor(() => expect(screen.getByText('CRUN 主连接')).toBeTruthy());
+    expect(screen.queryByText('ak_example_should_never_render')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: '同步模型目录' }));
+    await waitFor(() => expect(apiState.post).toHaveBeenCalledWith(
+      '/api/ai/platform/connections/aiprov_crun/catalog/sync',
+      { create_product_drafts: true },
+    ));
   });
 });

@@ -52,6 +52,7 @@ import GeneralSkillsPage, {
 import KnowledgeManagePage, { KnowledgeAddPage } from "./pages/KnowledgePage";
 import LoginPage from "./pages/LoginPage";
 import ModelsPage from "./pages/ModelsPage";
+import AIUsagePage from "./pages/AIUsagePage";
 import OpenPlatformPage from "./pages/OpenPlatformPage";
 import SkillsPage from "./pages/SkillsPage";
 import {
@@ -94,7 +95,7 @@ import {
   DIALOG_FOOTER_CLASS,
   DIALOG_PRIMARY_BUTTON_CLASS,
 } from "@/lib/enterprise-ui";
-import type { AICapabilityStatusRead, AgentProfileRead, ModelConfigRead } from "./types";
+import type { AICapabilityStatusRead, AIModelOptionsRead, AgentProfileRead, ModelConfigRead } from "./types";
 import { useI18n } from "./i18n";
 import MarketReviewPage from "./features/marketplace/MarketReviewPage";
 import TransactionSupervisionPage from "./features/marketplace/TransactionSupervisionPage";
@@ -121,6 +122,9 @@ type AgentCreateFormState = {
   roleName: string;
   sourceMode: AgentCreateMode;
   copyFromAgentId: string;
+  modelSelectionMode: "auto" | "platform_product" | "enterprise_model";
+  modelProductId: string;
+  tenantModelConfigId: string;
 };
 
 const EMPTY_AGENT_FORM: AgentCreateFormState = {
@@ -129,6 +133,9 @@ const EMPTY_AGENT_FORM: AgentCreateFormState = {
   roleName: "",
   sourceMode: "copy",
   copyFromAgentId: "",
+  modelSelectionMode: "auto",
+  modelProductId: "",
+  tenantModelConfigId: "",
 };
 
 function Shell({
@@ -157,6 +164,11 @@ function Shell({
   const [modelConfigsLoaded, setModelConfigsLoaded] = useState(false);
   const [aiCapabilityStatus, setAiCapabilityStatus] = useState<AICapabilityStatusRead | null>(null);
   const [aiCapabilityStatusLoaded, setAiCapabilityStatusLoaded] = useState(false);
+  const [modelOptions, setModelOptions] = useState<AIModelOptionsRead>({
+    smart_match_available: false,
+    platform_models: [],
+    enterprise_models: [],
+  });
   const [guidesCompleted, setGuidesCompleted] = useState(() => Boolean(
     window.localStorage.getItem(ONBOARDING_SEEN_KEY)
     && window.localStorage.getItem(QUICK_START_SEEN_KEY),
@@ -231,6 +243,10 @@ function Shell({
   useEffect(() => {
     void loadModelConfigs();
     void loadAiCapabilityStatus();
+    void api
+      .get<AIModelOptionsRead>("/api/ai/models/options")
+      .then(setModelOptions)
+      .catch(() => setModelOptions({ smart_match_available: false, platform_models: [], enterprise_models: [] }));
   }, [loadAiCapabilityStatus, loadModelConfigs]);
 
   useEffect(() => {
@@ -426,6 +442,8 @@ function Shell({
     setAgentForm({
       ...EMPTY_AGENT_FORM,
       copyFromAgentId: selectedAgentId || sourceAgents[0]?.id || "",
+      modelProductId: modelOptions.platform_models.find((item) => item.is_default)?.id || modelOptions.platform_models[0]?.id || "",
+      tenantModelConfigId: modelOptions.enterprise_models.find((item) => item.is_default)?.id || modelOptions.enterprise_models[0]?.id || "",
     });
     setAgentCreateOpen(true);
   }
@@ -439,6 +457,14 @@ function Shell({
     const name = agentForm.name.trim();
     if (!name) {
       notify.error("请填写数字员工姓名");
+      return;
+    }
+    if (agentForm.modelSelectionMode === "platform_product" && !agentForm.modelProductId) {
+      notify.error("请选择一个已发布的平台模型");
+      return;
+    }
+    if (agentForm.modelSelectionMode === "enterprise_model" && !agentForm.tenantModelConfigId) {
+      notify.error("请选择企业自有模型");
       return;
     }
     const isBlankOnboarding = agentForm.sourceMode === "blank";
@@ -495,6 +521,17 @@ function Shell({
             : baseMetadata,
         },
       );
+      try {
+        await api.put(`/api/ai/agents/${encodeURIComponent(created.id)}/model-policy`, {
+          tenant_id: TENANT_ID,
+          selection_mode: agentForm.modelSelectionMode,
+          model_product_id: agentForm.modelSelectionMode === "platform_product" ? agentForm.modelProductId : undefined,
+          tenant_model_config_id: agentForm.modelSelectionMode === "enterprise_model" ? agentForm.tenantModelConfigId : undefined,
+          allow_platform_fallback: true,
+        });
+      } catch (error) {
+        notify.warning(error instanceof Error ? `员工已创建，模型策略保存失败：${error.message}` : "员工已创建，模型策略保存失败");
+      }
       await loadAgents();
       changeAgentScope(created.id);
       setAgentCreateOpen(false);
@@ -791,6 +828,10 @@ function Shell({
                 }
               />
               <Route
+                path="/enterprise/ai-usage"
+                element={<AIUsagePage currentUser={auth.user} onLogout={onLogout} />}
+              />
+              <Route
                 path="/enterprise/tools"
                 element={
                   <ToolsPage currentUser={auth.user} onLogout={onLogout} />
@@ -969,6 +1010,70 @@ function Shell({
                 placeholder="概括这个数字员工的岗位边界、服务风格和执行重点"
               />
             </label>}
+            {agentForm.sourceMode !== "external" && <label>
+              模型策略
+              <div className="grid grid-cols-3 gap-[6px]">
+                {[
+                  { value: "auto" as const, label: "智能匹配" },
+                  { value: "platform_product" as const, label: "指定平台模型" },
+                  { value: "enterprise_model" as const, label: "企业自有模型" },
+                ].map((option) => (
+                  <button
+                    type="button"
+                    key={option.value}
+                    className={cn(
+                      "h-[36px] rounded-[9px] border px-[8px] text-[12px] transition-colors",
+                      agentForm.modelSelectionMode === option.value
+                        ? "border-[#18181a] bg-[#18181a] text-white"
+                        : "border-border bg-white text-[#464c5e] hover:border-[#aeb5c0]",
+                    )}
+                    onClick={() => setAgentForm((current) => ({ ...current, modelSelectionMode: option.value }))}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </label>}
+            {agentForm.sourceMode !== "external" && agentForm.modelSelectionMode === "platform_product" && (
+              <label>
+                平台模型
+                <UISelect
+                  value={agentForm.modelProductId || undefined}
+                  onValueChange={(value) => setAgentForm((current) => ({ ...current, modelProductId: value }))}
+                >
+                  <SelectTrigger className={cn(SELECT_TRIGGER_CLASS, "w-full")}>
+                    <SelectValue placeholder="选择已发布的平台模型" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {modelOptions.platform_models.map((model) => (
+                      <SelectItem key={model.id} value={model.id}>
+                        {model.display_name} · {model.model_family}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </UISelect>
+              </label>
+            )}
+            {agentForm.sourceMode !== "external" && agentForm.modelSelectionMode === "enterprise_model" && (
+              <label>
+                企业自有模型
+                <UISelect
+                  value={agentForm.tenantModelConfigId || undefined}
+                  onValueChange={(value) => setAgentForm((current) => ({ ...current, tenantModelConfigId: value }))}
+                >
+                  <SelectTrigger className={cn(SELECT_TRIGGER_CLASS, "w-full")}>
+                    <SelectValue placeholder="选择企业自有模型" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {modelOptions.enterprise_models.map((model) => (
+                      <SelectItem key={model.id} value={model.id}>
+                        {model.display_name} · {model.description}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </UISelect>
+              </label>
+            )}
           </div>
           <div className={cn(DIALOG_FOOTER_CLASS, "shrink-0 border-t border-border")}>
             <UIButton

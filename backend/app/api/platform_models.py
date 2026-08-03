@@ -7,7 +7,7 @@ from sqlmodel import Session
 
 from app.db import get_session
 from app.db.models import User
-from app.llm import platform_gateway
+from app.llm import model_products, platform_gateway, provider_catalog, usage
 from app.llm.platform_schemas import (
     AICapabilityStatusRead,
     AIInvocationAuditRead,
@@ -18,9 +18,25 @@ from app.llm.platform_schemas import (
     AIModelRouteRead,
     AIModelRouteWrite,
     AIModelVerificationResponse,
+    AIModelOptionsRead,
+    AIModelProductDeploymentWrite,
+    AIModelProductRead,
+    AIModelProductUpdate,
+    AIPriceVersionCreate,
+    AIPriceVersionRead,
     AIProviderConnectionCreate,
+    AIProviderCatalogModelRead,
+    AIProviderCatalogSyncRequest,
+    AIProviderCatalogSyncResponse,
     AIProviderConnectionRead,
     AIProviderConnectionUpdate,
+    AIQuotaGrantRequest,
+    AIQuotaRead,
+    AIUsageSummaryRead,
+    AgentModelPolicyRead,
+    AgentModelPolicyWrite,
+    ChatSessionModelSelectionRead,
+    ChatSessionModelSelectionWrite,
 )
 from app.security.auth import get_current_user
 
@@ -176,4 +192,204 @@ def list_platform_audits(
 ) -> list[AIInvocationAuditRead]:
     return platform_gateway.list_invocation_audits(
         db, current_user, limit=limit
+    )
+
+
+@router.post(
+    "/platform/connections/{connection_id}/catalog/sync",
+    response_model=AIProviderCatalogSyncResponse,
+)
+def sync_platform_provider_catalog(
+    connection_id: str,
+    request: AIProviderCatalogSyncRequest,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+) -> AIProviderCatalogSyncResponse:
+    return provider_catalog.sync_provider_catalog(
+        db, current_user, connection_id, request
+    )
+
+
+@router.get(
+    "/platform/connections/{connection_id}/catalog",
+    response_model=list[AIProviderCatalogModelRead],
+)
+def list_platform_provider_catalog(
+    connection_id: str,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+) -> list[AIProviderCatalogModelRead]:
+    return provider_catalog.list_provider_catalog(db, current_user, connection_id)
+
+
+@router.get("/models/options", response_model=AIModelOptionsRead)
+def list_user_model_options(
+    current_user: CurrentUser,
+    db: DatabaseSession,
+) -> AIModelOptionsRead:
+    return model_products.model_options(db, current_user)
+
+
+@router.get("/models/products", response_model=list[AIModelProductRead])
+def list_user_model_products(
+    current_user: CurrentUser,
+    db: DatabaseSession,
+) -> list[AIModelProductRead]:
+    return model_products.list_products(db, current_user)
+
+
+@router.get("/platform/products", response_model=list[AIModelProductRead])
+def list_platform_products(
+    current_user: CurrentUser,
+    db: DatabaseSession,
+) -> list[AIModelProductRead]:
+    return model_products.list_products(db, current_user, admin=True)
+
+
+@router.put("/platform/products/{product_id}", response_model=AIModelProductRead)
+def update_platform_product(
+    product_id: str,
+    request: AIModelProductUpdate,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+) -> AIModelProductRead:
+    return model_products.update_product(db, current_user, product_id, request)
+
+
+@router.post(
+    "/platform/products/{product_id}/deployments",
+    response_model=AIModelProductRead,
+)
+def set_platform_product_deployment(
+    product_id: str,
+    request: AIModelProductDeploymentWrite,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+) -> AIModelProductRead:
+    return model_products.upsert_product_deployment(
+        db, current_user, product_id, request
+    )
+
+
+@router.post(
+    "/platform/products/{product_id}/access",
+    response_model=AIModelProductRead,
+)
+def set_platform_product_access(
+    product_id: str,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+    target_type: str = Query(...),
+    target_id: str = Query(...),
+    enabled: bool = Query(True),
+) -> AIModelProductRead:
+    return model_products.set_product_access(
+        db,
+        current_user,
+        product_id,
+        target_type=target_type,
+        target_id=target_id,
+        enabled=enabled,
+    )
+
+
+@router.get(
+    "/agents/{agent_id}/model-policy",
+    response_model=AgentModelPolicyRead,
+)
+def get_agent_model_policy(
+    agent_id: str,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+    tenant_id: str = Query(...),
+) -> AgentModelPolicyRead:
+    return model_products.get_agent_policy(db, current_user, tenant_id, agent_id)
+
+
+@router.put(
+    "/agents/{agent_id}/model-policy",
+    response_model=AgentModelPolicyRead,
+)
+def put_agent_model_policy(
+    agent_id: str,
+    request: AgentModelPolicyWrite,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+) -> AgentModelPolicyRead:
+    return model_products.upsert_agent_policy(db, current_user, agent_id, request)
+
+
+@router.get(
+    "/sessions/{session_id}/model-selection",
+    response_model=ChatSessionModelSelectionRead,
+)
+def get_chat_session_model_selection(
+    session_id: str,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+    tenant_id: str = Query(...),
+) -> ChatSessionModelSelectionRead:
+    return model_products.get_session_selection(
+        db, current_user, tenant_id, session_id
+    )
+
+
+@router.put(
+    "/sessions/{session_id}/model-selection",
+    response_model=ChatSessionModelSelectionRead,
+)
+def put_chat_session_model_selection(
+    session_id: str,
+    request: ChatSessionModelSelectionWrite,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+) -> ChatSessionModelSelectionRead:
+    return model_products.upsert_session_selection(
+        db, current_user, session_id, request
+    )
+
+
+@router.get("/platform/prices", response_model=list[AIPriceVersionRead])
+def list_platform_prices(
+    current_user: CurrentUser,
+    db: DatabaseSession,
+    deployment_id: str | None = Query(None),
+) -> list[AIPriceVersionRead]:
+    return usage.list_price_versions(db, current_user, deployment_id)
+
+
+@router.post(
+    "/platform/prices",
+    response_model=AIPriceVersionRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_platform_price(
+    request: AIPriceVersionCreate,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+) -> AIPriceVersionRead:
+    return usage.create_price_version(db, current_user, request)
+
+
+@router.post("/platform/quotas/grant", response_model=AIQuotaRead)
+def grant_platform_quota(
+    request: AIQuotaGrantRequest,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+) -> AIQuotaRead:
+    return usage.grant_quota(db, current_user, request)
+
+
+@router.get("/usage/summary", response_model=AIUsageSummaryRead)
+def get_ai_usage_summary(
+    current_user: CurrentUser,
+    db: DatabaseSession,
+    days: int = Query(30, ge=1, le=366),
+    scope: str = Query("me"),
+) -> AIUsageSummaryRead:
+    return usage.usage_summary(
+        db,
+        current_user,
+        days=days,
+        tenant_scope=scope == "tenant",
     )

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import { CheckCircle2, LoaderCircle, Plus, RefreshCw, Route, Server, ShieldCheck } from 'lucide-react';
+import { CheckCircle2, CloudDownload, Eye, EyeOff, LoaderCircle, Plus, RefreshCw, Route, Server, ShieldCheck } from 'lucide-react';
 
-import { api } from '@/api/client';
+import { api, TENANT_ID } from '@/api/client';
 import { notify } from '@/components/ui/app-toast';
 import {
   Dialog,
@@ -20,13 +20,15 @@ import type {
   AIInvocationAuditRead,
   AIModelCatalogRead,
   AIModelDeploymentRead,
+  AIModelProductRead,
   AIModelRouteRead,
+  AIProviderCatalogSyncResponse,
   AIProviderConnectionRead,
 } from '@/types';
 
 export const AI_CAPABILITIES_UPDATED_EVENT = 'kaigongba-ai-capabilities-updated';
 
-type PanelTab = 'connections' | 'models' | 'routes' | 'audits';
+type PanelTab = 'connections' | 'models' | 'products' | 'routes' | 'audits';
 
 const EMPTY_CATALOG: AIModelCatalogRead = {
   provider_kinds: [],
@@ -46,12 +48,13 @@ const capabilityFallbackLabels: Record<string, string> = {
   skill_distillation: 'Skill 整理与生成',
 };
 
-export default function PlatformModelGatewayPanel() {
+export default function PlatformModelGatewayPanel({ tenantId = TENANT_ID }: { tenantId?: string }) {
   const [tab, setTab] = useState<PanelTab>('connections');
   const [catalog, setCatalog] = useState<AIModelCatalogRead>(EMPTY_CATALOG);
   const [status, setStatus] = useState<AICapabilityStatusRead | null>(null);
   const [connections, setConnections] = useState<AIProviderConnectionRead[]>([]);
   const [deployments, setDeployments] = useState<AIModelDeploymentRead[]>([]);
+  const [products, setProducts] = useState<AIModelProductRead[]>([]);
   const [routes, setRoutes] = useState<AIModelRouteRead[]>([]);
   const [audits, setAudits] = useState<AIInvocationAuditRead[]>([]);
   const [loading, setLoading] = useState(false);
@@ -60,6 +63,8 @@ export default function PlatformModelGatewayPanel() {
   const [routeOpen, setRouteOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [verifyingId, setVerifyingId] = useState('');
+  const [syncingId, setSyncingId] = useState('');
+  const [publishingId, setPublishingId] = useState('');
 
   const [connectionForm, setConnectionForm] = useState({
     name: '',
@@ -92,11 +97,12 @@ export default function PlatformModelGatewayPanel() {
   async function load(showLoading = true) {
     if (showLoading) setLoading(true);
     try {
-      const [catalogResult, statusResult, connectionRows, deploymentRows, routeRows, auditRows] = await Promise.all([
+      const [catalogResult, statusResult, connectionRows, deploymentRows, productRows, routeRows, auditRows] = await Promise.all([
         api.get<AIModelCatalogRead>('/api/ai/catalog'),
         api.get<AICapabilityStatusRead>('/api/ai/capabilities/status'),
         api.get<AIProviderConnectionRead[]>('/api/ai/platform/connections'),
         api.get<AIModelDeploymentRead[]>('/api/ai/platform/deployments'),
+        api.get<AIModelProductRead[]>('/api/ai/platform/products'),
         api.get<AIModelRouteRead[]>('/api/ai/platform/routes'),
         api.get<AIInvocationAuditRead[]>('/api/ai/platform/audits?limit=30'),
       ]);
@@ -104,6 +110,7 @@ export default function PlatformModelGatewayPanel() {
       setStatus(statusResult);
       setConnections(connectionRows);
       setDeployments(deploymentRows);
+      setProducts(productRows);
       setRoutes(routeRows);
       setAudits(auditRows);
     } catch (error) {
@@ -198,6 +205,60 @@ export default function PlatformModelGatewayPanel() {
     }
   }
 
+  async function syncCatalog(row: AIProviderConnectionRead) {
+    if (syncingId) return;
+    setSyncingId(row.id);
+    try {
+      const result = await api.post<AIProviderCatalogSyncResponse>(
+        `/api/ai/platform/connections/${row.id}/catalog/sync`,
+        { create_product_drafts: true },
+      );
+      notify.success(
+        `同步完成：发现 ${result.discovered_count} 个模型，新增 ${result.created_count} 个，生成 ${result.product_draft_count} 个产品草稿`,
+      );
+      await load(false);
+      if (result.product_draft_count > 0) setTab('models');
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : '模型目录同步失败');
+    } finally {
+      setSyncingId('');
+    }
+  }
+
+  async function setProductPublished(
+    row: AIModelProductRead,
+    publish: boolean,
+    mode: 'allowlist' | 'all' = 'all',
+  ) {
+    if (publishingId) return;
+    setPublishingId(row.id);
+    try {
+      await api.put(`/api/ai/platform/products/${row.id}`, {
+        enabled: publish,
+        visible_to_users: publish,
+        visibility_mode: publish ? mode : row.visibility_mode,
+      });
+      if (publish && mode === 'allowlist') {
+        await api.post(
+          `/api/ai/platform/products/${row.id}/access?target_type=tenant&target_id=${encodeURIComponent(tenantId)}&enabled=true`,
+        );
+      }
+      notify.success(
+        publish
+          ? mode === 'allowlist'
+            ? '模型产品已向当前租户灰度发布'
+            : '模型产品已向全部用户发布'
+          : '模型产品已从用户模型下拉隐藏',
+      );
+      await load(false);
+      window.dispatchEvent(new Event(AI_CAPABILITIES_UPDATED_EVENT));
+    } catch (error) {
+      notify.error(error instanceof Error ? error.message : publish ? '发布失败，请先验证至少一个模型部署' : '下架失败');
+    } finally {
+      setPublishingId('');
+    }
+  }
+
   async function saveRoute() {
     if (!routeForm.capability || !routeForm.deployment_id) {
       notify.warning('请选择能力和已验证模型');
@@ -262,6 +323,7 @@ export default function PlatformModelGatewayPanel() {
         {([
           ['connections', `聚合平台 ${connections.length}`],
           ['models', `平台模型 ${deployments.length}`],
+          ['products', `模型产品 ${products.length}`],
           ['routes', `能力路由 ${routes.length}`],
           ['audits', `调用审计 ${audits.length}`],
         ] as Array<[PanelTab, string]>).map(([value, label]) => (
@@ -309,9 +371,89 @@ export default function PlatformModelGatewayPanel() {
                     <Info label="协议" value={row.api_protocol} />
                     <Info label="Base URL" value={row.base_url || '默认地址'} />
                   </dl>
+                  <div className="mt-[12px] flex justify-end border-t border-[#eef0f4] pt-[10px]">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={Boolean(syncingId)}
+                      onClick={() => void syncCatalog(row)}
+                    >
+                      {syncingId === row.id ? <LoaderCircle className="size-[13px] animate-spin" /> : <CloudDownload className="size-[13px]" />}
+                      同步模型目录
+                    </Button>
+                  </div>
                 </article>
               ))}
               {!connections.length && <Empty text="还没有聚合平台连接" />}
+            </div>
+          </PanelSection>
+        )}
+
+        {tab === 'products' && (
+          <PanelSection
+            title="用户可选模型产品"
+            description="聚合平台返回的是部署目录；验证部署后，再将逻辑模型产品发布到对话框和数字员工配置中。"
+          >
+            <div className="overflow-x-auto rounded-[12px] border border-[#e7eaf0]">
+              <table className="w-full min-w-[820px] text-left text-[12px]">
+                <thead className="bg-[#f8f9fb] text-[#757f9c]">
+                  <tr><Th>产品名称</Th><Th>模型族 / 分类</Th><Th>标签</Th><Th>可用部署</Th><Th>用户可见</Th><Th>操作</Th></tr>
+                </thead>
+                <tbody>
+                  {products.map((row) => {
+                    const published = row.enabled && row.visible_to_users;
+                    return (
+                      <tr key={row.id} className="border-t border-[#eceef1]">
+                        <Td><strong className="block text-[#18181a]">{row.display_name}</strong><small className="font-mono text-[#858b9c]">{row.slug}</small></Td>
+                        <Td>{row.model_family} · {row.category}</Td>
+                        <Td>{row.feature_tags.length ? row.feature_tags.join('、') : '—'}</Td>
+                        <Td><span className={row.available ? 'text-[#168a50]' : 'text-[#b96a13]'}>{row.available_deployment_count} / {row.backing_deployment_count}</span></Td>
+                        <Td>
+                          {published && row.visibility_mode === 'allowlist'
+                            ? <span className="shrink-0 rounded-full bg-[#eef4ff] px-[9px] py-[4px] text-[11px] text-[#1a71ff]">灰度可见</span>
+                            : <StateBadge ok={published && row.available} pending={!published} />}
+                        </Td>
+                        <Td>
+                          <div className="flex gap-[6px]">
+                            {published ? (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={Boolean(publishingId)}
+                                onClick={() => void setProductPublished(row, false)}
+                              >
+                                {publishingId === row.id ? <LoaderCircle className="size-[13px] animate-spin" /> : <EyeOff className="size-[13px]" />}
+                                下架
+                              </Button>
+                            ) : (
+                              <>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  disabled={Boolean(publishingId) || !row.available}
+                                  onClick={() => void setProductPublished(row, true, 'allowlist')}
+                                >
+                                  {publishingId === row.id ? <LoaderCircle className="size-[13px] animate-spin" /> : <Eye className="size-[13px]" />}
+                                  灰度发布
+                                </Button>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  disabled={Boolean(publishingId) || !row.available}
+                                  onClick={() => void setProductPublished(row, true, 'all')}
+                                >
+                                  全量发布
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        </Td>
+                      </tr>
+                    );
+                  })}
+                  {!products.length && <tr><td colSpan={6}><Empty text="同步聚合平台目录后，将自动生成模型产品草稿" /></td></tr>}
+                </tbody>
+              </table>
             </div>
           </PanelSection>
         )}

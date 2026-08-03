@@ -16,6 +16,8 @@ export type PreparedChatTurn = {
   attachments: ChatAttachmentRead[];
   interactionMode: ComposerInteractionMode;
   modelConfigId?: string;
+  modelProductId?: string;
+  modelSelectionMode?: 'auto' | 'platform_product' | 'enterprise_model';
   createdAt: string;
 };
 
@@ -47,6 +49,8 @@ function isPreparedChatTurn(value: unknown): value is PreparedChatTurn {
     && typeof value.interactionMode === 'string'
     && INTERACTION_MODES.has(value.interactionMode as ComposerInteractionMode)
     && (value.modelConfigId === undefined || typeof value.modelConfigId === 'string')
+    && (value.modelProductId === undefined || typeof value.modelProductId === 'string')
+    && (value.modelSelectionMode === undefined || ['auto', 'platform_product', 'enterprise_model'].includes(String(value.modelSelectionMode)))
     && typeof value.createdAt === 'string'
     && Number.isFinite(Date.parse(value.createdAt))
   );
