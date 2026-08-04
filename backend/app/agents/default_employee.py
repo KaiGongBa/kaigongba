@@ -5,6 +5,7 @@ from hashlib import sha256
 
 from sqlmodel import Session, select
 
+from app.agents.organization_bindings import bind_agent_to_owner_organizations
 from app.db.models import AgentProfile, User
 
 
@@ -33,6 +34,7 @@ def ensure_personal_default_employee(db: Session, user: User) -> AgentProfile | 
             and metadata.get("hidden_from_staffdeck") is not True
             and metadata.get("archived_by_seed") is not True
         ):
+            bind_agent_to_owner_organizations(db, user, agent)
             return agent
 
     reserved_ids = {agent.id for agent in tenant_agents}
@@ -76,6 +78,7 @@ def ensure_personal_default_employee(db: Session, user: User) -> AgentProfile | 
     )
     db.add(employee)
     db.flush()
+    bind_agent_to_owner_organizations(db, user, employee)
     return employee
 
 

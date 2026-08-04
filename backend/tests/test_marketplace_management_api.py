@@ -12,6 +12,7 @@ from app.api.marketplace import router as marketplace_router
 from app.api.marketplace_management import router as management_router
 from app.db import get_session
 from app.db.models import (
+    AgentResourceBinding,
     MarketplaceAIService,
     MarketplaceProviderProfile,
     MarketplaceReviewSubmission,
@@ -73,6 +74,30 @@ def test_next_version_parses_semver_without_unbounded_regular_expression() -> No
     assert _next_version(["1.2.3"], "1.2.3") == "v1.2.4"
     long_numeric_version = f"1.{('9' * 100_000)}.3"
     assert _next_version([long_numeric_version], long_numeric_version).endswith("-rev2")
+
+
+def test_creating_organization_binds_owners_existing_private_agents(
+    management_app: tuple[TestClient, object, User, User],
+) -> None:
+    client, engine, owner, _admin = management_app
+    created = client.post(
+        "/api/marketplace/organizations",
+        json={"name": "新建服务企业"},
+        headers=_auth(owner),
+    )
+    assert created.status_code == 200, created.text
+    organization_id = created.json()["id"]
+
+    with Session(engine) as db:
+        binding = db.exec(
+            select(AgentResourceBinding).where(
+                AgentResourceBinding.agent_id == "agent_demo_it_ops",
+                AgentResourceBinding.resource_type == "marketplace_organization",
+                AgentResourceBinding.resource_id == organization_id,
+            )
+        ).one()
+        assert binding.status == "active"
+        assert binding.metadata_json["owner_user_id"] == owner.id
 
 
 def test_organization_invitation_acceptance_and_member_scope_are_persisted(
