@@ -1,0 +1,121 @@
+{
+  "protocol_version": "2.0",
+  "request_id": "request_adaptive_001",
+  "server_time": "2026-08-04T20:00:00+08:00",
+  "session_id": "session_kai_001",
+  "run_id": "run_requirement_001",
+  "message_id": "message_adaptive_001",
+  "assistant_text": "我先确认预约范围和交付时间。",
+  "ui_blocks": [
+    {
+      "schema_version": "2.0",
+      "block_id": "block_interview_state_001",
+      "block_version": 1,
+      "type": "interview_state",
+      "status": "pending",
+      "title": "当前理解",
+      "description": "硬事实与 AI 推断分开记录。",
+      "facts": [
+        {
+          "key": "budget.target",
+          "label": "目标预算",
+          "value": {"amount": "50000", "currency": "CNY"},
+          "source": "user_message",
+          "status": "confirmed",
+          "confidence": 1,
+          "hard_fact": true,
+          "editable": true,
+          "edit_action_id": "requirement.edit.budget"
+        },
+        {
+          "key": "service.scope",
+          "label": "服务范围",
+          "value": ["企业官网", "在线预约"],
+          "source": "user_message",
+          "status": "candidate",
+          "confidence": 0.86,
+          "hard_fact": false,
+          "editable": true,
+          "edit_action_id": "requirement.edit.scope"
+        }
+      ],
+      "classification": {
+        "category_id": "website-development",
+        "name": "企业官网开发",
+        "confidence": 0.78,
+        "status": "needs_confirmation"
+      },
+      "missing_information": [
+        {"key": "booking.scope", "label": "预约范围", "severity": "blocking", "reason": "需要确认预约对象与管理方式。"},
+        {"key": "delivery.schedule", "label": "交付时间", "severity": "blocking", "reason": "尚未提供期望上线日期。"}
+      ],
+      "readiness": {"ready": false, "blocking_fields": ["booking.scope", "delivery.schedule"]}
+    },
+    {
+      "schema_version": "2.0",
+      "block_id": "block_adaptive_questions_001",
+      "block_version": 1,
+      "type": "question_group",
+      "status": "pending",
+      "title": "还需确认 2 项",
+      "description": "可点击选项，也可在对话框自由补充。",
+      "submit_label": "统一发送",
+      "questions": [
+        {
+          "id": "booking.scope",
+          "label": "访客需要预约什么？",
+          "input_type": "single_choice",
+          "required": true,
+          "options": [
+            {"id": "service", "label": "服务项目"},
+            {"id": "person", "label": "人员或时段"},
+            {"id": "venue", "label": "场地或设施"}
+          ],
+          "allow_custom": true,
+          "allow_uncertain": true
+        },
+        {
+          "id": "delivery.schedule",
+          "label": "期望什么时候上线？",
+          "input_type": "date_or_duration",
+          "required": true,
+          "allow_uncertain": true
+        }
+      ],
+      "allow_free_text": true
+    },
+    {
+      "schema_version": "1.0",
+      "block_id": "block_notice_adaptive_001",
+      "block_version": 1,
+      "type": "notice",
+      "status": "pending",
+      "title": "发布说明",
+      "description": "",
+      "tone": "info",
+      "code": "BUSINESS_CONFIRMATION_REQUIRED",
+      "message": "访谈只生成草稿，真实发布仍需在需求页确认。",
+      "actions": []
+    }
+  ],
+  "workflow": {
+    "capability_id": "requirement.create",
+    "capability_version": "2.0.0",
+    "state": "collecting",
+    "row_version": 1,
+    "progress": {"completed_required": 2, "total_required": 4}
+  },
+  "context": {
+    "page_instance_id": "page_adaptive_001",
+    "route_id": "enterprise.requirement.create",
+    "resolved_pathname": "/enterprise/demands/new",
+    "organization_id": "org_buyer",
+    "entity_refs": [],
+    "authorization": "organization_member",
+    "projection_refs": ["requirement.assistant_draft"],
+    "context_version": 1,
+    "row_version": null,
+    "stale": false
+  },
+  "usage": {"request_id": "ai_request_adaptive_001"}
+}

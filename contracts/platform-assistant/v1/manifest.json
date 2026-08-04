@@ -1,0 +1,30 @@
+{
+  "contract": "platform-assistant",
+  "version": "1.0.0",
+  "protocol_version": "1.0",
+  "schemas": [
+    {"id": "page-context.schema.json", "path": "schemas/page-context.schema.json"},
+    {"id": "resolved-context.schema.json", "path": "schemas/resolved-context.schema.json"},
+    {"id": "turn-request.schema.json", "path": "schemas/turn-request.schema.json"},
+    {"id": "error-envelope.schema.json", "path": "schemas/error-envelope.schema.json"},
+    {"id": "business-attachment-reference.schema.json", "path": "schemas/business-attachment-reference.schema.json"},
+    {"id": "requirement-draft-input.schema.json", "path": "schemas/requirement-draft-input.schema.json"},
+    {"id": "capability-registry.schema.json", "path": "schemas/capability-registry.schema.json"},
+    {"id": "route-context-registry.schema.json", "path": "schemas/route-context-registry.schema.json"},
+    {"id": "risk-action-matrix.schema.json", "path": "schemas/risk-action-matrix.schema.json"},
+    {"id": "requirement-field-map.schema.json", "path": "schemas/requirement-field-map.schema.json"},
+    {"id": "structured-block.schema.json", "path": "schemas/structured-block.schema.json"},
+    {"id": "turn-response.schema.json", "path": "schemas/turn-response.schema.json"},
+    {"id": "answer-submission.schema.json", "path": "schemas/answer-submission.schema.json"}
+  ],
+  "instances": [
+    {"path": "capability-registry.json", "schema": "capability-registry.schema.json"},
+    {"path": "route-context-registry.json", "schema": "route-context-registry.schema.json"},
+    {"path": "risk-action-matrix.json", "schema": "risk-action-matrix.schema.json"},
+    {"path": "requirement-field-map.json", "schema": "requirement-field-map.schema.json"},
+    {"path": "samples/requirement-draft-input.json", "schema": "requirement-draft-input.schema.json"},
+    {"path": "samples/requirement-question-response.json", "schema": "turn-response.schema.json"},
+    {"path": "samples/requirement-answer-submission.json", "schema": "answer-submission.schema.json"},
+    {"path": "samples/error-envelope.json", "schema": "error-envelope.schema.json"}
+  ]
+}

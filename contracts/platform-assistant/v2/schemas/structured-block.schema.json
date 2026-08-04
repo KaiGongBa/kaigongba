@@ -1,0 +1,121 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.kaigongba.net/contracts/platform-assistant/v2/schemas/structured-block.schema.json",
+  "title": "Platform Assistant Structured UI Block v2",
+  "description": "Frozen v1 blocks plus adaptive v2 interview blocks.",
+  "oneOf": [
+    {"$ref": "#/$defs/adaptiveQuestionGroup"},
+    {"$ref": "#/$defs/interviewState"},
+    {"$ref": "../../v1/schemas/structured-block.schema.json"}
+  ],
+  "$defs": {
+    "adaptiveQuestionGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "block_id", "block_version", "type", "status", "title", "description", "submit_label", "questions", "allow_free_text"],
+      "properties": {
+        "schema_version": {"const": "2.0"},
+        "block_id": {"type": "string", "pattern": "^block_[A-Za-z0-9_-]{4,120}$"},
+        "block_version": {"type": "integer", "minimum": 1},
+        "type": {"const": "question_group"},
+        "status": {"enum": ["pending", "submitted", "superseded", "disabled"]},
+        "title": {"type": "string", "minLength": 1, "maxLength": 200},
+        "description": {"type": "string", "maxLength": 2000},
+        "submit_label": {"type": "string", "minLength": 1, "maxLength": 80},
+        "questions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 3,
+          "items": {"$ref": "../../v1/schemas/structured-block.schema.json#/$defs/question"}
+        },
+        "allow_free_text": {"type": "boolean"}
+      }
+    },
+    "fact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "label", "value", "source", "status", "confidence", "hard_fact", "editable", "edit_action_id"],
+      "properties": {
+        "key": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]+$"},
+        "label": {"type": "string", "minLength": 1, "maxLength": 300},
+        "value": {},
+        "source": {"enum": ["user_message", "user_choice", "user_edit", "attachment_extraction", "existing_record", "ai_expansion", "system_default"]},
+        "status": {"enum": ["candidate", "confirmed", "conflict", "superseded"]},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "hard_fact": {"type": "boolean"},
+        "editable": {"type": "boolean"},
+        "edit_action_id": {
+          "type": ["string", "null"],
+          "pattern": "^[a-z][a-z0-9_.-]+$"
+        }
+      }
+    },
+    "classification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["category_id", "name", "confidence", "status"],
+      "properties": {
+        "category_id": {"type": ["string", "null"], "minLength": 1, "maxLength": 160},
+        "name": {"type": ["string", "null"], "minLength": 1, "maxLength": 300},
+        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+        "status": {"enum": ["matched", "suggested", "needs_confirmation", "unmatched"]}
+      },
+      "allOf": [{
+        "if": {"properties": {"status": {"enum": ["matched", "suggested"]}}},
+        "then": {
+          "properties": {
+            "category_id": {"type": "string", "minLength": 1},
+            "name": {"type": "string", "minLength": 1}
+          }
+        }
+      }]
+    },
+    "missingInformation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "label", "severity", "reason"],
+      "properties": {
+        "key": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]+$"},
+        "label": {"type": "string", "minLength": 1, "maxLength": 300},
+        "severity": {"enum": ["blocking", "warning", "info"]},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 1000}
+      }
+    },
+    "readiness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ready", "blocking_fields"],
+      "properties": {
+        "ready": {"type": "boolean"},
+        "blocking_fields": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]+$"}
+        }
+      },
+      "allOf": [{
+        "if": {"properties": {"ready": {"const": true}}},
+        "then": {"properties": {"blocking_fields": {"maxItems": 0}}},
+        "else": {"properties": {"blocking_fields": {"minItems": 1}}}
+      }]
+    },
+    "interviewState": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema_version", "block_id", "block_version", "type", "status", "title", "description", "facts", "classification", "missing_information", "readiness"],
+      "properties": {
+        "schema_version": {"const": "2.0"},
+        "block_id": {"type": "string", "pattern": "^block_[A-Za-z0-9_-]{4,120}$"},
+        "block_version": {"type": "integer", "minimum": 1},
+        "type": {"const": "interview_state"},
+        "status": {"enum": ["pending", "reviewing", "succeeded", "blocked", "superseded"]},
+        "title": {"type": "string", "minLength": 1, "maxLength": 200},
+        "description": {"type": "string", "maxLength": 2000},
+        "facts": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/fact"}},
+        "classification": {"$ref": "#/$defs/classification"},
+        "missing_information": {"type": "array", "maxItems": 50, "items": {"$ref": "#/$defs/missingInformation"}},
+        "readiness": {"$ref": "#/$defs/readiness"}
+      }
+    }
+  }
+}

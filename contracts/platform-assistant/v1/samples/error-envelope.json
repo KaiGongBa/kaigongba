@@ -1,0 +1,10 @@
+{
+  "protocol_version": "1.0",
+  "request_id": "request_sample_002",
+  "server_time": "2026-08-04T10:02:00+08:00",
+  "error": {
+    "code": "BLOCK_VERSION_CONFLICT",
+    "message": "问题组已更新，请刷新后重新确认。",
+    "retryable": true
+  }
+}

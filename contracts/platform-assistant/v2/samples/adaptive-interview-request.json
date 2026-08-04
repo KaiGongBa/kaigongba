@@ -1,0 +1,14 @@
+{
+  "protocol_version": "2.0",
+  "client_request_id": "request_adaptive_001",
+  "session_id": "session_kai_001",
+  "message": "我想找人做一个可以网上预约的企业官网，预算大约五万。",
+  "page_context": {
+    "page_instance_id": "page_adaptive_001",
+    "route_id": "enterprise.requirement.create",
+    "pathname": "/enterprise/demands/new",
+    "entity_refs": [],
+    "ui_state": {"dirty": false},
+    "context_version": 1
+  }
+}

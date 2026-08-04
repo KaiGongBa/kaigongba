@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     internal_service_secret: str = ""
     identity_internal_base_url: str = ""
     identity_internal_timeout_seconds: float = 5.0
+    transaction_internal_base_url: str = ""
+    transaction_internal_timeout_seconds: float = 5.0
     demo_seed_enabled: bool = True
     marketplace_seed_enabled: bool = False
     demo_payment_confirmation_code: str = "DEMO-PAY"

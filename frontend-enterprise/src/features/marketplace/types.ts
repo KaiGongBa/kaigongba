@@ -400,17 +400,87 @@ export type RequirementDetail = RequirementSummary & {
 export type RequirementInput = {
   organization_id: string;
   title: string;
+  category_id?: string;
   category: string;
   description: string;
   budget_min_amount: string;
   budget_max_amount: string;
   desired_delivery_at: string;
   visibility: 'public' | 'enterprise' | 'invited_providers';
+  confidentiality_level: 'standard' | 'confidential' | 'highly_confidential';
   invite_limit: number;
   deliverables: Array<Record<string, unknown>>;
   acceptance_criteria: string[];
   attachments: Array<Record<string, unknown>>;
   change_summary?: string;
+};
+
+export type AssistantRequirementDraftFieldSource = {
+  source: 'user_message' | 'user_choice' | 'user_edit' | 'attachment_extraction' | 'existing_record' | 'ai_expansion' | 'system_default';
+  source_ref?: string | null;
+  confirmed: boolean;
+};
+
+export type AssistantRequirementFormSeed = {
+  organization_id?: string | null;
+  title?: string | null;
+  category_id?: string | null;
+  category?: string | null;
+  description?: string | null;
+  budget_min_amount?: string | null;
+  budget_max_amount?: string | null;
+  desired_delivery_at?: string | null;
+  visibility?: RequirementInput['visibility'] | null;
+  confidentiality_level?: RequirementInput['confidentiality_level'] | null;
+  invite_limit?: number | null;
+  deliverables?: Array<Record<string, unknown>> | null;
+  acceptance_criteria?: string[] | null;
+  attachments?: Array<Record<string, unknown>> | null;
+};
+
+export type ServiceCategory = {
+  id: string;
+  name: string;
+  parentId: string | null;
+  description: string;
+  aliases: string[];
+  exampleTasks: string[];
+  requiredFacets: string[];
+  status: 'active' | 'inactive';
+  version: number;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type AssistantRequirementDraftResponse = {
+  protocol_version: '1.0';
+  draft: {
+    draft_id: string;
+    draft_version: number;
+    missing_fields: string[];
+    [key: string]: unknown;
+  };
+  draft_meta: {
+    row_version: number;
+    status: string;
+    updated_at: string;
+  };
+  field_sources: Record<string, AssistantRequirementDraftFieldSource>;
+  form_seed: AssistantRequirementFormSeed;
+  warnings: Array<{ field: string; code: string; message: string }>;
+  handoff: {
+    can_handoff: boolean;
+    blockers: Array<{ field: string; code: string; message: string }>;
+  };
+};
+
+export type AssistantRequirementHandoffInput = {
+  protocol_version: '1.0';
+  draft_version: number;
+  transaction_requirement_id: string;
+  requirement_write: RequirementInput;
+  idempotency_key: string;
 };
 
 export type QuoteVersion = {

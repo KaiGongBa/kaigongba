@@ -18,11 +18,15 @@ class RequirementWrite(TransactionWriteModel):
     organization_id: str
     title: str = Field(min_length=4, max_length=100)
     category: str = Field(min_length=2, max_length=80)
+    category_id: str | None = Field(default=None, max_length=64)
     description: str = Field(min_length=20, max_length=5000)
     budget_min_amount: Decimal = Field(ge=0)
     budget_max_amount: Decimal = Field(gt=0)
     desired_delivery_at: datetime
     visibility: Literal["public", "enterprise", "invited_providers"] = "invited_providers"
+    confidentiality_level: Literal[
+        "standard", "confidential", "highly_confidential"
+    ] = "standard"
     invite_limit: int = Field(default=5, ge=1, le=20)
     deliverables: list[dict[str, Any]] = Field(min_length=1)
     acceptance_criteria: list[str] = Field(min_length=1)
@@ -52,6 +56,8 @@ class RequirementSummaryRead(MarketplaceReadModel):
     code: str
     title: str
     category: str
+    category_id: str | None
+    category_name_snapshot: str | None
     status: str
     buyer_organization_id: str
     buyer_organization_name: str
@@ -59,6 +65,7 @@ class RequirementSummaryRead(MarketplaceReadModel):
     budget_max_amount: Decimal
     currency: str
     desired_delivery_at: datetime | None
+    confidentiality_level: str
     quote_count: int
     invitation_count: int
     updated_at: datetime
@@ -68,6 +75,7 @@ class RequirementVersionRead(MarketplaceReadModel):
     id: str
     version: int
     status: str
+    confidentiality_level: str
     description: str
     deliverables: list[dict[str, Any]]
     acceptance_criteria: list[str]

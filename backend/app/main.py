@@ -25,8 +25,10 @@ from app.api import (
     mock,
     model_configs,
     platform_models,
+    platform_assistant_internal,
     persona,
     scheduled_tasks,
+    service_categories,
     sessions,
     skills,
     staffdeck_internal,
@@ -35,6 +37,8 @@ from app.api import (
     transactions,
     ui_config,
 )
+from app.platform_assistant import api as platform_assistant_api
+from app.platform_assistant import requirement_api as platform_assistant_requirement_api
 from app.app_factory import create_api_app
 from app.async_jobs import shutdown_async_jobs
 from app.channels import start_channel_services, stop_channel_services
@@ -85,6 +89,8 @@ app.include_router(knowledge.router)
 app.include_router(skills.router)
 app.include_router(model_configs.router)
 app.include_router(platform_models.router)
+app.include_router(platform_assistant_api.router)
+app.include_router(platform_assistant_requirement_api.router)
 app.include_router(memories.router)
 app.include_router(feedback.router)
 app.include_router(persona.router)
@@ -99,3 +105,5 @@ app.include_router(sessions.router)
 app.include_router(traces.router)
 app.include_router(mock.router)
 app.include_router(staffdeck_internal.router)
+app.include_router(platform_assistant_internal.router)
+app.include_router(service_categories.router)

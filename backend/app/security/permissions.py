@@ -36,6 +36,7 @@ PLATFORM_ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
     ),
     PLATFORM_OPERATIONS_ROLE: frozenset(
         {
+            "platform.categories.manage",
             "platform.models.read",
             "platform.usage.read",
         }

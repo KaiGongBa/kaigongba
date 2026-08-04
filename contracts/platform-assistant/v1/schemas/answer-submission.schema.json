@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "answer-submission.schema.json",
+  "title": "Platform Assistant Batch Answer Submission v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol_version", "session_id", "run_id", "block_id", "block_version", "idempotency_key", "answers"],
+  "properties": {
+    "protocol_version": {"const": "1.0"},
+    "session_id": {"type": "string", "minLength": 1},
+    "run_id": {"type": "string", "minLength": 1},
+    "block_id": {"type": "string", "pattern": "^block_"},
+    "block_version": {"type": "integer", "minimum": 1},
+    "idempotency_key": {"type": "string", "minLength": 8, "maxLength": 160},
+    "answers": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["question_id", "value", "client_updated_at"],
+        "properties": {
+          "question_id": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]+$"},
+          "value": {"$ref": "#/$defs/answerValue"},
+          "client_updated_at": {"type": "string", "format": "date-time"}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "answerValue": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["option_ids"],
+          "properties": {
+            "option_ids": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+            "custom_text": {"type": "string"}
+          }
+        },
+        {"type": "object", "additionalProperties": false, "required": ["text"], "properties": {"text": {"type": "string"}}},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["minimum", "maximum", "currency"],
+          "properties": {
+            "minimum": {"type": "string", "pattern": "^[0-9]+(\\.[0-9]{1,2})?$"},
+            "maximum": {"type": "string", "pattern": "^[0-9]+(\\.[0-9]{1,2})?$"},
+            "currency": {"const": "CNY"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["date", "timezone"],
+          "properties": {"date": {"type": "string", "format": "date"}, "timezone": {"type": "string", "minLength": 1}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["duration", "unit", "timezone"],
+          "properties": {
+            "duration": {"type": "integer", "minimum": 1},
+            "unit": {"enum": ["hour", "calendar_day", "business_day", "week"]},
+            "timezone": {"type": "string", "minLength": 1}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["attachment_ids"],
+          "properties": {"attachment_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string"}}}
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["entity_refs"],
+          "properties": {
+            "entity_refs": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["type", "id"],
+                "properties": {"type": {"type": "string"}, "id": {"type": "string"}}
+              }
+            }
+          }
+        },
+        {"type": "object", "additionalProperties": false, "required": ["boolean"], "properties": {"boolean": {"type": "boolean"}}},
+        {"type": "object", "additionalProperties": false, "required": ["uncertain"], "properties": {"uncertain": {"const": true}}}
+      ]
+    }
+  }
+}

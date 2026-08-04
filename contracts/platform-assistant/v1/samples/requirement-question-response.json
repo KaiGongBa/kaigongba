@@ -1,0 +1,45 @@
+{
+  "protocol_version": "1.0",
+  "request_id": "request_sample_001",
+  "server_time": "2026-08-04T10:00:00+08:00",
+  "session_id": "session_sample_001",
+  "run_id": "run_sample_001",
+  "message_id": "message_sample_001",
+  "assistant_text": "我先确认预算和期望交付时间。",
+  "ui_blocks": [
+    {
+      "schema_version": "1.0",
+      "block_id": "block_sample_questions",
+      "block_version": 1,
+      "type": "question_group",
+      "status": "pending",
+      "title": "采购约束",
+      "description": "这些信息不会由 AI 猜测，请确认后统一发送。",
+      "submit_label": "统一发送",
+      "questions": [
+        {"id": "budget", "label": "预算范围是多少？", "input_type": "money_range", "required": true, "allow_uncertain": true},
+        {"id": "schedule", "label": "期望何时完成？", "input_type": "date_or_duration", "required": true, "allow_uncertain": true}
+      ]
+    }
+  ],
+  "workflow": {
+    "capability_id": "requirement.create",
+    "capability_version": "1.0.0",
+    "state": "collecting",
+    "row_version": 1,
+    "progress": {"completed_required": 2, "total_required": 6}
+  },
+  "context": {
+    "page_instance_id": "page_sample_001",
+    "route_id": "enterprise.requirement.list",
+    "resolved_pathname": "/enterprise/demands",
+    "organization_id": null,
+    "entity_refs": [],
+    "authorization": "authenticated",
+    "projection_refs": [],
+    "context_version": 1,
+    "row_version": null,
+    "stale": false
+  },
+  "usage": {"request_id": "ai_request_sample_001"}
+}

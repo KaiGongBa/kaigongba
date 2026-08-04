@@ -1,4 +1,4 @@
-import { api } from '@/api/client';
+import { ApiError, api } from '@/api/client';
 import avatarAfterSales from '@/assets/staffdeck/staffdeck-avatar-after-sales.png';
 import avatarCommerce from '@/assets/staffdeck/staffdeck-avatar-commerce.png';
 import avatarDefault from '@/assets/staffdeck/staffdeck-avatar-default.png';
@@ -8,6 +8,8 @@ import avatarService from '@/assets/staffdeck/staffdeck-avatar-service.png';
 import { aiServiceFixtures, skillFixtures } from './fixtures';
 import type {
   AIServiceDraftInput,
+  AssistantRequirementDraftResponse,
+  AssistantRequirementHandoffInput,
   ActionItemList,
   Deliverable,
   DisputeDetail,
@@ -45,6 +47,7 @@ import type {
   RequirementDetail,
   RequirementInput,
   RequirementSummary,
+  ServiceCategory,
   TransactionOrder,
   SkillDraftInput,
   SkillPackageVersion,
@@ -124,6 +127,19 @@ function queryString(values: Record<string, string | boolean | undefined>) {
   });
   const text = params.toString();
   return text ? `?${text}` : '';
+}
+
+function readablePlatformAssistantError(error: unknown) {
+  if (!(error instanceof ApiError)) return error;
+  try {
+    const payload = JSON.parse(error.body) as { error?: { message?: unknown } };
+    if (typeof payload.error?.message === 'string' && payload.error.message.trim()) {
+      return new Error(payload.error.message);
+    }
+  } catch {
+    // Keep the original API error when the response is not a JSON envelope.
+  }
+  return error;
 }
 
 async function fixtureDelay() {
@@ -407,8 +423,38 @@ export const marketplaceRepository = {
     );
   },
 
+  async listServiceCategories(): Promise<ServiceCategory[]> {
+    return api.get<ServiceCategory[]>('/api/service-categories');
+  },
+
   async createRequirement(input: RequirementInput): Promise<RequirementDetail> {
     return api.post<RequirementDetail>('/api/transactions/requirements', input);
+  },
+
+  async getAssistantRequirementDraft(
+    draftId: string,
+  ): Promise<AssistantRequirementDraftResponse> {
+    try {
+      return await api.get<AssistantRequirementDraftResponse>(
+        `/api/platform-assistant/requirement-drafts/${encodeURIComponent(draftId)}`,
+      );
+    } catch (error) {
+      throw readablePlatformAssistantError(error);
+    }
+  },
+
+  async auditAssistantRequirementHandoff(
+    draftId: string,
+    input: AssistantRequirementHandoffInput,
+  ): Promise<void> {
+    try {
+      await api.post(
+        `/api/platform-assistant/requirement-drafts/${encodeURIComponent(draftId)}/handoffs`,
+        input,
+      );
+    } catch (error) {
+      throw readablePlatformAssistantError(error);
+    }
   },
 
   async updateRequirement(

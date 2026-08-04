@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "business-attachment-reference.schema.json",
+  "title": "Platform Assistant Business Attachment Reference v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "file_id", "filename", "content_type", "size", "sha256",
+    "scan_status", "extraction_status", "share_with_candidates"
+  ],
+  "properties": {
+    "file_id": {"type": "string", "pattern": "^reqfile_[A-Za-z0-9_-]{8,120}$"},
+    "filename": {"type": "string", "minLength": 1, "maxLength": 255},
+    "content_type": {"type": "string", "minLength": 1, "maxLength": 160},
+    "size": {"type": "integer", "minimum": 1, "maximum": 52428800},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+    "scan_status": {"enum": ["pending", "passed", "failed", "quarantined"]},
+    "extraction_status": {"enum": ["pending", "completed", "failed", "not_applicable"]},
+    "share_with_candidates": {"type": "boolean"}
+  }
+}

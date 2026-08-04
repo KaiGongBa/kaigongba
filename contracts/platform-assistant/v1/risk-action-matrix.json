@@ -1,0 +1,26 @@
+{
+  "schema_version": "1.0",
+  "levels": {
+    "R0": {"description": "平台解释、帮助和受控导航", "first_release_policy": "allow"},
+    "R1": {"description": "读取当前用户已授权的最小业务摘要", "first_release_policy": "allow"},
+    "R2": {"description": "创建或更新尚未产生交易约束的副驾草稿", "first_release_policy": "allow_with_result"},
+    "R3": {"description": "改变真实业务状态但通常可逆", "first_release_policy": "deny_and_deep_link"},
+    "R4": {"description": "资金、法律、验收、争议裁决等约束性动作", "first_release_policy": "deny"}
+  },
+  "actions": [
+    {"action_id": "help.search", "risk_level": "R0", "assistant_policy": "allow", "permission": "authenticated", "idempotency": "not_applicable", "audit_event": "assistant.help.searched"},
+    {"action_id": "navigation.resolve", "risk_level": "R0", "assistant_policy": "allow", "permission": "authenticated", "idempotency": "not_applicable", "audit_event": "assistant.navigation.resolved"},
+    {"action_id": "business_summary.read", "risk_level": "R1", "assistant_policy": "allow", "permission": "resource.visible", "idempotency": "not_applicable", "audit_event": "assistant.business_summary.read"},
+    {"action_id": "assistant.requirement_draft.read", "risk_level": "R1", "assistant_policy": "allow", "permission": "requirement.create", "idempotency": "not_applicable", "audit_event": "assistant.requirement_draft.read", "resource_type": "requirement_draft"},
+    {"action_id": "assistant.requirement_draft.create", "risk_level": "R2", "assistant_policy": "allow_with_result", "permission": "requirement.create", "idempotency": "required", "audit_event": "assistant.requirement_draft.created", "resource_type": "requirement_draft"},
+    {"action_id": "assistant.requirement_draft.update", "risk_level": "R2", "assistant_policy": "allow_with_result", "permission": "requirement.create", "idempotency": "required", "audit_event": "assistant.requirement_draft.updated", "resource_type": "requirement_draft"},
+    {"action_id": "requirement.publish", "risk_level": "R3", "assistant_policy": "deny_and_deep_link", "permission": "requirement.publish", "idempotency": "business_key", "audit_event": "assistant.action.denied", "resource_type": "requirement"},
+    {"action_id": "provider.invite", "risk_level": "R3", "assistant_policy": "deny_and_deep_link", "permission": "provider.invite", "idempotency": "business_key", "audit_event": "assistant.action.denied", "resource_type": "requirement"},
+    {"action_id": "quote.select", "risk_level": "R3", "assistant_policy": "deny_and_deep_link", "permission": "quote.select", "idempotency": "business_key", "audit_event": "assistant.action.denied", "resource_type": "quote"},
+    {"action_id": "deliverable.submit", "risk_level": "R3", "assistant_policy": "deny_and_deep_link", "permission": "deliverable.submit", "idempotency": "business_key", "audit_event": "assistant.action.denied", "resource_type": "deliverable"},
+    {"action_id": "agreement.confirm", "risk_level": "R4", "assistant_policy": "deny", "permission": "agreement.confirm", "idempotency": "business_key", "audit_event": "assistant.action.denied", "resource_type": "agreement"},
+    {"action_id": "payment.execute", "risk_level": "R4", "assistant_policy": "deny", "permission": "payment.execute", "idempotency": "business_key", "audit_event": "assistant.action.denied", "resource_type": "payment_order"},
+    {"action_id": "payment.create", "risk_level": "R4", "assistant_policy": "deny", "permission": "payment.create", "idempotency": "business_key", "audit_event": "assistant.action.denied", "resource_type": "payment_order"},
+    {"action_id": "dispute.rule", "risk_level": "R4", "assistant_policy": "deny", "permission": "dispute.rule", "idempotency": "business_key", "audit_event": "assistant.action.denied", "resource_type": "dispute"}
+  ]
+}

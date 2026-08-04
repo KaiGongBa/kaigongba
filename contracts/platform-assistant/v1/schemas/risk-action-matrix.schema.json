@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "risk-action-matrix.schema.json",
+  "title": "Platform Assistant Risk Action Matrix v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "levels", "actions"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "levels": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["R0", "R1", "R2", "R3", "R4"],
+      "properties": {
+        "R0": {"$ref": "#/$defs/level"},
+        "R1": {"$ref": "#/$defs/level"},
+        "R2": {"$ref": "#/$defs/level"},
+        "R3": {"$ref": "#/$defs/level"},
+        "R4": {"$ref": "#/$defs/level"}
+      }
+    },
+    "actions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["action_id", "risk_level", "assistant_policy", "permission", "idempotency", "audit_event"],
+        "properties": {
+          "action_id": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]+$"},
+          "risk_level": {"enum": ["R0", "R1", "R2", "R3", "R4"]},
+          "assistant_policy": {"enum": ["allow", "allow_with_result", "deny_and_deep_link", "deny"]},
+          "permission": {"type": "string", "minLength": 1},
+          "idempotency": {"enum": ["not_applicable", "required", "business_key"]},
+          "audit_event": {"type": "string", "minLength": 1},
+          "resource_type": {"type": "string"}
+        },
+        "allOf": [
+          {
+            "if": {"properties": {"risk_level": {"const": "R0"}}, "required": ["risk_level"]},
+            "then": {"properties": {"assistant_policy": {"const": "allow"}}}
+          },
+          {
+            "if": {"properties": {"risk_level": {"const": "R1"}}, "required": ["risk_level"]},
+            "then": {"properties": {"assistant_policy": {"const": "allow"}}}
+          },
+          {
+            "if": {"properties": {"risk_level": {"const": "R2"}}, "required": ["risk_level"]},
+            "then": {"properties": {"assistant_policy": {"const": "allow_with_result"}, "idempotency": {"enum": ["required", "business_key"]}}}
+          },
+          {
+            "if": {"properties": {"risk_level": {"const": "R3"}}, "required": ["risk_level"]},
+            "then": {"properties": {"assistant_policy": {"const": "deny_and_deep_link"}}}
+          },
+          {
+            "if": {"properties": {"risk_level": {"const": "R4"}}, "required": ["risk_level"]},
+            "then": {"properties": {"assistant_policy": {"const": "deny"}}}
+          }
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "level": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["description", "first_release_policy"],
+      "properties": {
+        "description": {"type": "string", "minLength": 1},
+        "first_release_policy": {"enum": ["allow", "allow_with_result", "deny_and_deep_link", "deny"]}
+      }
+    }
+  }
+}

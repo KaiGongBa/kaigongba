@@ -1,5 +1,6 @@
 :root {
   --kai-drawer-width: 392px;
+  --kai-workflow-drawer-width: 472px;
   --kai-red: #d9251d;
   --kai-red-soft: #fff3f2;
   --kai-line: #e7e9ee;
@@ -98,6 +99,14 @@
   top: 0;
   width: var(--kai-drawer-width);
   z-index: 34;
+}
+
+.kai-assistant-drawer.is-workflow {
+  width: var(--kai-workflow-drawer-width);
+}
+
+main:has(~ .kai-assistant-drawer.is-workflow) {
+  margin-right: var(--kai-workflow-drawer-width);
 }
 
 main:has(~ .kai-assistant-drawer) {
@@ -273,6 +282,15 @@ main:has(~ .kai-assistant-drawer) {
   align-self: flex-end;
 }
 
+.kai-assistant-messages article.has-blocks {
+  max-width: 100%;
+  width: 100%;
+}
+
+.kai-assistant-messages article.has-blocks > p {
+  margin-bottom: 8px;
+}
+
 .kai-assistant-messages small {
   color: #9299a4;
   display: block;
@@ -390,6 +408,448 @@ main:has(~ .kai-assistant-drawer) {
   font-size: 11px;
   margin: 12px 0 0;
   padding: 9px 10px;
+}
+
+.kai-context-pill {
+  align-items: center;
+  background: #f4f6f9;
+  border: 1px solid #e7e9ee;
+  border-radius: 8px;
+  color: #858c97;
+  display: flex;
+  font-size: 10px;
+  justify-content: space-between;
+  margin: -7px 0 12px;
+  padding: 7px 9px;
+}
+
+.kai-context-pill strong {
+  color: #4e5662;
+  font-size: 10px;
+}
+
+.kai-quick-questions {
+  display: flex;
+  gap: 6px;
+  margin: -4px 0 12px;
+  overflow-x: auto;
+  padding: 1px 1px 3px;
+  scrollbar-width: thin;
+}
+
+.kai-quick-questions button {
+  background: #fff;
+  border: 1px solid #e0e3e8;
+  border-radius: 999px;
+  color: #5e6671;
+  cursor: pointer;
+  flex: 0 0 auto;
+  font-size: 9px;
+  min-height: 28px;
+  padding: 0 9px;
+}
+
+.kai-quick-questions button:hover:not(:disabled) {
+  background: #fff5f4;
+  border-color: #efc7c4;
+  color: #8f403a;
+}
+
+.kai-quick-questions button:disabled {
+  cursor: default;
+  opacity: .5;
+}
+
+.kai-workflow-bar {
+  background: #fff;
+  border: 1px solid #efcfcc;
+  border-radius: 10px;
+  margin-bottom: 13px;
+  padding: 10px;
+}
+
+.kai-workflow-bar > header,
+.kai-workflow-bar > footer,
+.kai-workflow-bar > header span,
+.kai-workflow-bar > footer > div {
+  align-items: center;
+  display: flex;
+}
+
+.kai-workflow-bar > header,
+.kai-workflow-bar > footer { justify-content: space-between; }
+.kai-workflow-bar > header span { color: #8b3b36; gap: 6px; }
+.kai-workflow-bar > header svg { height: 14px; width: 14px; }
+.kai-workflow-bar > header strong { font-size: 11px; }
+.kai-workflow-bar > header small { color: #878e99; font-size: 9px; }
+.kai-workflow-bar > footer { align-items: flex-end; gap: 8px; margin-top: 8px; }
+.kai-workflow-bar > footer > span { color: #8b929d; font-size: 9px; line-height: 14px; max-width: 235px; }
+.kai-workflow-bar > footer > div { flex: 0 0 auto; gap: 5px; }
+
+.kai-workflow-bar button {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #e2d8d7;
+  border-radius: 6px;
+  color: #74504d;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 9px;
+  gap: 3px;
+  height: 25px;
+  padding: 0 7px;
+}
+
+.kai-workflow-bar button svg { height: 11px; width: 11px; }
+.kai-workflow-bar button:disabled { cursor: default; opacity: .55; }
+
+.kai-workflow-progress {
+  background: #f1e7e6;
+  border-radius: 999px;
+  height: 5px;
+  margin-top: 8px;
+  overflow: hidden;
+}
+
+.kai-workflow-progress i {
+  background: var(--kai-red);
+  border-radius: inherit;
+  display: block;
+  height: 100%;
+}
+
+.kai-block {
+  background: #fff;
+  border: 1px solid var(--kai-line);
+  border-radius: 10px;
+  color: #444b56;
+  margin-top: 8px;
+  overflow: hidden;
+  padding: 12px;
+  text-align: left;
+  width: 100%;
+}
+
+.kai-block-heading {
+  align-items: flex-start;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.kai-block-heading > div { min-width: 0; }
+.kai-block-heading h3 { color: #333941; font-size: 13px; line-height: 18px; margin: 0; }
+.kai-block-heading p { background: none !important; border: 0 !important; color: #818894 !important; font-size: 10px !important; line-height: 15px !important; margin: 3px 0 0 !important; padding: 0 !important; }
+
+.kai-block-heading > span {
+  background: #f2f4f7;
+  border-radius: 999px;
+  color: #737b87;
+  flex: 0 0 auto;
+  font-size: 9px;
+  padding: 3px 7px;
+}
+
+.kai-block-heading > span.is-succeeded,
+.kai-block-heading > span.is-submitted { background: #edf8f3; color: #26775a; }
+.kai-block-heading > span.is-failed,
+.kai-block-heading > span.is-blocked { background: #fff0ef; color: #a13d36; }
+
+.kai-question-list { display: flex; flex-direction: column; gap: 12px; }
+.kai-question { border: 0; margin: 0; min-width: 0; padding: 0; }
+.kai-question legend { align-items: flex-start; color: #424954; display: flex; font-size: 11px; gap: 7px; line-height: 16px; padding: 0; }
+.kai-question legend b { align-items: center; background: #f1f3f6; border-radius: 50%; display: flex; flex: 0 0 19px; font-size: 9px; height: 19px; justify-content: center; }
+.kai-question legend em { color: var(--kai-red); font-style: normal; margin-left: 3px; }
+.kai-question > p { align-items: center; background: none !important; border: 0 !important; color: #8a919b !important; display: flex; font-size: 9px !important; gap: 4px; margin: 4px 0 7px 26px !important; padding: 0 !important; }
+.kai-question > p svg { height: 11px; width: 11px; }
+
+.kai-question-options { display: grid; gap: 6px; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 7px; }
+.kai-question-options.is-compact { grid-template-columns: repeat(2, 92px); }
+.kai-question-options label {
+  align-items: center;
+  background: #fafafa;
+  border: 1px solid #e7e9ed;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  gap: 6px;
+  min-height: 43px;
+  padding: 8px;
+}
+.kai-question-options label.is-selected { background: #fff4f3; border-color: #e6a5a0; }
+.kai-question-options label > input { height: 14px; margin: 0; width: 14px; }
+.kai-question-options label > span { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+.kai-question-options strong { color: #4b525c; font-size: 10px; font-weight: 600; }
+.kai-question-options strong small { background: #ffebe9; border-radius: 4px; color: #ae4a43; font-size: 8px; margin-left: 5px; padding: 1px 3px; }
+.kai-question-options em { color: #8d939c; font-size: 9px; font-style: normal; line-height: 13px; margin-top: 2px; }
+.kai-question-options label > svg { color: var(--kai-red); height: 13px; width: 13px; }
+
+.kai-question-custom {
+  color: #747c87;
+  display: flex;
+  flex-direction: column;
+  font-size: 9px;
+  gap: 4px;
+  margin-top: 7px;
+}
+
+.kai-question-custom input {
+  background: #fff;
+  border: 1px solid #dfe2e7;
+  border-radius: 7px;
+  color: #404650;
+  font: inherit;
+  font-size: 11px;
+  min-height: 34px;
+  padding: 7px 9px;
+  width: 100%;
+}
+
+.kai-question > input[type='text'],
+.kai-question > input[type='date'],
+.kai-question textarea,
+.kai-question-range input,
+.kai-question-duration input,
+.kai-question-duration select {
+  background: #fff;
+  border: 1px solid #dfe2e7;
+  border-radius: 7px;
+  color: #404650;
+  font: inherit;
+  font-size: 11px;
+  margin-top: 7px;
+  min-height: 34px;
+  padding: 7px 9px;
+  width: 100%;
+}
+.kai-question textarea { min-height: 74px; resize: vertical; }
+.kai-question-range,
+.kai-question-duration { align-items: flex-end; display: flex; gap: 6px; margin-top: 6px; }
+.kai-question-range label { color: #858c96; flex: 1; font-size: 9px; }
+.kai-question-range input { display: block; margin-top: 3px; }
+.kai-question-range > b { color: #7d8490; font-size: 9px; padding-bottom: 10px; }
+.kai-question-range > span { color: #9aa0a9; font-size: 9px; padding-bottom: 10px; }
+.kai-question-duration input { flex: 1; margin: 0; }
+.kai-question-duration select { flex: 0 0 105px; margin: 0; }
+.kai-question-unavailable { background: #f7f7f8; border: 1px dashed #dcdfe4; border-radius: 7px; color: #848b95; display: flex; flex-direction: column; font-size: 10px; line-height: 15px; margin-top: 7px; padding: 9px; }
+.kai-question-unavailable strong { color: #5e6671; font-size: 10px; }
+.kai-question-unavailable span { font-size: 9px; margin-top: 3px; }
+.kai-question-mode { display: flex; gap: 5px; margin-top: 7px; }
+.kai-question-mode button { background: #fff; border: 1px solid #dfe2e7; border-radius: 6px; color: #747c87; cursor: pointer; font-size: 9px; min-height: 27px; padding: 0 8px; }
+.kai-question-mode button.is-selected { background: #fff3f2; border-color: #e2a19c; color: #90443e; }
+.kai-date-or-duration > input { background: #fff; border: 1px solid #dfe2e7; border-radius: 7px; color: #404650; font: inherit; font-size: 11px; margin-top: 7px; min-height: 34px; padding: 7px 9px; width: 100%; }
+.kai-question-uncertain { align-items: center; color: #777e89; display: flex; font-size: 9px; gap: 6px; margin-top: 7px; }
+.kai-question-uncertain.is-selected { color: #8e4944; }
+
+.kai-question-submit {
+  align-items: center;
+  border-top: 1px solid #eceef1;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  margin-top: 12px;
+  padding-top: 10px;
+}
+.kai-question-submit > span { color: #8b919a; display: flex; flex-direction: column; font-size: 9px; gap: 2px; }
+.kai-question-submit > span small { color: #9b665f; font-size: 8px; }
+.kai-question-submit button,
+.kai-block-primary,
+.kai-link-block > button {
+  align-items: center;
+  background: var(--kai-red);
+  border: 0;
+  border-radius: 7px;
+  color: #fff;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 10px;
+  gap: 5px;
+  min-height: 30px;
+  padding: 0 10px;
+}
+.kai-question-submit button:disabled,
+.kai-block-primary:disabled,
+.kai-link-block > button:disabled { background: #d4d6db; cursor: default; }
+.kai-question-submit button svg,
+.kai-block-primary svg,
+.kai-link-block > button svg { height: 13px; width: 13px; }
+
+.kai-intent-options { display: flex; flex-direction: column; gap: 6px; }
+.kai-intent-options > button { align-items: center; background: #fafafa; border: 1px solid #e5e7eb; border-radius: 8px; color: inherit; cursor: pointer; display: flex; justify-content: space-between; min-height: 44px; padding: 8px 9px; text-align: left; width: 100%; }
+.kai-intent-options > button.is-selected { background: #fff4f3; border-color: #e3a49f; }
+.kai-intent-options > button > span { display: flex; flex-direction: column; }
+.kai-intent-options strong { font-size: 10px; }
+.kai-intent-options strong small { color: var(--kai-red); font-size: 8px; margin-left: 5px; }
+.kai-intent-options em { color: #858c96; font-size: 9px; font-style: normal; margin-top: 2px; }
+.kai-intent-options svg { color: var(--kai-red); height: 13px; width: 13px; }
+.kai-intent-block .kai-block-primary { margin-top: 9px; }
+.kai-block-hint { background: none !important; border: 0 !important; color: #9298a1 !important; font-size: 9px !important; margin: 7px 0 0 !important; padding: 0 !important; }
+
+.kai-interview-state { background: #fff; }
+.kai-interview-section { border-top: 1px solid #eceef1; padding-top: 9px; }
+.kai-interview-section > header,
+.kai-interview-missing > header {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 7px;
+}
+.kai-interview-section > header > span,
+.kai-interview-missing > header {
+  align-items: center;
+  color: #4e555f;
+  display: flex;
+  font-size: 10px;
+  gap: 5px;
+}
+.kai-interview-section > header svg,
+.kai-interview-missing > header svg { height: 13px; width: 13px; }
+.kai-interview-section > header svg { color: #2d7a5e; }
+.kai-interview-section > header > small { color: #9298a1; font-size: 8px; }
+.kai-interview-empty { background: #f7f7f8 !important; border: 0 !important; border-radius: 7px; color: #7d8590 !important; font-size: 9px !important; margin: 0 !important; padding: 8px !important; }
+.kai-interview-facts { margin: 0; }
+.kai-interview-facts > div {
+  border-bottom: 1px dashed #eceef1;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: minmax(100px, 42%) minmax(0, 1fr);
+  padding: 7px 0;
+}
+.kai-interview-facts > div.is-conflict { background: #fff8f1; margin-inline: -5px; padding-inline: 5px; }
+.kai-interview-facts > div.is-superseded { opacity: .62; }
+.kai-interview-facts dt { color: #6e7681; font-size: 9px; }
+.kai-interview-facts dt > span { align-items: center; display: flex; flex-wrap: wrap; gap: 4px; }
+.kai-interview-facts dt > small { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 3px; }
+.kai-interview-facts dd { color: #444b55; font-size: 10px; line-height: 15px; margin: 0; overflow-wrap: anywhere; }
+.kai-interview-facts em,
+.kai-interview-classification em,
+.kai-interview-classification b,
+.kai-interview-missing em {
+  border-radius: 4px;
+  font-size: 8px;
+  font-style: normal;
+  font-weight: 500;
+  padding: 1px 4px;
+}
+.kai-interview-facts .is-hard { align-items: center; background: #f1f3f6; color: #606872; display: inline-flex; gap: 2px; }
+.kai-interview-facts .is-hard svg { height: 8px; width: 8px; }
+.kai-interview-source { background: #eef1f5; color: #68717d; }
+.kai-interview-source.is-ai_expansion { background: #eef4ff; color: #3f68a0; }
+.kai-interview-fact-status.is-confirmed { background: #edf8f3; color: #26775a; }
+.kai-interview-fact-status.is-candidate { background: #eef4ff; color: #466f9e; }
+.kai-interview-fact-status.is-conflict { background: #fff0df; color: #98611b; }
+.kai-interview-fact-status.is-superseded { background: #f1f2f4; color: #777f89; }
+.kai-interview-facts .is-editable { color: #7d8490; padding-inline: 0; }
+.kai-interview-classification {
+  align-items: center;
+  background: #f7f8fa;
+  border-radius: 8px;
+  display: flex;
+  gap: 8px;
+  margin-top: 9px;
+  padding: 9px;
+}
+.kai-interview-classification > svg { color: #526f9d; flex: 0 0 15px; height: 15px; width: 15px; }
+.kai-interview-classification > span { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+.kai-interview-classification small { color: #8a919b; font-size: 8px; }
+.kai-interview-classification strong { color: #474e58; font-size: 10px; margin-top: 2px; }
+.kai-interview-classification em { color: #77808c; padding: 1px 0 0; }
+.kai-interview-classification b { background: #fff0df; color: #94601b; flex: 0 0 auto; }
+.kai-interview-missing { background: #fffaf2; border: 1px solid #f0e0c6; border-radius: 8px; margin-top: 9px; padding: 8px; }
+.kai-interview-missing > header { color: #8c651f; justify-content: flex-start; }
+.kai-interview-missing > div { align-items: flex-start; display: flex; gap: 8px; justify-content: space-between; padding: 5px 0; }
+.kai-interview-missing > div + div { border-top: 1px dashed #eadcc3; }
+.kai-interview-missing > div > span { display: flex; flex: 1; flex-direction: column; }
+.kai-interview-missing b { color: #685a43; font-size: 9px; }
+.kai-interview-missing small { color: #8b7c64; font-size: 8px; line-height: 12px; margin-top: 2px; }
+.kai-interview-missing em { background: #fff0df; color: #96631c; flex: 0 0 auto; }
+.kai-interview-missing > div.is-info em { background: #eef4ff; color: #486d99; }
+.kai-interview-readiness { border-top: 1px solid #eceef1; margin-top: 10px; padding-top: 9px; }
+.kai-interview-readiness > span { align-items: center; color: #59616c; display: flex; gap: 5px; }
+.kai-interview-readiness > span svg { color: #737e8c; height: 12px; width: 12px; }
+.kai-interview-readiness > span strong { font-size: 9px; }
+.kai-interview-readiness > span small { color: #8d949e; font-size: 8px; margin-left: auto; }
+.kai-interview-progress { background: #eef0f3; border-radius: 999px; height: 5px; margin-top: 6px; overflow: hidden; }
+.kai-interview-progress > i { background: var(--kai-red); border-radius: inherit; display: block; height: 100%; }
+.kai-interview-readiness.is-ready .kai-interview-progress > i { background: #2c8060; }
+.kai-interview-readiness > p { background: none !important; border: 0 !important; color: #858c96 !important; font-size: 8px !important; line-height: 12px !important; margin: 5px 0 0 !important; padding: 0 !important; }
+
+.kai-draft-summary { align-items: flex-start; background: #faf7f7; border-radius: 8px; display: flex; gap: 7px; padding: 9px; }
+.kai-draft-summary > svg { color: #9b514c; flex: 0 0 15px; height: 15px; width: 15px; }
+.kai-draft-summary > p { background: none !important; border: 0 !important; color: #555c66 !important; flex: 1; font-size: 10px !important; margin: 0 !important; padding: 0 !important; }
+.kai-draft-summary > span { color: #999fa8; font-size: 9px; }
+.kai-draft-section { border-top: 1px solid #eceef1; margin-top: 10px; padding-top: 9px; }
+.kai-draft-section h4 { color: #4b525c; font-size: 10px; margin: 0 0 5px; }
+.kai-draft-section dl,
+.kai-entity-block dl { margin: 0; }
+.kai-draft-section dl > div,
+.kai-entity-block dl > div { border-bottom: 1px dashed #eceef1; display: grid; gap: 8px; grid-template-columns: 108px minmax(0, 1fr); padding: 6px 0; }
+.kai-draft-section dt,
+.kai-entity-block dt { color: #838a94; font-size: 9px; }
+.kai-draft-section dd,
+.kai-entity-block dd { color: #4e555f; font-size: 10px; line-height: 15px; margin: 0; overflow-wrap: anywhere; }
+.kai-draft-section dt > small { color: #bd5a53; display: block; font-size: 8px; margin-top: 2px; }
+.kai-source { border-radius: 4px; display: inline-block; font-size: 8px; font-style: normal; margin-left: 4px; padding: 1px 3px; }
+.kai-source.is-ai_expansion { background: #eef4ff; color: #3f68a0; }
+.kai-source:not(.is-ai_expansion) { background: #f0f2f5; color: #6f7782; }
+.kai-draft-missing { background: #fff9ef; border: 1px solid #f1dfbd; border-radius: 8px; margin-top: 9px; padding: 8px; }
+.kai-draft-missing > strong { align-items: center; color: #8d641d; display: flex; font-size: 10px; gap: 4px; }
+.kai-draft-missing svg { height: 12px; width: 12px; }
+.kai-draft-missing > p { align-items: flex-start; background: none !important; border: 0 !important; color: #7f6d4e !important; display: flex; font-size: 9px !important; gap: 8px; justify-content: space-between; margin: 6px 0 0 !important; padding: 0 !important; }
+
+.kai-block-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.kai-block-actions button,
+.kai-entity-actions button { align-items: center; background: #fff; border: 1px solid #dfe2e7; border-radius: 6px; color: #5e6671; cursor: pointer; display: inline-flex; font-size: 9px; gap: 4px; min-height: 28px; padding: 0 8px; }
+.kai-block-actions button.is-primary { background: var(--kai-red); border-color: var(--kai-red); color: #fff; }
+.kai-block-actions button.is-danger { border-color: #e6b2ae; color: #a3433d; }
+.kai-block-actions button:disabled { cursor: default; opacity: .55; }
+.kai-block-actions svg,
+.kai-entity-actions svg { height: 11px; width: 11px; }
+
+.kai-result-message { align-items: flex-start; background: #f5f8f6; border-radius: 8px; display: flex; gap: 7px; padding: 9px; }
+.kai-result-block.is-failed .kai-result-message,
+.kai-result-block.is-blocked .kai-result-message { background: #fff3f2; }
+.kai-result-message > svg { color: #29765b; flex: 0 0 16px; height: 16px; width: 16px; }
+.kai-result-block.is-failed .kai-result-message > svg,
+.kai-result-block.is-blocked .kai-result-message > svg { color: #ae4841; }
+.kai-result-message > span { display: flex; flex-direction: column; }
+.kai-result-message strong { font-size: 10px; line-height: 15px; }
+.kai-result-message small { color: #9298a0; font-size: 8px; margin-top: 3px; }
+.kai-entity-actions { display: flex; gap: 6px; margin-top: 9px; }
+.kai-link-block > p { align-items: center; background: #f7f7f8 !important; border: 0 !important; color: #777f8a !important; display: flex; font-size: 9px !important; gap: 5px; margin: 0 !important; padding: 8px !important; }
+.kai-link-block > p svg { height: 12px; width: 12px; }
+
+.kai-notice-block { border-left: 3px solid #8c96a3; }
+.kai-notice-block.is-success { border-left-color: #328163; }
+.kai-notice-block.is-warning { border-left-color: #cf8a24; }
+.kai-notice-block.is-error { border-left-color: #c44a42; }
+.kai-notice-copy { align-items: flex-start; display: flex; gap: 8px; }
+.kai-notice-copy > svg { color: #77818e; flex: 0 0 16px; height: 16px; width: 16px; }
+.kai-notice-copy > span { display: flex; flex: 1; flex-direction: column; }
+.kai-notice-copy strong { color: #444b55; font-size: 11px; }
+.kai-notice-copy em { color: #898f99; font-size: 9px; font-style: normal; margin-top: 2px; }
+.kai-notice-copy p { background: none !important; border: 0 !important; color: #5e6670 !important; font-size: 10px !important; line-height: 15px !important; margin: 6px 0 0 !important; padding: 0 !important; }
+.kai-notice-copy small { color: #a0a5ad; font-size: 8px; margin-top: 4px; }
+
+.kai-assistant-error {
+  align-items: flex-start;
+  display: flex;
+  gap: 8px;
+}
+.kai-assistant-error > svg { flex: 0 0 16px; height: 16px; width: 16px; }
+.kai-assistant-error > span { display: flex; flex: 1; flex-direction: column; }
+.kai-assistant-error strong { font-size: 10px; }
+.kai-assistant-error em { font-size: 9px; font-style: normal; line-height: 14px; margin-top: 3px; }
+.kai-assistant-error small { color: #b06b65; font-size: 8px; margin-top: 3px; }
+.kai-assistant-error > div { flex: 0 0 auto; }
+.kai-assistant-error button { align-items: center; background: #fff; border: 1px solid #e7b6b2; border-radius: 6px; color: #9b453f; cursor: pointer; display: inline-flex; font-size: 9px; gap: 3px; min-height: 25px; padding: 0 7px; }
+.kai-assistant-error button svg { height: 11px; width: 11px; }
+
+.kai-assistant-drawer select:focus-visible,
+.kai-assistant-drawer input:focus-visible {
+  outline: 3px solid rgb(0 102 255 / 22%);
+  outline-offset: 2px;
 }
 
 .kai-assistant-empty {
@@ -576,6 +1036,73 @@ main:has(~ .kai-assistant-drawer) {
 .kai-help-list small { color: #858c97; font-size: 10px; margin-top: 4px; }
 .kai-help-list button > svg { color: #a1a7b0; height: 14px; width: 14px; }
 
+.kai-help-list button.is-unavailable {
+  background: #f7f7f8;
+  cursor: not-allowed;
+  opacity: 1;
+}
+
+.kai-help-list button.is-unavailable > i {
+  background: #eceef1;
+  color: #8c939d;
+}
+
+.kai-help-list button > span > em {
+  color: #986257;
+  font-size: 9px;
+  font-style: normal;
+  line-height: 14px;
+  margin-top: 5px;
+}
+
+.kai-help-disabled-label {
+  color: #9197a1;
+  flex: 0 0 72px !important;
+  font-size: 8px;
+  line-height: 12px;
+  text-align: right;
+}
+
+.kai-human-support-entry {
+  align-items: flex-start;
+  background: #fff8f7;
+  border: 1px solid #efd9d7;
+  border-radius: 10px;
+  display: grid;
+  gap: 8px 9px;
+  grid-template-columns: 30px minmax(0, 1fr);
+  margin-top: 14px;
+  padding: 11px;
+}
+
+.kai-human-support-entry > svg {
+  color: var(--kai-red);
+  grid-row: 1 / span 2;
+  height: 20px;
+  margin: 2px auto 0;
+  width: 20px;
+}
+
+.kai-human-support-entry > span {
+  display: flex;
+  flex-direction: column;
+}
+
+.kai-human-support-entry strong { color: #4a5059; font-size: 11px; }
+.kai-human-support-entry small { color: #858b95; font-size: 9px; line-height: 14px; margin-top: 3px; }
+
+.kai-human-support-entry > button {
+  background: #fff;
+  border: 1px solid #e1b3af;
+  border-radius: 6px;
+  color: #93433d;
+  cursor: pointer;
+  font-size: 9px;
+  justify-self: start;
+  min-height: 27px;
+  padding: 0 9px;
+}
+
 .is-spinning { animation: kai-spin 900ms linear infinite; }
 @keyframes kai-spin { to { transform: rotate(360deg); } }
 
@@ -587,6 +1114,18 @@ main:has(~ .kai-assistant-drawer) {
 @media (max-width: 460px) {
   .kai-assistant-drawer { width: 100vw; }
   .kai-assistant-launcher { bottom: 16px; right: 16px; }
+  .kai-assistant-scroll { padding: 12px; }
+  .kai-assistant-tabs { justify-content: space-around; }
+  .kai-assistant-tabs button { justify-content: center; padding: 0 8px; }
+  .kai-question-options { grid-template-columns: 1fr; }
+  .kai-draft-section dl > div,
+  .kai-entity-block dl > div { grid-template-columns: 86px minmax(0, 1fr); }
+  .kai-interview-facts > div { grid-template-columns: 1fr; }
+  .kai-interview-facts dd { padding-left: 0; }
+  .kai-interview-classification { align-items: flex-start; }
+  .kai-help-list button { padding: 10px 9px; }
+  .kai-help-disabled-label { flex-basis: 58px !important; }
+  .kai-assistant-composer footer span { max-width: calc(100vw - 90px); }
 }
 
 @media (prefers-reduced-motion: reduce) {

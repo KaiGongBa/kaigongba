@@ -14,6 +14,8 @@ from app.api import (
     identity_internal,
     marketplace,
     marketplace_management,
+    platform_assistant_internal,
+    service_categories,
     transactions,
 )
 from app.app_factory import create_api_app
@@ -47,6 +49,7 @@ app = create_api_app(
 
 app.include_router(auth.router)
 app.include_router(identity_internal.router)
+app.include_router(platform_assistant_internal.router)
 app.include_router(marketplace.router)
 app.include_router(marketplace_management.router)
 app.include_router(transactions.router)
@@ -55,3 +58,4 @@ app.include_router(external_agents.enterprise_router)
 app.include_router(external_agents.agent_router)
 app.include_router(collaboration.router)
 app.include_router(disputes.router)
+app.include_router(service_categories.router)

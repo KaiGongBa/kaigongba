@@ -69,6 +69,11 @@ _FEISHU_CHANNEL_SCHEMA_MIGRATION_ID = "20260724_feishu_channel_schema_v1"
 
 def init_db() -> None:
     import app.db.models  # noqa: F401
+    import app.platform_assistant.models  # noqa: F401
+    import app.platform_assistant.requirement_fact_models  # noqa: F401
+    import app.platform_assistant.requirement_handoff_models  # noqa: F401
+    import app.platform_assistant.requirement_models  # noqa: F401
+    import app.platform_assistant.safety_models  # noqa: F401
 
     _configure_sqlite_runtime()
     SQLModel.metadata.create_all(engine)

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.kaigongba.net/contracts/platform-assistant/v2/schemas/turn-request.schema.json",
+  "title": "Platform Assistant Turn Request v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol_version", "client_request_id", "session_id", "message", "page_context"],
+  "properties": {
+    "protocol_version": {"const": "2.0"},
+    "client_request_id": {"type": "string", "minLength": 8, "maxLength": 160},
+    "session_id": {"type": ["string", "null"], "maxLength": 160},
+    "message": {"type": "string", "minLength": 1, "maxLength": 20000},
+    "page_context": {"$ref": "../../v1/schemas/page-context.schema.json"}
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.kaigongba.net/contracts/platform-assistant/v2/schemas/turn-response.schema.json",
+  "title": "Platform Assistant Turn Response v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol_version", "request_id", "server_time", "session_id", "run_id", "message_id", "assistant_text", "ui_blocks", "workflow", "context", "usage"],
+  "properties": {
+    "protocol_version": {"const": "2.0"},
+    "request_id": {"type": "string", "minLength": 1},
+    "server_time": {"type": "string", "format": "date-time"},
+    "session_id": {"type": "string", "minLength": 1},
+    "run_id": {"type": ["string", "null"]},
+    "message_id": {"type": "string", "minLength": 1},
+    "assistant_text": {"type": "string", "maxLength": 20000},
+    "ui_blocks": {"type": "array", "items": {"$ref": "structured-block.schema.json"}},
+    "workflow": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["capability_id", "capability_version", "state", "row_version", "progress"],
+      "properties": {
+        "capability_id": {"type": "string"},
+        "capability_version": {"type": "string"},
+        "state": {"enum": ["intent_pending", "intent_confirmed", "collecting", "drafting", "reviewing", "draft_saved", "handed_off", "completed", "paused", "failed", "cancelled"]},
+        "row_version": {"type": "integer", "minimum": 1},
+        "progress": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["completed_required", "total_required"],
+          "properties": {
+            "completed_required": {"type": "integer", "minimum": 0},
+            "total_required": {"type": "integer", "minimum": 0}
+          }
+        }
+      }
+    },
+    "context": {"$ref": "../../v1/schemas/resolved-context.schema.json"},
+    "usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["request_id"],
+      "properties": {"request_id": {"type": ["string", "null"]}}
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "contract": "platform-assistant",
+  "version": "2.0.0",
+  "protocol_version": "2.0",
+  "compatibility": {
+    "backward_compatible_with": "1.0",
+    "v1_blocks_accepted": true
+  },
+  "schemas": [
+    {"id": "https://schemas.kaigongba.net/contracts/platform-assistant/v2/schemas/turn-request.schema.json", "path": "schemas/turn-request.schema.json"},
+    {"id": "https://schemas.kaigongba.net/contracts/platform-assistant/v2/schemas/structured-block.schema.json", "path": "schemas/structured-block.schema.json"},
+    {"id": "https://schemas.kaigongba.net/contracts/platform-assistant/v2/schemas/turn-response.schema.json", "path": "schemas/turn-response.schema.json"}
+  ],
+  "instances": [
+    {"path": "samples/adaptive-interview-request.json", "schema": "https://schemas.kaigongba.net/contracts/platform-assistant/v2/schemas/turn-request.schema.json"},
+    {"path": "samples/adaptive-interview-response.json", "schema": "https://schemas.kaigongba.net/contracts/platform-assistant/v2/schemas/turn-response.schema.json"}
+  ]
+}

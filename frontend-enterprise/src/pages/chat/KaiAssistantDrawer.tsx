@@ -1,59 +1,115 @@
 import {
+  AlertTriangle,
   Bell,
   Bot,
-  BriefcaseBusiness,
   CheckCheck,
-  ClipboardList,
   ExternalLink,
-  FileText,
   HelpCircle,
   Inbox,
   LoaderCircle,
   MessageCircle,
+  PauseCircle,
+  RotateCcw,
   Send,
   Sparkles,
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 import { TENANT_ID, api } from '@/api/client';
 import kaiXiaohuaImage from '@/assets/brand/kai-xiaohua.png';
 import { getEnterpriseAuthSession } from '@/auth';
 import { isPlatformAssistantAgent } from '@/employee';
+import { AssistantHelpPanel } from '@/features/kai-assistant/components/AssistantHelpPanel';
+import {
+  createDefaultKaiAssistantService,
+  normalizeAssistantResult,
+  parseAssistantError,
+  type AssistantTurnResult,
+  type KaiAssistantService,
+} from '@/features/kai-assistant/components/assistantService';
+import {
+  StructuredBlockRenderer,
+  type StructuredBlockAction,
+} from '@/features/kai-assistant/components/StructuredBlockRenderer';
+import { collectAssistantOverlayPageContext, createPageInstanceId } from '@/features/kai-assistant/pageContext';
+import type {
+  AnswerSubmission,
+  PlatformAssistantErrorEnvelope,
+  PlatformAssistantV2StructuredBlock,
+  PlatformAssistantWorkflow,
+  StructuredBlock,
+} from '@/features/kai-assistant/protocol';
 import { marketplaceRepository } from '@/features/marketplace/repository';
 import type { CollaborationNotification, CollaborationNotificationList } from '@/features/marketplace/types';
 import { nextKaiAssistantState, type KaiAssistantView } from '@/features/marketplace/uiMigrationContracts';
-import type { AgentProfileRead, ChatMessage, ChatSession, ChatTurnResponse } from '@/types';
+import type { AgentProfileRead, ChatMessage, ChatSession } from '@/types';
 
 import './kaiAssistantDrawer.css';
 
 type NotificationFilter = 'all' | 'todos' | 'progress' | 'system';
 
+type AssistantUiMessage = Pick<ChatMessage, 'id' | 'role' | 'content' | 'created_at'> & {
+  blocks?: PlatformAssistantV2StructuredBlock[];
+  runId?: string | null;
+  workflow?: PlatformAssistantWorkflow | null;
+};
+
+type AssistantFailure = PlatformAssistantErrorEnvelope['error'];
+
 export default function KaiAssistantDrawer({
   sidebarCollapsed,
   onToggleSidebar,
+  service,
 }: {
   sidebarCollapsed: boolean;
   onToggleSidebar: () => void;
+  service?: KaiAssistantService;
 }) {
   const navigate = useNavigate();
+  const location = useLocation();
+  const assistantService = useMemo(() => service || createDefaultKaiAssistantService(), [service]);
   const [state, setState] = useState({ open: false, view: 'chat' as KaiAssistantView });
   const [notifications, setNotifications] = useState<CollaborationNotificationList>({ items: [], unreadCount: 0 });
   const [notificationsLoading, setNotificationsLoading] = useState(false);
   const [notificationFilter, setNotificationFilter] = useState<NotificationFilter>('all');
   const [assistant, setAssistant] = useState<AgentProfileRead | null>(null);
   const [assistantSessionId, setAssistantSessionId] = useState('');
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<AssistantUiMessage[]>([]);
+  const [supportPreparationMessage, setSupportPreparationMessage] = useState<AssistantUiMessage | null>(null);
   const [chatLoading, setChatLoading] = useState(false);
-  const [chatError, setChatError] = useState('');
+  const [chatError, setChatError] = useState<AssistantFailure | null>(null);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+  const [completedBlocks, setCompletedBlocks] = useState<Set<string>>(() => new Set());
+  const [activeWorkflow, setActiveWorkflow] = useState<{
+    sessionId: string;
+    runId: string;
+    workflow: PlatformAssistantWorkflow | null;
+  } | null>(null);
   const restoreExpandedSidebarRef = useRef(false);
   const launcherRef = useRef<HTMLButtonElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const wasOpenRef = useRef(false);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  const lastUserMessageRef = useRef('');
+  const routeKeyRef = useRef('');
+  const pageInstanceIdRef = useRef(createPageInstanceId());
+  const contextVersionRef = useRef(1);
   const user = getEnterpriseAuthSession()?.user;
+
+  useEffect(() => {
+    const routeKey = `${location.pathname}${location.search}`;
+    if (!routeKeyRef.current) {
+      routeKeyRef.current = routeKey;
+      return;
+    }
+    if (routeKeyRef.current === routeKey) return;
+    routeKeyRef.current = routeKey;
+    pageInstanceIdRef.current = createPageInstanceId();
+    contextVersionRef.current = 1;
+  }, [location.pathname, location.search]);
 
   const loadNotifications = useCallback(async () => {
     setNotificationsLoading(true);
@@ -69,7 +125,7 @@ export default function KaiAssistantDrawer({
 
   const loadAssistantSession = useCallback(async () => {
     setChatLoading(true);
-    setChatError('');
+    setChatError(null);
     try {
       const [agents, sessions] = await Promise.all([
         api.get<AgentProfileRead[]>(`/api/chat/agents?tenant_id=${encodeURIComponent(TENANT_ID)}`),
@@ -79,7 +135,7 @@ export default function KaiAssistantDrawer({
       if (!platformAssistant) {
         setAssistant(null);
         setMessages([]);
-        setChatError('平台总助尚未完成配置，请联系系统管理员。');
+        setChatError({ code: 'AI_UNAVAILABLE', message: '平台总助尚未完成配置，请联系系统管理员。', retryable: true });
         return;
       }
       setAssistant(platformAssistant);
@@ -95,9 +151,42 @@ export default function KaiAssistantDrawer({
       const rows = await api.get<ChatMessage[]>(
         `/api/chat/sessions/${encodeURIComponent(session.id)}/messages?tenant_id=${encodeURIComponent(TENANT_ID)}`,
       );
-      setMessages(rows.filter((item) => item.role === 'user' || item.role === 'assistant'));
+      const restoredMessages: AssistantUiMessage[] = rows.filter((item) => item.role === 'user' || item.role === 'assistant').map((item) => ({
+        id: item.id,
+        role: item.role,
+        content: item.content,
+        created_at: item.created_at,
+      }));
+      try {
+        const snapshot = await api.get<unknown>(
+          `/api/platform-assistant/runs/latest?session_id=${encodeURIComponent(session.id)}`,
+        );
+        const restored = normalizeAssistantResult(snapshot, {
+          sessionId: session.id,
+          assistantText: '已恢复上次未完成的结构化流程。',
+        });
+        restoredMessages.push({
+          id: `restored-${restored.messageId}`,
+          role: 'assistant',
+          content: restored.assistantText,
+          created_at: new Date().toISOString(),
+          blocks: restored.blocks,
+          runId: restored.runId,
+          workflow: restored.workflow,
+        });
+        if (restored.runId) {
+          setActiveWorkflow({
+            sessionId: restored.sessionId,
+            runId: restored.runId,
+            workflow: restored.workflow,
+          });
+        }
+      } catch {
+        // A platform-assistant session may legitimately have no active run.
+      }
+      setMessages(restoredMessages);
     } catch (error) {
-      setChatError(error instanceof Error ? error.message : '开小花会话加载失败');
+      setChatError(parseAssistantError(error));
     } finally {
       setChatLoading(false);
     }
@@ -147,12 +236,13 @@ export default function KaiAssistantDrawer({
     setState((current) => nextKaiAssistantState(current, { type: 'close' }));
   }
 
-  async function sendMessage() {
-    const message = draft.trim();
+  async function sendMessage(value?: string) {
+    const message = (value ?? draft).trim();
     if (!message || !assistant || sending) return;
     const now = new Date().toISOString();
     setDraft('');
-    setChatError('');
+    lastUserMessageRef.current = message;
+    setChatError(null);
     setMessages((current) => [...current, {
       id: `local-user-${crypto.randomUUID()}`,
       role: 'user',
@@ -161,32 +251,150 @@ export default function KaiAssistantDrawer({
     }]);
     setSending(true);
     try {
-      const result = await api.post<ChatTurnResponse>('/api/chat/turn', {
-        tenant_id: TENANT_ID,
-        session_id: assistantSessionId || undefined,
-        agent_id: assistant.id,
-        client_turn_id: crypto.randomUUID(),
-        message,
-        interaction_mode: 'normal',
+      const pageContext = collectAssistantOverlayPageContext(location, 'assistant.chat', {
+        pageInstanceId: pageInstanceIdRef.current,
+        organizationId: selectedOrganizationId(),
+        contextVersion: contextVersionRef.current,
       });
-      setAssistantSessionId(result.session_id);
-      setMessages((current) => [...current, {
-        id: `local-assistant-${crypto.randomUUID()}`,
-        role: 'assistant',
-        content: result.reply,
-        created_at: new Date().toISOString(),
-      }]);
+      const result = await assistantService.sendTurn({
+        pageContext,
+        sessionId: assistantSessionId || null,
+        agentId: assistant.id,
+        message,
+      });
+      appendAssistantResult(result);
     } catch (error) {
-      setChatError(error instanceof Error ? error.message : '消息发送失败');
+      setChatError(parseAssistantError(error));
     } finally {
       setSending(false);
     }
+  }
+
+  function appendAssistantResult(result: AssistantTurnResult) {
+    setAssistantSessionId(result.sessionId);
+    setMessages((current) => [...current, {
+      id: result.messageId || `local-assistant-${crypto.randomUUID()}`,
+      role: 'assistant',
+      content: result.assistantText,
+      created_at: new Date().toISOString(),
+      blocks: result.blocks,
+      runId: result.runId,
+      workflow: result.workflow,
+    }]);
+    if (result.runId) {
+      setActiveWorkflow({ sessionId: result.sessionId, runId: result.runId, workflow: result.workflow });
+    } else if (result.workflow?.state === 'completed' || result.workflow?.state === 'cancelled') {
+      setActiveWorkflow(null);
+    }
+  }
+
+  async function submitStructuredAnswers(
+    message: AssistantUiMessage,
+    input: Pick<AnswerSubmission, 'block_id' | 'block_version' | 'answers'>,
+  ) {
+    const runId = message.runId || activeWorkflow?.runId;
+    const sessionId = assistantSessionId || activeWorkflow?.sessionId;
+    if (!runId || !sessionId || sending) {
+      setChatError({ code: 'CONTEXT_STALE', message: '这组问题已失去工作流上下文，请恢复或重新发起。', retryable: true });
+      return;
+    }
+    setSending(true);
+    setChatError(null);
+    try {
+      const submittedBlock = message.blocks?.find((block) => (
+        block.block_id === input.block_id
+        && block.block_version === input.block_version
+      ));
+      const result = await assistantService.submitAnswers({
+        protocol_version: submittedBlock?.schema_version === '2.0' ? '2.0' : '1.0',
+        session_id: sessionId,
+        run_id: runId,
+        block_id: input.block_id,
+        block_version: input.block_version,
+        idempotency_key: crypto.randomUUID(),
+        answers: input.answers,
+      });
+      setCompletedBlocks((current) => new Set(current).add(blockKey(runId, input.block_id, input.block_version)));
+      appendAssistantResult(result);
+    } catch (error) {
+      setChatError(parseAssistantError(error));
+    } finally {
+      setSending(false);
+    }
+  }
+
+  function handleStructuredAction(action: StructuredBlockAction) {
+    if (action.actionId.startsWith('intent:')) {
+      void sendMessage(`我选择：${action.label}`);
+      return;
+    }
+    if (action.actionId.includes('resume')) {
+      void resumeWorkflow();
+      return;
+    }
+    if (action.actionId.includes('cancel')) {
+      void cancelWorkflow();
+      return;
+    }
+    if (action.actionId.includes('retry')) {
+      void retryLastTurn();
+      return;
+    }
+    // Potentially consequential actions are prepared in the composer instead
+    // of being executed from an untrusted block label.
+    setDraft(`我想要「${action.label}」，请先说明将要执行的操作，并让我在对应业务页确认。`);
+    requestAnimationFrame(() => composerRef.current?.focus());
+  }
+
+  async function resumeWorkflow() {
+    if (!activeWorkflow || sending) return;
+    setSending(true);
+    setChatError(null);
+    try {
+      appendAssistantResult(await assistantService.resumeRun(activeWorkflow.sessionId, activeWorkflow.runId));
+    } catch (error) {
+      setChatError(parseAssistantError(error));
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function cancelWorkflow() {
+    if (!activeWorkflow || sending) return;
+    setSending(true);
+    setChatError(null);
+    try {
+      appendAssistantResult(await assistantService.cancelRun(activeWorkflow.sessionId, activeWorkflow.runId));
+      setActiveWorkflow(null);
+    } catch (error) {
+      setChatError(parseAssistantError(error));
+    } finally {
+      setSending(false);
+    }
+  }
+
+  async function retryLastTurn() {
+    if (lastUserMessageRef.current) await sendMessage(lastUserMessageRef.current);
+    else await loadAssistantSession();
   }
 
   function handleComposerKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
     event.preventDefault();
     void sendMessage();
+  }
+
+  function showHumanSupportPreparation() {
+    setState((current) => nextKaiAssistantState(current, { type: 'select-view', view: 'chat' }));
+    setSupportPreparationMessage({
+      id: `local-support-${crypto.randomUUID()}`,
+      role: 'assistant',
+      content: '我先帮你准备联系人工客服所需的信息。',
+      created_at: new Date().toISOString(),
+      blocks: humanSupportPreparationBlocks(location.pathname),
+      runId: null,
+      workflow: null,
+    });
   }
 
   async function openNotification(item: CollaborationNotification) {
@@ -233,7 +441,7 @@ export default function KaiAssistantDrawer({
       )}
 
       {state.open && (
-        <aside className="kai-assistant-drawer" role="complementary" aria-label="开小花平台总助">
+        <aside className={`kai-assistant-drawer ${activeWorkflow ? 'is-workflow' : ''}`} role="complementary" aria-label="开小花平台总助">
           <header className="kai-assistant-header">
             <span className="kai-assistant-avatar"><img src={kaiXiaohuaImage} alt="开小花" /></span>
             <span className="kai-assistant-title">
@@ -258,23 +466,43 @@ export default function KaiAssistantDrawer({
                   <Sparkles />
                   <div><h2>{greeting(user?.display_name || user?.username)}</h2><p>我可以帮你找项目、查待办和解释平台功能，但不会进入数字员工私有会话或替你完成结构化确认。</p></div>
                 </div>
+                <div className="kai-context-pill" title={location.pathname}>
+                  <span>正在辅助当前页面</span><strong>{currentPageLabel(location.pathname)}</strong>
+                </div>
+                <div className="kai-quick-questions" aria-label="快捷提问">
+                  {['我现在可以做什么？', '我的待办', '当前页面说明'].map((prompt) => (
+                    <button key={prompt} type="button" disabled={!assistant || sending} onClick={() => void sendMessage(prompt)}>{prompt}</button>
+                  ))}
+                </div>
+                {activeWorkflow && <WorkflowBar workflow={activeWorkflow.workflow} onResume={() => void resumeWorkflow()} onCancel={() => void cancelWorkflow()} disabled={sending} />}
                 {chatLoading && <div className="kai-assistant-empty"><LoaderCircle className="is-spinning" />正在读取独立会话…</div>}
-                {!chatLoading && messages.length === 0 && !chatError && (
+                {!chatLoading && messages.length === 0 && !supportPreparationMessage && !chatError && (
                   <div className="kai-assistant-empty"><Bot /><strong>从一个问题开始</strong><span>例如：我的订单在哪里？如何发布服务？</span></div>
                 )}
                 <div className="kai-assistant-messages" aria-live="polite">
-                  {messages.map((message) => (
-                    <article key={message.id} className={message.role === 'user' ? 'is-user' : 'is-assistant'}>
+                  {[...messages, ...(supportPreparationMessage ? [supportPreparationMessage] : [])].map((message) => (
+                    <article key={message.id} className={`${message.role === 'user' ? 'is-user' : 'is-assistant'} ${message.blocks?.length ? 'has-blocks' : ''}`}>
                       <small>{message.role === 'user' ? '你' : '开小花'} · {formatTime(message.created_at)}</small>
-                      <p>{message.content}</p>
+                      {message.content && <p>{message.content}</p>}
+                      {message.role === 'assistant' && message.blocks?.map((block) => (
+                        <StructuredBlockRenderer
+                          key={`${message.id}-${block.block_id}-${block.block_version}`}
+                          block={block}
+                          disabled={sending || completedBlocks.has(blockKey(message.runId, block.block_id, block.block_version))}
+                          onSubmitAnswers={(submission) => void submitStructuredAnswers(message, submission)}
+                          onAction={handleStructuredAction}
+                          onNavigate={navigate}
+                        />
+                      ))}
                     </article>
                   ))}
                   {sending && <article className="is-assistant"><small>开小花 · 正在回复</small><p className="kai-assistant-thinking"><i /><i /><i /></p></article>}
                 </div>
-                {chatError && <p className="kai-assistant-error" role="alert">{chatError}</p>}
+                {chatError && <AssistantErrorCard error={chatError} hasWorkflow={Boolean(activeWorkflow)} onRetry={() => void retryLastTurn()} onResume={() => void resumeWorkflow()} />}
               </div>
               <form className="kai-assistant-composer" onSubmit={(event) => { event.preventDefault(); void sendMessage(); }}>
                 <textarea
+                  ref={composerRef}
                   value={draft}
                   aria-label="给开小花发送消息"
                   placeholder="问开小花关于项目、订单或平台的问题"
@@ -297,7 +525,7 @@ export default function KaiAssistantDrawer({
             />
           )}
 
-          {state.view === 'help' && <HelpPanel onNavigate={navigate} />}
+          {state.view === 'help' && <AssistantHelpPanel onNavigate={navigate} onRequestHumanSupport={showHumanSupportPreparation} />}
         </aside>
       )}
     </>
@@ -367,21 +595,63 @@ function NotificationPanel({
   );
 }
 
-function HelpPanel({ onNavigate }: { onNavigate: (route: string) => void }) {
-  const items = [
-    { title: '查看 AI 员工和项目进度', description: '在项目中心按员工或项目查看', route: '/workspace/gallery?view=agents', icon: <Bot /> },
-    { title: '发布需求并比较报价', description: '进入真实需求、匹配和报价流程', route: '/enterprise/demands', icon: <FileText /> },
-    { title: '查找订单、支付与交付', description: '查看采购或服务关系下的订单', route: '/enterprise/orders', icon: <ClipboardList /> },
-    { title: '发布和经营 AI 服务', description: '管理发布、报价和服务交付', route: '/enterprise/publishing', icon: <BriefcaseBusiness /> },
-    { title: '接入外部 Agent', description: '配置长期 API 连接与运行边界', route: '/enterprise/agents/external/connect', icon: <ExternalLink /> },
-  ];
+function WorkflowBar({
+  workflow,
+  onResume,
+  onCancel,
+  disabled,
+}: {
+  workflow: PlatformAssistantWorkflow | null;
+  onResume: () => void;
+  onCancel: () => void;
+  disabled: boolean;
+}) {
+  const completed = workflow?.progress.completed_required || 0;
+  const total = workflow?.progress.total_required || 0;
+  const percent = total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : 0;
+  const recoverable = !workflow || workflow.state === 'paused' || workflow.state === 'failed';
   return (
-    <section className="kai-assistant-panel kai-assistant-help" role="tabpanel" aria-label="开小花使用帮助">
-      <div className="kai-assistant-scroll">
-        <div className="kai-assistant-intro"><HelpCircle /><div><h2>你想完成什么？</h2><p>开小花只做导航、解释和待办协助；交易确认仍需在对应业务页面由有权用户完成。</p></div></div>
-        <div className="kai-help-list">
-          {items.map((item) => <button type="button" key={item.route} onClick={() => onNavigate(item.route)}><i>{item.icon}</i><span><strong>{item.title}</strong><small>{item.description}</small></span><ExternalLink /></button>)}
+    <section className={`kai-workflow-bar is-${workflow?.state || 'recoverable'}`} aria-label="当前结构化任务">
+      <header>
+        <span><Sparkles /><strong>{workflow ? workflowStateLabel(workflow.state) : '可恢复任务'}</strong></span>
+        {total > 0 && <small>{completed}/{total} 项必填信息</small>}
+      </header>
+      {total > 0 && <div className="kai-workflow-progress" aria-label={`进度 ${percent}%`}><i style={{ width: `${percent}%` }} /></div>}
+      <footer>
+        <span>草稿与真实业务操作分离，发布仍需到业务页确认。</span>
+        <div>
+          {recoverable && <button type="button" disabled={disabled} onClick={onResume}><RotateCcw />恢复</button>}
+          <button type="button" disabled={disabled} onClick={onCancel}><PauseCircle />结束</button>
         </div>
+      </footer>
+    </section>
+  );
+}
+
+function AssistantErrorCard({
+  error,
+  hasWorkflow,
+  onRetry,
+  onResume,
+}: {
+  error: AssistantFailure;
+  hasWorkflow: boolean;
+  onRetry: () => void;
+  onResume: () => void;
+}) {
+  const conflict = error.code === 'BLOCK_VERSION_CONFLICT' || error.code === 'CONTEXT_STALE';
+  const unavailable = error.code === 'AI_UNAVAILABLE' || error.code === 'AI_QUOTA_EXCEEDED';
+  return (
+    <section className={`kai-assistant-error is-${conflict ? 'conflict' : unavailable ? 'unavailable' : 'failed'}`} role="alert">
+      <AlertTriangle />
+      <span>
+        <strong>{conflict ? '内容已更新' : unavailable ? '开小花暂时不可用' : '本次操作未完成'}</strong>
+        <em>{error.message}</em>
+        <small>{error.code}</small>
+      </span>
+      <div>
+        {conflict && hasWorkflow && <button type="button" onClick={onResume}><RotateCcw />刷新后恢复</button>}
+        {error.retryable && !conflict && <button type="button" onClick={onRetry}><RotateCcw />重试</button>}
       </div>
     </section>
   );
@@ -394,12 +664,67 @@ function notificationCategory(item: CollaborationNotification): Exclude<Notifica
   return 'todos';
 }
 
+function blockKey(runId: string | null | undefined, blockId: string, blockVersion: number) {
+  return `${runId || 'no-run'}:${blockId}:${blockVersion}`;
+}
+
+function selectedOrganizationId() {
+  try {
+    return window.localStorage.getItem('kaigongba_marketplace_organization') || null;
+  } catch {
+    return null;
+  }
+}
+
+function currentPageLabel(pathname: string) {
+  if (pathname.startsWith('/enterprise/orders/')) return '订单工作区';
+  if (pathname === '/enterprise/orders') return '我的订单';
+  if (pathname.startsWith('/enterprise/demands/new')) return '发布需求';
+  if (pathname.startsWith('/enterprise/demands')) return '我的需求';
+  if (pathname.startsWith('/enterprise/transactions')) return '交易中心';
+  if (pathname.startsWith('/workspace/gallery')) return '项目中心';
+  if (pathname.startsWith('/workspace/chat')) return '数字员工对话';
+  return '当前业务页';
+}
+
+function workflowStateLabel(state: PlatformAssistantWorkflow['state']) {
+  return ({
+    intent_pending: '等待确认意图', intent_confirmed: '已确认意图', collecting: '正在收集信息', drafting: '正在整理草稿',
+    reviewing: '请检查草稿', draft_saved: '草稿已保存', handed_off: '已交给业务页', completed: '任务已完成',
+    paused: '任务已暂停', failed: '任务需恢复', cancelled: '任务已结束',
+  } as Record<PlatformAssistantWorkflow['state'], string>)[state];
+}
+
 function notificationFilterLabel(filter: NotificationFilter) {
   return { all: '全部', todos: '待办', progress: '项目进展', system: '系统通知' }[filter];
 }
 
 function safeAssistantRoute(route: string) {
   return route.startsWith('/enterprise/') || route.startsWith('/workspace/');
+}
+
+function humanSupportPreparationBlocks(pathname: string): StructuredBlock[] {
+  return [
+    {
+      schema_version: '1.0', block_id: `block_support_notice_${crypto.randomUUID()}`, block_version: 1,
+      type: 'notice', status: 'pending', title: '联系人工客服前的准备',
+      description: '当前仅整理信息，没有创建工单。', tone: 'info', code: 'HUMAN_SUPPORT_PREPARATION',
+      message: '请先说明遇到的问题、期望结果和已尝试的操作。请勿提供密码、API 密钥或完整银行卡号。', actions: [],
+    },
+    {
+      schema_version: '1.0', block_id: `block_support_fields_${crypto.randomUUID()}`, block_version: 1,
+      type: 'entity_summary', status: 'succeeded', title: '建议提供的信息',
+      description: '下列信息可帮助客服定位问题，不会自动外发。',
+      entity_ref: { type: 'support_preparation', id: 'current' },
+      fields: [
+        { key: 'page', label: '当前页面', value: currentPageLabel(pathname) },
+        { key: 'issue', label: '问题与期望', value: '请在对话中补充' },
+        { key: 'business_reference', label: '业务编号', value: '如订单、需求、报价或争议编号' },
+        { key: 'evidence', label: '问题证据', value: '可脱敏的报错文字、发生时间和操作步骤' },
+      ],
+      allowed_action_ids: [],
+    },
+  ];
 }
 
 function greeting(name?: string) {

@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "requirement-draft-input.schema.json",
+  "title": "Platform Assistant Requirement Draft Input v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["draft_id", "draft_version", "currency", "missing_fields"],
+  "properties": {
+    "draft_id": {"type": "string", "pattern": "^reqdraft_[A-Za-z0-9_-]{8,120}$"},
+    "draft_version": {"type": "integer", "minimum": 1},
+    "organization_id": {"type": ["string", "null"], "maxLength": 160},
+    "title": {"type": ["string", "null"], "maxLength": 100},
+    "category": {"type": ["string", "null"], "maxLength": 80},
+    "background": {"type": ["string", "null"], "maxLength": 2000},
+    "goal": {"type": ["string", "null"], "maxLength": 2000},
+    "target_audience": {"type": ["string", "null"], "maxLength": 1000},
+    "use_scenario": {"type": ["string", "null"], "maxLength": 1000},
+    "service_scope": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 500}},
+    "exclusions": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 500}},
+    "risks": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 500}},
+    "dependencies": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 500}},
+    "budget_min": {"type": ["string", "null"], "pattern": "^[0-9]+(\\.[0-9]{1,2})?$"},
+    "budget_max": {"type": ["string", "null"], "pattern": "^[0-9]+(\\.[0-9]{1,2})?$"},
+    "currency": {"const": "CNY"},
+    "schedule": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "local_datetime", "timezone"],
+          "properties": {
+            "kind": {"const": "deadline"},
+            "local_datetime": {"type": "string", "format": "date-time"},
+            "timezone": {"type": "string", "minLength": 1, "maxLength": 80}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "duration", "unit", "timezone"],
+          "properties": {
+            "kind": {"const": "duration"},
+            "duration": {"type": "integer", "minimum": 1},
+            "unit": {"enum": ["hour", "calendar_day", "business_day", "week"]},
+            "timezone": {"type": "string", "minLength": 1, "maxLength": 80}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind"],
+          "properties": {"kind": {"const": "undecided"}}
+        }
+      ]
+    },
+    "visibility": {"enum": ["public", "enterprise", "invited_providers", null]},
+    "invite_limit": {"type": ["integer", "null"], "minimum": 1, "maximum": 20},
+    "confidentiality_level": {"enum": ["standard", "confidential", "highly_confidential", null]},
+    "deliverables": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "format", "required"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1, "maxLength": 200},
+          "format": {"type": "string", "minLength": 1, "maxLength": 120},
+          "required": {"type": "boolean"}
+        }
+      }
+    },
+    "acceptance_criteria": {"type": "array", "items": {"type": "string", "minLength": 1, "maxLength": 1000}},
+    "attachments": {"type": "array", "items": {"$ref": "business-attachment-reference.schema.json"}},
+    "missing_fields": {"type": "array", "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
+    "change_summary": {"type": ["string", "null"], "maxLength": 500}
+  }
+}

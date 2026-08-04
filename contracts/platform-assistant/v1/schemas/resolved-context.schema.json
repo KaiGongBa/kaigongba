@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "resolved-context.schema.json",
+  "title": "Platform Assistant Server-resolved Context v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "page_instance_id", "route_id", "resolved_pathname", "organization_id",
+    "entity_refs", "authorization", "projection_refs", "context_version",
+    "row_version", "stale"
+  ],
+  "properties": {
+    "page_instance_id": {"type": "string", "pattern": "^page_[A-Za-z0-9_-]{8,120}$"},
+    "route_id": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]{2,79}$"},
+    "resolved_pathname": {"type": "string", "pattern": "^/", "maxLength": 500},
+    "organization_id": {"type": ["string", "null"], "maxLength": 160},
+    "entity_refs": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "id"],
+        "properties": {
+          "type": {"type": "string", "minLength": 1, "maxLength": 80},
+          "id": {"type": "string", "minLength": 1, "maxLength": 160}
+        }
+      }
+    },
+    "authorization": {"type": "string", "minLength": 1, "maxLength": 80},
+    "projection_refs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]+$"}
+    },
+    "context_version": {"type": "integer", "minimum": 1},
+    "row_version": {"type": ["integer", "null"], "minimum": 1},
+    "stale": {"type": "boolean"}
+  }
+}

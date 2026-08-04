@@ -1,8 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
-const { mockedGet } = vi.hoisted(() => ({ mockedGet: vi.fn() }));
+const { mockedGet, mockedPost } = vi.hoisted(() => ({ mockedGet: vi.fn(), mockedPost: vi.fn() }));
 
-vi.mock('@/api/client', () => ({ api: { get: mockedGet } }));
+vi.mock('@/api/client', () => ({
+  ApiError: class ApiError extends Error {},
+  api: { get: mockedGet, post: mockedPost },
+}));
 
 import { aiServiceFixtures, skillFixtures } from './fixtures';
 import { filterAiServices, filterSkills, marketplaceRepository } from './repository';
@@ -33,6 +36,51 @@ describe('marketplace filters', () => {
 
     expect(mockedGet).toHaveBeenCalledWith(
       '/api/transactions/orders?organizationId=org_provider&perspective=all',
+    );
+  });
+
+  it('loads the active service category catalogue from the public business endpoint', async () => {
+    mockedGet.mockResolvedValueOnce([]);
+
+    await marketplaceRepository.listServiceCategories();
+
+    expect(mockedGet).toHaveBeenCalledWith('/api/service-categories');
+  });
+
+  it('uses the isolated platform-assistant draft and handoff endpoints', async () => {
+    mockedGet.mockResolvedValueOnce({ protocol_version: '1.0' });
+    mockedPost.mockResolvedValueOnce({});
+
+    await marketplaceRepository.getAssistantRequirementDraft('reqdraft_safe_1234');
+    const input = {
+      protocol_version: '1.0' as const,
+      draft_version: 3,
+      transaction_requirement_id: 'req_transaction01',
+      requirement_write: {
+        organization_id: 'org-1',
+        title: '测试需求标题',
+        category: '测试分类',
+        description: '这是一段足够长的测试需求详细描述内容。',
+        budget_min_amount: '100',
+        budget_max_amount: '200',
+        desired_delivery_at: '2026-09-01T18:00',
+        visibility: 'invited_providers' as const,
+        confidentiality_level: 'standard' as const,
+        invite_limit: 5,
+        deliverables: [{ name: '报告' }],
+        acceptance_criteria: ['报告可查看'],
+        attachments: [],
+      },
+      idempotency_key: 'handoff-unique-1',
+    };
+    await marketplaceRepository.auditAssistantRequirementHandoff('reqdraft_safe_1234', input);
+
+    expect(mockedGet).toHaveBeenCalledWith(
+      '/api/platform-assistant/requirement-drafts/reqdraft_safe_1234',
+    );
+    expect(mockedPost).toHaveBeenCalledWith(
+      '/api/platform-assistant/requirement-drafts/reqdraft_safe_1234/handoffs',
+      input,
     );
   });
 });

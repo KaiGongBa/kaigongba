@@ -1,47 +1,143 @@
 import { ArrowLeft, Check, FileText, LockKeyhole, Paperclip, Plus, ShieldCheck, Trash2 } from 'lucide-react';
-import { useMemo, useState, type ChangeEvent } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { notify } from '@/components/ui/app-toast';
 import { TENANT_ID, uploadChatAttachments } from '@/api/client';
 import type { ChatAttachmentRead } from '@/types';
 import { MarketplaceHeader } from './components';
+import { EMPTY_DEMAND_FORM, mergeNonEmptyRequirementSeed, type DemandFormState } from './demandDraftSeed';
 import { marketplaceRepository } from './repository';
-import type { RequirementInput } from './types';
+import type { AssistantRequirementDraftResponse, RequirementInput, ServiceCategory } from './types';
 import { useMarketplaceOrganization } from './useMarketplaceOrganization';
 
-type DeliverableRow = { name: string; format: string; required: boolean };
-
-const initialDeliverables: DeliverableRow[] = [
-  { name: '风险清单（含风险等级与建议）', format: '.xlsx', required: true },
-  { name: '带批注修订稿（显示修改痕迹）', format: '.docx', required: true },
-  { name: '审查报告（结论与建议）', format: '.pdf', required: true },
-];
+type DraftLoadState = 'idle' | 'loading' | 'ready' | 'error';
+type CategoryLoadState = 'loading' | 'ready' | 'error';
+type EditableField = keyof DemandFormState;
+const REQUIREMENT_DRAFT_ID = /^reqdraft_[A-Za-z0-9_-]{8,120}$/;
 
 export default function DemandCreatePage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const organization = useMarketplaceOrganization();
-  const [title, setTitle] = useState('审查软件采购合同并提供修订稿');
-  const [category, setCategory] = useState('法律 / 合同审查');
-  const [description, setDescription] = useState('我司拟采购一套客户管理系统（SaaS 版），供应商已提供合同草案。请对合同条款进行审查，识别潜在风险与不合理条款，依据采购管理制度提出修改建议，并输出带批注修订稿与审查报告。');
-  const [budgetMin, setBudgetMin] = useState('300');
-  const [budgetMax, setBudgetMax] = useState('500');
-  const [deadline, setDeadline] = useState('2026-08-20T18:00');
-  const [visibility, setVisibility] = useState<RequirementInput['visibility']>('invited_providers');
-  const [inviteLimit, setInviteLimit] = useState(5);
-  const [deliverables, setDeliverables] = useState<DeliverableRow[]>(initialDeliverables);
-  const [criteria, setCriteria] = useState([
-    '风险识别不少于 15 项，覆盖合同核心条款并提供依据。',
-    '每项风险包含条款位置、风险描述、影响评估与修改建议。',
-    '修订稿保留原合同结构，使用批注或修订模式标注修改内容。',
-    '审查报告不少于 2000 字，包含总体结论与关键建议。',
-  ]);
-  const [attachments, setAttachments] = useState<ChatAttachmentRead[]>([]);
+  const [form, setForm] = useState<DemandFormState>(() => ({
+    ...EMPTY_DEMAND_FORM,
+    deliverables: [],
+    criteria: [],
+    attachments: [],
+  }));
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [draftLoadState, setDraftLoadState] = useState<DraftLoadState>('idle');
+  const [draftError, setDraftError] = useState('');
+  const [draftResponse, setDraftResponse] = useState<AssistantRequirementDraftResponse | null>(null);
+  const [appliedDraftVersion, setAppliedDraftVersion] = useState<number | null>(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [serviceCategories, setServiceCategories] = useState<ServiceCategory[]>([]);
+  const [categoryLoadState, setCategoryLoadState] = useState<CategoryLoadState>('loading');
+  const editedFields = useRef(new Set<EditableField>());
+  const appliedDraftIds = useRef(new Set<string>());
+  const draftId = searchParams.get('draftId')?.trim() || '';
+  const {
+    title,
+    categoryId,
+    category,
+    description,
+    budgetMin,
+    budgetMax,
+    deadline,
+    visibility,
+    confidentialityLevel,
+    inviteLimit,
+    deliverables,
+    criteria,
+    attachments,
+  } = form;
   const completeness = useMemo(() => {
     const checks = [title.length >= 4, category.length >= 2, description.length >= 20, Number(budgetMax) > 0, deadline, deliverables.length > 0, criteria.length > 0];
     return Math.round((checks.filter(Boolean).length / checks.length) * 100);
   }, [category, criteria.length, deadline, deliverables.length, description.length, budgetMax, title.length]);
+  const activeCategories = useMemo(
+    () => serviceCategories.filter((item) => item.status === 'active'),
+    [serviceCategories],
+  );
+  const categoryGroups = useMemo(() => buildCategoryGroups(activeCategories), [activeCategories]);
+  const useLegacyCategoryFallback = categoryLoadState !== 'ready' || activeCategories.length === 0;
+
+  useEffect(() => {
+    let active = true;
+    setCategoryLoadState('loading');
+    void marketplaceRepository.listServiceCategories()
+      .then((categories) => {
+        if (!active) return;
+        setServiceCategories(categories.filter((item) => item.status === 'active'));
+        setCategoryLoadState('ready');
+      })
+      .catch(() => {
+        if (!active) return;
+        setServiceCategories([]);
+        setCategoryLoadState('error');
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!draftId) {
+      setDraftLoadState('idle');
+      setDraftError('');
+      setDraftResponse(null);
+      return;
+    }
+    if (!REQUIREMENT_DRAFT_ID.test(draftId)) {
+      setDraftLoadState('error');
+      setDraftError('开小花草稿链接无效，请从原对话重新打开。');
+      setDraftResponse(null);
+      return;
+    }
+    let active = true;
+    setDraftLoadState('loading');
+    setDraftError('');
+    void marketplaceRepository.getAssistantRequirementDraft(draftId)
+      .then((response) => {
+        if (!active) return;
+        if (!isValidAssistantRequirementDraft(response, draftId)) {
+          throw new Error('开小花草稿数据验证失败');
+        }
+        setDraftResponse(response);
+        setDraftLoadState('ready');
+        if (appliedDraftIds.current.has(draftId)) return;
+        appliedDraftIds.current.add(draftId);
+        setAppliedDraftVersion(response.draft.draft_version);
+        setForm((current) => preserveUserEdits(
+          current,
+          mergeNonEmptyRequirementSeed(current, response.form_seed),
+          editedFields.current,
+        ));
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setDraftLoadState('error');
+        setDraftError(error instanceof Error ? error.message : '无法读取开小花需求草稿');
+      });
+    return () => {
+      active = false;
+    };
+  }, [draftId, loadAttempt]);
+
+  function editField<K extends EditableField>(field: K, value: DemandFormState[K]) {
+    editedFields.current.add(field);
+    setForm((current) => ({ ...current, [field]: value }));
+  }
+
+  function editCategory(value: string) {
+    const catalogCategory = activeCategories.find((item) => item.id === value);
+    editedFields.current.add('category');
+    editedFields.current.add('categoryId');
+    setForm((current) => catalogCategory
+      ? { ...current, categoryId: catalogCategory.id, category: catalogCategory.name }
+      : { ...current, categoryId: undefined, category: value });
+  }
 
   async function onFiles(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files || []);
@@ -49,7 +145,8 @@ export default function DemandCreatePage() {
     setUploading(true);
     try {
       const uploaded = await uploadChatAttachments<ChatAttachmentRead[]>(TENANT_ID, files);
-      setAttachments((items) => [...items, ...uploaded]);
+      editedFields.current.add('attachments');
+      setForm((current) => ({ ...current, attachments: [...current.attachments, ...uploaded] }));
       notify.success(`已上传 ${uploaded.length} 个材料`);
     } catch (error) {
       notify.error(error instanceof Error ? error.message : '材料上传失败');
@@ -64,6 +161,11 @@ export default function DemandCreatePage() {
       notify.error('请先选择发布企业');
       return null;
     }
+    const draftOrganizationId = draftResponse?.form_seed.organization_id;
+    if (draftId && draftOrganizationId && draftOrganizationId !== organization.selected.id) {
+      notify.error('开小花草稿所属企业与当前发布企业不一致，请先切换到草稿所属企业');
+      return null;
+    }
     if (completeness < 100) {
       notify.error('请完整填写需求、预算、交付物和验收标准');
       return null;
@@ -71,6 +173,7 @@ export default function DemandCreatePage() {
     return {
       organization_id: organization.selected.id,
       title,
+      category_id: categoryId || undefined,
       category,
       description,
       budget_min_amount: budgetMin,
@@ -80,10 +183,17 @@ export default function DemandCreatePage() {
       // would make the value render eight hours earlier on the next screen.
       desired_delivery_at: deadline,
       visibility,
+      confidentiality_level: confidentialityLevel,
       invite_limit: inviteLimit,
       deliverables,
       acceptance_criteria: criteria,
-      attachments: attachments.map((item) => ({
+      attachments: attachments.map((item) => item.file_id ? {
+        file_id: item.file_id,
+        filename: item.filename,
+        content_type: item.content_type,
+        size: item.size,
+        sha256: item.sha256,
+      } : {
         id: item.id,
         name: item.filename,
         content_type: item.content_type,
@@ -91,7 +201,7 @@ export default function DemandCreatePage() {
         kind: item.kind,
         data_url: item.data_url,
         visibility,
-      })),
+      }),
     };
   }
 
@@ -102,10 +212,27 @@ export default function DemandCreatePage() {
     setSaving(true);
     try {
       const created = await marketplaceRepository.createRequirement(input);
+      let handoffWarning = '';
+      if (draftId && draftResponse && appliedDraftVersion !== null) {
+        try {
+          await marketplaceRepository.auditAssistantRequirementHandoff(draftId, {
+            protocol_version: '1.0',
+            draft_version: appliedDraftVersion,
+            transaction_requirement_id: created.id,
+            requirement_write: input,
+            idempotency_key: `req-handoff-${draftId}-${appliedDraftVersion}-${created.id}`,
+          });
+        } catch (error) {
+          handoffWarning = error instanceof Error ? error.message : '交接审计记录失败';
+        }
+      }
       const result = publish
         ? await marketplaceRepository.publishRequirement(created.id, input.organization_id)
         : created;
       notify.success(publish ? `需求已发布，已邀请 ${result.invitationCount} 家服务商` : '需求草稿已保存');
+      if (handoffWarning) {
+        notify.warning(`需求已${publish ? '发布' : '保存'}，但开小花交接审计未写入：${handoffWarning}`);
+      }
       navigate(`/enterprise/demands/${result.id}`);
     } catch (error) {
       notify.error(error instanceof Error ? error.message : '保存需求失败');
@@ -126,31 +253,65 @@ export default function DemandCreatePage() {
       <div className="transaction-steps"><span className="is-active"><b>1</b>描述需求</span><span><b>2</b>交付与验收</span><span><b>3</b>预算与周期</span><span><b>4</b>预览发布</span></div>
       <div className="transaction-editor-layout">
         <div className="transaction-form-stack">
+          {draftId ? (
+            <AssistantDraftStatus
+              state={draftLoadState}
+              error={draftError}
+              response={draftResponse}
+              appliedVersion={appliedDraftVersion}
+              onRetry={() => setLoadAttempt((value) => value + 1)}
+            />
+          ) : null}
           <section className="transaction-card">
             <h2>需求基本信息</h2>
-            <label><span>需求标题 *</span><input value={title} maxLength={100} onChange={(event) => setTitle(event.target.value)} /></label>
+            <label><span>需求标题 *</span><input value={title} maxLength={100} onChange={(event) => editField('title', event.target.value)} /></label>
             <div className="marketplace-form-grid">
-              <label><span>业务分类 *</span><select value={category} onChange={(event) => setCategory(event.target.value)}><option>法律 / 合同审查</option><option>IT 运维</option><option>财务分析</option><option>人才招聘</option><option>客户服务</option><option>投标文件</option></select></label>
-              <label><span>保密级别 *</span><select value={visibility} onChange={(event) => setVisibility(event.target.value as RequirementInput['visibility'])}><option value="invited_providers">仅受邀服务方可见</option><option value="enterprise">企业内部</option><option value="public">公开</option></select></label>
+              <label>
+                <span>业务分类 *</span>
+                <select aria-label="业务分类 *" value={categoryId || category} onChange={(event) => editCategory(event.target.value)}>
+                  <option value="">请选择业务分类</option>
+                  {categoryGroups.map((group) => (
+                    <optgroup key={group.root.id} label={group.root.name}>
+                      {group.options.map(({ category: item, depth }) => (
+                        <option key={item.id} value={item.id}>{depth ? `${'　'.repeat(depth - 1)}↳ ${item.name}` : item.name}</option>
+                      ))}
+                    </optgroup>
+                  ))}
+                  {useLegacyCategoryFallback
+                    ? LEGACY_CATEGORIES.map((item) => <option key={item} value={item}>{item}</option>)
+                    : <optgroup label="兼容分类（无目录 ID）">
+                      {LEGACY_CATEGORIES.map((item) => <option key={item} value={item}>{item}</option>)}
+                    </optgroup>}
+                  {categoryId && !activeCategories.some((item) => item.id === categoryId)
+                    ? <option value={categoryId}>{category}</option>
+                    : null}
+                  {category && !categoryId && !LEGACY_CATEGORIES.includes(category)
+                    ? <option value={category}>{category}</option>
+                    : null}
+                </select>
+                {categoryLoadState === 'error' ? <small role="status">分类目录暂时不可用，已保留当前分类并启用兼容选项。</small> : null}
+              </label>
+              <label><span>可见范围 *</span><select value={visibility} onChange={(event) => editField('visibility', event.target.value as RequirementInput['visibility'])}><option value="invited_providers">仅受邀服务方可见</option><option value="enterprise">企业内部</option><option value="public">公开</option></select></label>
+              <label><span>保密等级 *</span><select value={confidentialityLevel} onChange={(event) => editField('confidentialityLevel', event.target.value as RequirementInput['confidentiality_level'])}><option value="standard">标准</option><option value="confidential">保密</option><option value="highly_confidential">高度保密</option></select></label>
             </div>
-            <label><span>详细描述 *</span><textarea value={description} maxLength={5000} onChange={(event) => setDescription(event.target.value)} /></label>
+            <label><span>详细描述 *</span><textarea value={description} maxLength={5000} onChange={(event) => editField('description', event.target.value)} /></label>
             <div className="transaction-upload">
               <div><strong>输入材料</strong><small>支持文档、PDF、表格、图片；材料随需求版本冻结。</small></div>
               <label className="marketplace-secondary-button"><Paperclip />{uploading ? '上传中…' : '添加附件'}<input type="file" multiple hidden disabled={uploading} onChange={(event) => void onFiles(event)} /></label>
             </div>
-            {attachments.map((item) => <div className="transaction-file-row" key={item.id}><FileText /><span><strong>{item.filename}</strong><small>{formatBytes(item.size)}</small></span><Check /><button type="button" aria-label="移除附件" onClick={() => setAttachments((rows) => rows.filter((row) => row.id !== item.id))}><Trash2 /></button></div>)}
+            {attachments.map((item) => <div className="transaction-file-row" key={item.id}><FileText /><span><strong>{item.filename}</strong><small>{formatBytes(item.size)}</small></span><Check /><button type="button" aria-label="移除附件" onClick={() => editField('attachments', attachments.filter((row) => row.id !== item.id))}><Trash2 /></button></div>)}
           </section>
           <section className="transaction-card">
             <h2>期望交付物</h2>
             <div className="transaction-deliverable-table">
-              {deliverables.map((item, index) => <div key={`${item.name}-${index}`}><b>{index + 1}</b><input value={item.name} onChange={(event) => setDeliverables((rows) => rows.map((row, rowIndex) => rowIndex === index ? { ...row, name: event.target.value } : row))} /><select value={item.format} onChange={(event) => setDeliverables((rows) => rows.map((row, rowIndex) => rowIndex === index ? { ...row, format: event.target.value } : row))}><option>.xlsx</option><option>.docx</option><option>.pdf</option><option>链接</option></select><label><input type="checkbox" checked={item.required} onChange={(event) => setDeliverables((rows) => rows.map((row, rowIndex) => rowIndex === index ? { ...row, required: event.target.checked } : row))} />必需</label><button type="button" onClick={() => setDeliverables((rows) => rows.filter((_, rowIndex) => rowIndex !== index))}><Trash2 /></button></div>)}
+              {deliverables.map((item, index) => <div key={`${item.name}-${index}`}><b>{index + 1}</b><input value={item.name} onChange={(event) => editField('deliverables', deliverables.map((row, rowIndex) => rowIndex === index ? { ...row, name: event.target.value } : row))} /><select value={item.format} onChange={(event) => editField('deliverables', deliverables.map((row, rowIndex) => rowIndex === index ? { ...row, format: event.target.value } : row))}><option>.pptx</option><option>.ppt</option><option>.xlsx</option><option>.docx</option><option>.pdf</option><option>链接</option>{!KNOWN_FORMATS.has(item.format) ? <option value={item.format}>{item.format}</option> : null}</select><label><input type="checkbox" checked={item.required} onChange={(event) => editField('deliverables', deliverables.map((row, rowIndex) => rowIndex === index ? { ...row, required: event.target.checked } : row))} />必需</label><button type="button" onClick={() => editField('deliverables', deliverables.filter((_, rowIndex) => rowIndex !== index))}><Trash2 /></button></div>)}
             </div>
-            <button type="button" className="marketplace-link-button" onClick={() => setDeliverables((items) => [...items, { name: '', format: '.docx', required: true }])}><Plus />添加交付物</button>
+            <button type="button" className="marketplace-link-button" onClick={() => editField('deliverables', [...deliverables, { name: '', format: '.docx', required: true }])}><Plus />添加交付物</button>
           </section>
           <section className="transaction-card">
             <h2>验收要求</h2>
-            {criteria.map((item, index) => <div className="transaction-criterion" key={index}><Check /><input value={item} onChange={(event) => setCriteria((rows) => rows.map((row, rowIndex) => rowIndex === index ? event.target.value : row))} /><button type="button" onClick={() => setCriteria((rows) => rows.filter((_, rowIndex) => rowIndex !== index))}><Trash2 /></button></div>)}
-            <button type="button" className="marketplace-link-button" onClick={() => setCriteria((items) => [...items, ''])}><Plus />添加验收要求</button>
+            {criteria.map((item, index) => <div className="transaction-criterion" key={index}><Check /><input value={item} onChange={(event) => editField('criteria', criteria.map((row, rowIndex) => rowIndex === index ? event.target.value : row))} /><button type="button" onClick={() => editField('criteria', criteria.filter((_, rowIndex) => rowIndex !== index))}><Trash2 /></button></div>)}
+            <button type="button" className="marketplace-link-button" onClick={() => editField('criteria', [...criteria, ''])}><Plus />添加验收要求</button>
           </section>
         </div>
         <aside className="transaction-side-stack">
@@ -162,9 +323,9 @@ export default function DemandCreatePage() {
           </section>
           <section className="transaction-card transaction-budget-card">
             <h2>预算与邀请设置</h2>
-            <div className="marketplace-form-grid"><label><span>预算下限</span><input type="number" min="0" value={budgetMin} onChange={(event) => setBudgetMin(event.target.value)} /></label><label><span>预算上限</span><input type="number" min="1" value={budgetMax} onChange={(event) => setBudgetMax(event.target.value)} /></label></div>
-            <label><span>期望完成时间</span><input type="datetime-local" value={deadline} onChange={(event) => setDeadline(event.target.value)} /></label>
-            <label><span>最多邀请服务商</span><input type="number" min="1" max="20" value={inviteLimit} onChange={(event) => setInviteLimit(Number(event.target.value))} /></label>
+            <div className="marketplace-form-grid"><label><span>预算下限</span><input type="number" min="0" value={budgetMin} onChange={(event) => editField('budgetMin', event.target.value)} /></label><label><span>预算上限</span><input type="number" min="1" value={budgetMax} onChange={(event) => editField('budgetMax', event.target.value)} /></label></div>
+            <label><span>期望完成时间</span><input type="datetime-local" value={deadline} onChange={(event) => editField('deadline', event.target.value)} /></label>
+            <label><span>最多邀请服务商</span><input type="number" min="1" max="20" value={inviteLimit} onChange={(event) => editField('inviteLimit', Number(event.target.value))} /></label>
             <button type="button" className="marketplace-submit-button" disabled={saving} onClick={() => void save(true)}>{saving ? '发布中…' : '预览并发布'}</button>
             <button type="button" className="marketplace-secondary-button" disabled={saving} onClick={() => void save(false)}>保存草稿</button>
           </section>
@@ -172,6 +333,103 @@ export default function DemandCreatePage() {
         </aside>
       </div>
     </main>
+  );
+}
+
+const LEGACY_CATEGORIES = ['法律 / 合同审查', 'IT 运维', '财务分析', '人才招聘', '客户服务', '投标文件'];
+const KNOWN_FORMATS = new Set(['.pptx', '.ppt', '.xlsx', '.docx', '.pdf', '链接']);
+
+function buildCategoryGroups(categories: ServiceCategory[]) {
+  const sorted = [...categories].sort(compareCategory);
+  const byParent = new Map<string | null, ServiceCategory[]>();
+  const byId = new Map(sorted.map((item) => [item.id, item]));
+  sorted.forEach((item) => {
+    const parentId = item.parentId && byId.has(item.parentId) ? item.parentId : null;
+    byParent.set(parentId, [...(byParent.get(parentId) || []), item]);
+  });
+  const roots = byParent.get(null) || [];
+  return roots.map((root) => ({
+    root,
+    options: flattenCategoryBranch(root, byParent),
+  }));
+}
+
+function flattenCategoryBranch(
+  category: ServiceCategory,
+  byParent: ReadonlyMap<string | null, ServiceCategory[]>,
+  depth = 0,
+): Array<{ category: ServiceCategory; depth: number }> {
+  return [
+    { category, depth },
+    ...(byParent.get(category.id) || []).flatMap((child) => flattenCategoryBranch(child, byParent, depth + 1)),
+  ];
+}
+
+function compareCategory(left: ServiceCategory, right: ServiceCategory) {
+  return left.sortOrder - right.sortOrder || left.name.localeCompare(right.name, 'zh-CN');
+}
+
+function isValidAssistantRequirementDraft(
+  value: AssistantRequirementDraftResponse,
+  expectedDraftId: string,
+) {
+  return value?.protocol_version === '1.0'
+    && value.draft?.draft_id === expectedDraftId
+    && Number.isInteger(value.draft.draft_version)
+    && value.draft.draft_version > 0
+    && Array.isArray(value.draft.missing_fields)
+    && Boolean(value.form_seed && typeof value.form_seed === 'object')
+    && Array.isArray(value.warnings)
+    && Array.isArray(value.handoff?.blockers);
+}
+
+function preserveUserEdits(
+  current: DemandFormState,
+  seeded: DemandFormState,
+  edited: ReadonlySet<EditableField>,
+) {
+  const next = { ...seeded };
+  edited.forEach((field) => {
+    // Each field is restored from the same DemandFormState shape. Keeping this
+    // assignment here makes a delayed or retried draft request unable to erase
+    // input the user has already changed.
+    Object.assign(next, { [field]: current[field] });
+  });
+  return next;
+}
+
+function AssistantDraftStatus({
+  state,
+  error,
+  response,
+  appliedVersion,
+  onRetry,
+}: {
+  state: DraftLoadState;
+  error: string;
+  response: AssistantRequirementDraftResponse | null;
+  appliedVersion: number | null;
+  onRetry: () => void;
+}) {
+  if (state === 'loading') {
+    return <section className="transaction-card" aria-live="polite"><h2>开小花需求草稿</h2><p>正在安全读取草稿…</p></section>;
+  }
+  if (state === 'error') {
+    return <section className="transaction-card" role="alert"><h2>开小花需求草稿</h2><p>{error}；您可继续手工填写，或重试读取。</p><button type="button" className="marketplace-secondary-button" onClick={onRetry}>重试</button></section>;
+  }
+  if (state !== 'ready' || !response) return null;
+  const latestVersion = response.draft.draft_version;
+  const versionChanged = appliedVersion !== null && latestVersion !== appliedVersion;
+  const warnings = response.warnings || [];
+  const missing = response.draft.missing_fields || [];
+  return (
+    <section className="transaction-card" aria-live="polite">
+      <h2>开小花需求草稿 v{appliedVersion ?? latestVersion}</h2>
+      <p>{versionChanged ? `已检测到 v${latestVersion}，为保护您当前编辑的内容，未自动覆盖。` : '已将草稿中的非空内容填入表单，您可以继续修改后保存或发布。'}</p>
+      <p><strong>待补字段：</strong>{missing.length ? missing.join('、') : '无'}</p>
+      {warnings.length ? <p><strong>草稿警告：</strong>{warnings.map((item) => item.message).join('；')}</p> : null}
+      {response.handoff.blockers.length ? <p><strong>交接提示：</strong>{response.handoff.blockers.map((item) => item.message).join('；')}</p> : null}
+    </section>
   );
 }
 

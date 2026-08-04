@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "error-envelope.schema.json",
+  "title": "Platform Assistant Error Envelope v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["protocol_version", "request_id", "server_time", "error"],
+  "properties": {
+    "protocol_version": {"const": "1.0"},
+    "request_id": {"type": "string", "minLength": 1},
+    "server_time": {"type": "string", "format": "date-time"},
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["code", "message", "retryable"],
+      "properties": {
+        "code": {
+          "enum": [
+            "INVALID_REQUEST", "CONTEXT_STALE", "BLOCK_VERSION_CONFLICT",
+            "UNAUTHORIZED_CONTEXT", "RESOURCE_NOT_FOUND", "ACTION_FORBIDDEN",
+            "AI_UNAVAILABLE", "AI_OUTPUT_INVALID", "AI_QUOTA_EXCEEDED",
+            "IDEMPOTENCY_CONFLICT", "INTERNAL_ERROR"
+          ]
+        },
+        "message": {"type": "string", "minLength": 1, "maxLength": 1000},
+        "retryable": {"type": "boolean"},
+        "field_errors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["field", "code", "message"],
+            "properties": {
+              "field": {"type": "string", "minLength": 1},
+              "code": {"type": "string", "minLength": 1},
+              "message": {"type": "string", "minLength": 1}
+            }
+          }
+        }
+      }
+    }
+  }
+}

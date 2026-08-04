@@ -1,0 +1,216 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "structured-block.schema.json",
+  "title": "Platform Assistant Structured UI Block v1",
+  "allOf": [{"$ref": "#/$defs/common"}],
+  "oneOf": [
+    {"$ref": "#/$defs/intentConfirmation"},
+    {"$ref": "#/$defs/questionGroup"},
+    {"$ref": "#/$defs/draftPreview"},
+    {"$ref": "#/$defs/actionResult"},
+    {"$ref": "#/$defs/entitySummary"},
+    {"$ref": "#/$defs/deepLink"},
+    {"$ref": "#/$defs/notice"}
+  ],
+  "unevaluatedProperties": false,
+  "$defs": {
+    "common": {
+      "type": "object",
+      "required": ["schema_version", "block_id", "block_version", "type", "status", "title", "description"],
+      "properties": {
+        "schema_version": {"const": "1.0"},
+        "block_id": {"type": "string", "pattern": "^block_[A-Za-z0-9_-]{4,120}$"},
+        "block_version": {"type": "integer", "minimum": 1},
+        "type": {"enum": ["intent_confirmation", "question_group", "draft_preview", "action_result", "entity_summary", "deep_link", "notice"]},
+        "status": {"enum": ["pending", "submitted", "reviewing", "succeeded", "failed", "blocked", "superseded", "disabled"]},
+        "title": {"type": "string", "minLength": 1, "maxLength": 200},
+        "description": {"type": "string", "maxLength": 2000}
+      }
+    },
+    "option": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1, "maxLength": 120},
+        "label": {"type": "string", "minLength": 1, "maxLength": 200},
+        "description": {"type": "string", "maxLength": 500},
+        "recommended": {"type": "boolean", "default": false},
+        "disabled": {"type": "boolean", "default": false},
+        "disabled_reason": {"type": "string", "maxLength": 500}
+      }
+    },
+    "intentConfirmation": {
+      "type": "object",
+      "required": ["type", "options", "allow_free_text"],
+      "properties": {
+        "type": {"const": "intent_confirmation"},
+        "status": {"enum": ["pending", "submitted", "superseded", "disabled"]},
+        "options": {"type": "array", "minItems": 2, "maxItems": 5, "items": {"$ref": "#/$defs/option"}},
+        "allow_free_text": {"type": "boolean"}
+      }
+    },
+    "question": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "input_type", "required"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]+$"},
+        "label": {"type": "string", "minLength": 1, "maxLength": 300},
+        "help_text": {"type": "string", "maxLength": 1000},
+        "input_type": {"enum": ["single_choice", "multi_choice", "short_text", "long_text", "money_range", "date", "duration", "date_or_duration", "attachment", "entity_picker", "boolean"]},
+        "required": {"type": "boolean"},
+        "options": {"type": "array", "items": {"$ref": "#/$defs/option"}},
+        "allow_custom": {"type": "boolean", "default": false},
+        "allow_uncertain": {"type": "boolean", "default": false},
+        "allow_ai_suggestion": {"type": "boolean", "default": false},
+        "max_selections": {"type": "integer", "minimum": 1},
+        "mutually_exclusive_option_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+        "min_length": {"type": "integer", "minimum": 0},
+        "max_length": {"type": "integer", "minimum": 1},
+        "entity_type": {"type": "string"}
+      }
+    },
+    "questionGroup": {
+      "type": "object",
+      "required": ["type", "submit_label", "questions"],
+      "properties": {
+        "type": {"const": "question_group"},
+        "status": {"enum": ["pending", "submitted", "superseded", "disabled"]},
+        "submit_label": {"type": "string", "minLength": 1, "maxLength": 80},
+        "questions": {"type": "array", "minItems": 1, "maxItems": 4, "items": {"$ref": "#/$defs/question"}}
+      }
+    },
+    "draftField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "label", "value", "source", "editable", "needs_confirmation"],
+      "properties": {
+        "key": {"type": "string", "minLength": 1},
+        "label": {"type": "string", "minLength": 1},
+        "value": {},
+        "source": {"enum": ["user_message", "user_choice", "user_edit", "attachment_extraction", "existing_record", "ai_expansion", "system_default"]},
+        "source_ref": {"type": ["string", "null"]},
+        "confidence": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+        "editable": {"type": "boolean"},
+        "needs_confirmation": {"type": "boolean"}
+      }
+    },
+    "draftSection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "title", "fields"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "title": {"type": "string", "minLength": 1},
+        "fields": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/draftField"}}
+      }
+    },
+    "missingField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "label", "severity", "reason"],
+      "properties": {
+        "key": {"type": "string", "minLength": 1},
+        "label": {"type": "string", "minLength": 1},
+        "severity": {"enum": ["blocking", "warning", "info"]},
+        "reason": {"type": "string", "minLength": 1}
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "style"],
+      "properties": {
+        "id": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]+$"},
+        "label": {"type": "string", "minLength": 1},
+        "style": {"enum": ["primary", "secondary", "text", "danger"]},
+        "disabled": {"type": "boolean", "default": false},
+        "disabled_reason": {"type": "string"}
+      }
+    },
+    "draftPreview": {
+      "type": "object",
+      "required": ["type", "draft_id", "draft_version", "summary", "sections", "missing_fields", "actions"],
+      "properties": {
+        "type": {"const": "draft_preview"},
+        "status": {"enum": ["reviewing", "submitted", "superseded", "disabled"]},
+        "draft_id": {"type": "string", "minLength": 1},
+        "draft_version": {"type": "integer", "minimum": 1},
+        "summary": {"type": "string", "maxLength": 5000},
+        "sections": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/draftSection"}},
+        "missing_fields": {"type": "array", "items": {"$ref": "#/$defs/missingField"}},
+        "actions": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/action"}}
+      }
+    },
+    "actionResult": {
+      "type": "object",
+      "required": ["type", "action_id", "result_status", "result_code", "message"],
+      "properties": {
+        "type": {"const": "action_result"},
+        "status": {"enum": ["succeeded", "failed", "blocked"]},
+        "action_id": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]+$"},
+        "result_status": {"enum": ["succeeded", "partial", "failed", "blocked"]},
+        "result_code": {"type": "string", "minLength": 1},
+        "message": {"type": "string", "minLength": 1},
+        "resource_ref": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["type", "id"],
+          "properties": {"type": {"type": "string"}, "id": {"type": "string"}}
+        },
+        "actions": {"type": "array", "items": {"$ref": "#/$defs/action"}}
+      }
+    },
+    "summaryField": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "label", "value"],
+      "properties": {"key": {"type": "string"}, "label": {"type": "string"}, "value": {}}
+    },
+    "entitySummary": {
+      "type": "object",
+      "required": ["type", "entity_ref", "fields", "allowed_action_ids"],
+      "properties": {
+        "type": {"const": "entity_summary"},
+        "status": {"enum": ["pending", "succeeded", "disabled"]},
+        "entity_ref": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "id"],
+          "properties": {"type": {"type": "string"}, "id": {"type": "string"}}
+        },
+        "fields": {"type": "array", "items": {"$ref": "#/$defs/summaryField"}},
+        "allowed_action_ids": {"type": "array", "uniqueItems": true, "items": {"type": "string"}}
+      }
+    },
+    "deepLink": {
+      "type": "object",
+      "required": ["type", "route_id", "route_params", "label"],
+      "properties": {
+        "type": {"const": "deep_link"},
+        "status": {"enum": ["pending", "disabled"]},
+        "route_id": {"type": "string", "minLength": 1},
+        "route_params": {
+          "type": "object",
+          "maxProperties": 8,
+          "propertyNames": {"pattern": "^[a-z][A-Za-z0-9_]{0,63}$"},
+          "additionalProperties": {"type": "string", "minLength": 1, "maxLength": 160}
+        },
+        "label": {"type": "string", "minLength": 1}
+      }
+    },
+    "notice": {
+      "type": "object",
+      "required": ["type", "tone", "code", "message", "actions"],
+      "properties": {
+        "type": {"const": "notice"},
+        "status": {"enum": ["pending", "succeeded", "failed", "blocked", "disabled"]},
+        "tone": {"enum": ["info", "success", "warning", "error", "neutral"]},
+        "code": {"type": "string", "minLength": 1},
+        "message": {"type": "string", "minLength": 1, "maxLength": 5000},
+        "actions": {"type": "array", "items": {"$ref": "#/$defs/action"}}
+      }
+    }
+  }
+}

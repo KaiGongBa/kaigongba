@@ -33,6 +33,8 @@ from app.config import get_settings
 from app.db.startup import prepare_database
 from app.scheduled_tasks.worker import start_background_worker, stop_background_worker
 from app.service_runtime import validate_staffdeck_runtime
+from app.platform_assistant import api as platform_assistant_api
+from app.platform_assistant import requirement_api as platform_assistant_requirement_api
 
 
 @asynccontextmanager
@@ -64,6 +66,8 @@ app.include_router(knowledge.router)
 app.include_router(skills.router)
 app.include_router(model_configs.router)
 app.include_router(platform_models.router)
+app.include_router(platform_assistant_api.router)
+app.include_router(platform_assistant_requirement_api.router)
 app.include_router(memories.router)
 app.include_router(feedback.router)
 app.include_router(persona.router)

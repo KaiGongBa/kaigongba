@@ -51,6 +51,7 @@ def create_api_app(
     async def request_observability(request: Request, call_next):
         supplied = request.headers.get("X-Request-ID", "")
         request_id = supplied if REQUEST_ID_PATTERN.fullmatch(supplied) else uuid4().hex
+        request.state.request_id = request_id
         started = time.perf_counter()
         try:
             response = await call_next(request)

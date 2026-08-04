@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "page-context.schema.json",
+  "title": "Platform Assistant Page Context v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["page_instance_id", "route_id", "pathname", "entity_refs", "ui_state", "context_version"],
+  "properties": {
+    "page_instance_id": {"type": "string", "pattern": "^page_[A-Za-z0-9_-]{8,120}$"},
+    "route_id": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]{2,79}$"},
+    "pathname": {"type": "string", "pattern": "^/", "maxLength": 500},
+    "entity_refs": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "id"],
+        "properties": {
+          "type": {
+            "enum": [
+              "organization", "agent", "requirement", "requirement_draft",
+              "quote", "agreement", "order", "milestone", "deliverable",
+              "dispute", "payment_order"
+            ]
+          },
+          "id": {"type": "string", "minLength": 1, "maxLength": 160}
+        }
+      }
+    },
+    "ui_state": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "active_tab": {"type": "string", "maxLength": 80},
+        "view": {"type": "string", "maxLength": 80},
+        "perspective": {"enum": ["buyer", "provider", "internal"]},
+        "dirty": {"type": "boolean"}
+      }
+    },
+    "context_version": {"type": "integer", "minimum": 1}
+  }
+}

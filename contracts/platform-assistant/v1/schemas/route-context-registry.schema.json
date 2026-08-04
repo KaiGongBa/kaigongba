@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "route-context-registry.schema.json",
+  "title": "Platform Assistant Route Context Registry v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "routes"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "routes": {
+      "type": "array",
+      "minItems": 13,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "route_id", "path_pattern", "surface", "entity_refs", "allowed_query_params",
+          "allowed_projections", "authorization", "context_version_triggers", "match_priority"
+        ],
+        "properties": {
+          "route_id": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]+$"},
+          "path_pattern": {
+            "oneOf": [
+              {"type": "string", "pattern": "^/"},
+              {"type": "null"}
+            ]
+          },
+          "surface": {"enum": ["conversation", "marketplace", "assistant_overlay"]},
+          "entity_refs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type", "source"],
+              "properties": {
+                "type": {"type": "string"},
+                "source": {"type": "string"},
+                "required": {"type": "boolean", "default": true}
+              }
+            }
+          },
+          "allowed_query_params": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+          "allowed_projections": {"type": "array", "uniqueItems": true, "items": {"type": "string"}},
+          "authorization": {
+            "enum": ["authenticated", "organization_member", "organization_manager", "requirement_visible", "order_party", "agreement_party", "dispute_party", "deliverable_visible"]
+          },
+          "context_version_triggers": {"type": "array", "minItems": 1, "uniqueItems": true, "items": {"type": "string"}},
+          "safe_deep_link": {"type": "boolean", "default": true}
+          ,"match_priority": {"type": "integer", "minimum": 0, "maximum": 1000}
+        },
+        "allOf": [
+          {
+            "if": {"properties": {"surface": {"const": "assistant_overlay"}}, "required": ["surface"]},
+            "then": {"properties": {"path_pattern": {"type": "null"}, "safe_deep_link": {"const": false}}},
+            "else": {"properties": {"path_pattern": {"type": "string", "pattern": "^/"}}}
+          }
+        ]
+      }
+    }
+  }
+}

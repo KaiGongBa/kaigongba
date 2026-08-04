@@ -27,7 +27,7 @@ def test_postgres_upgrade_downgrade_and_reupgrade() -> None:
 
     command.upgrade(config, "head")
     try:
-        assert _revision(engine) == "20260804_0020"
+        assert _revision(engine) == "20260804_0028"
         assert "transaction_dispute_cases" in inspect(engine).get_table_names()
         assert "transaction_hosted_skill_runs" in inspect(engine).get_table_names()
         assert "external_agent_enrollments" in inspect(engine).get_table_names()
@@ -54,6 +54,16 @@ def test_postgres_upgrade_downgrade_and_reupgrade() -> None:
         assert "platform_role" in {
             column["name"] for column in inspect(engine).get_columns("users")
         }
+        assert "assistant_workflow_runs" in inspect(engine).get_table_names()
+        assert "assistant_requirement_drafts" in inspect(engine).get_table_names()
+        assert "assistant_tenant_feature_flags" in inspect(engine).get_table_names()
+        assert "assistant_governance_events" in inspect(engine).get_table_names()
+        assert "service_category_catalog" in inspect(engine).get_table_names()
+        requirement_columns = {
+            column["name"]
+            for column in inspect(engine).get_columns("transaction_requirements")
+        }
+        assert {"category_id", "category_name_snapshot"} <= requirement_columns
 
         command.downgrade(config, "20260801_0014")
         assert _revision(engine) == "20260801_0014"
@@ -93,7 +103,7 @@ def test_postgres_upgrade_downgrade_and_reupgrade() -> None:
         assert "transaction_hosted_skill_runs" not in inspect(engine).get_table_names()
 
         command.upgrade(config, "head")
-        assert _revision(engine) == "20260804_0020"
+        assert _revision(engine) == "20260804_0028"
         assert "transaction_dispute_cases" in inspect(engine).get_table_names()
         assert "transaction_hosted_skill_runs" in inspect(engine).get_table_names()
         assert "external_agent_enrollments" in inspect(engine).get_table_names()

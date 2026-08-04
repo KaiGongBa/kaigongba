@@ -212,6 +212,32 @@ class MarketplaceReviewSubmission(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=utc_now)
 
 
+class ServiceCategoryCatalog(SQLModel, table=True):
+    """Platform-wide service taxonomy shared consistently across tenants."""
+
+    __tablename__ = "service_category_catalog"
+    __table_args__ = (
+        UniqueConstraint("parent_id", "name", name="uq_service_category_parent_name"),
+        Index("ix_service_category_status_sort", "status", "sort_order"),
+        Index("ix_service_category_parent_sort", "parent_id", "sort_order"),
+    )
+
+    id: str = Field(primary_key=True)
+    name: str = Field(index=True)
+    parent_id: Optional[str] = Field(default=None, index=True)
+    description: str = ""
+    aliases_json: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    example_tasks_json: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    required_facets_json: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    status: str = Field(default="active", index=True)
+    version: int = Field(default=1, index=True)
+    sort_order: int = Field(default=0, index=True)
+    created_by_user_id: Optional[str] = Field(default=None, index=True)
+    updated_by_user_id: Optional[str] = Field(default=None, index=True)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
 class MarketplaceAIService(SQLModel, table=True):
     __tablename__ = "marketplace_ai_services"
     __table_args__ = (
@@ -425,8 +451,11 @@ class TransactionRequirement(SQLModel, table=True):
     created_by_user_id: str = Field(index=True)
     title: str
     category: str = Field(index=True)
+    category_id: Optional[str] = Field(default=None, index=True)
+    category_name_snapshot: Optional[str] = None
     status: str = Field(default="draft", index=True)
     visibility: str = Field(default="invited_providers", index=True)
+    confidentiality_level: str = Field(default="standard")
     current_version_id: Optional[str] = Field(default=None, index=True)
     budget_min_amount: Decimal = Field(
         default=Decimal("0"),
@@ -462,6 +491,7 @@ class TransactionRequirementVersion(SQLModel, table=True):
     requirement_id: str = Field(index=True)
     version: int = Field(index=True)
     status: str = Field(default="draft", index=True)
+    confidentiality_level: str = Field(default="standard")
     description: str
     deliverables_json: list[dict[str, Any]] = Field(
         default_factory=list,

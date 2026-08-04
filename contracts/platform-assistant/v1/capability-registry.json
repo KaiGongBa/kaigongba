@@ -1,0 +1,62 @@
+{
+  "schema_version": "1.0",
+  "capabilities": [
+    {
+      "capability_id": "requirement.create",
+      "version": "1.0.0",
+      "display_name": "创建服务需求草稿",
+      "risk_level": "R2",
+      "intents": ["发布需求", "创建需求", "找服务商", "完善需求"],
+      "required_permissions": ["requirement.create"],
+      "allowed_projections": ["organization.selection", "requirement.draft", "category.catalog"],
+      "allowed_tools": ["assistant.requirement_draft.create", "assistant.requirement_draft.update", "assistant.requirement_draft.read"],
+      "forbidden_actions": ["requirement.publish", "provider.invite", "quote.select", "agreement.confirm", "payment.create"],
+      "supported_route_ids": [
+        "workspace.project_center.agents", "workspace.project_center.projects",
+        "workspace.project_center.agent", "enterprise.transaction.overview",
+        "enterprise.requirement.list", "assistant.chat"
+      ],
+      "target_route_id": "enterprise.requirement.create",
+      "execution_service": "platform_assistant",
+      "minimum_generation_fields": ["goal", "deliverables", "target_audience_or_use_scenario", "schedule"],
+      "fallback_strategy": "fixed_questions"
+    },
+    {
+      "capability_id": "platform.guidance",
+      "version": "1.0.0",
+      "display_name": "页面说明与授权业务摘要",
+      "risk_level": "R1",
+      "intents": ["使用帮助", "当前页面说明", "我的待办", "我现在可以做什么"],
+      "required_permissions": ["authenticated", "resource.visible"],
+      "allowed_projections": ["business.summary", "business.visible_todos", "business.visible_events"],
+      "allowed_tools": ["help.search", "navigation.resolve", "business_summary.read"],
+      "forbidden_actions": ["requirement.publish", "provider.invite", "quote.select", "deliverable.submit", "agreement.confirm", "payment.execute", "payment.create", "dispute.rule"],
+      "supported_route_ids": [
+        "workspace.project_center.agents",
+        "workspace.project_center.projects",
+        "workspace.project_center.agent",
+        "enterprise.transaction.overview",
+        "enterprise.requirement.list",
+        "enterprise.requirement.create",
+        "enterprise.requirement.detail",
+        "enterprise.requirement.quotes",
+        "enterprise.order.list",
+        "enterprise.order.workspace",
+        "enterprise.order.deliverable",
+        "enterprise.confirmation.list",
+        "enterprise.publishing.list",
+        "enterprise.provider.workbench",
+        "enterprise.provider.quotes",
+        "enterprise.provider.quote",
+        "enterprise.agreement.detail",
+        "enterprise.dispute.detail",
+        "enterprise.payment.detail",
+        "assistant.chat",
+        "assistant.notifications"
+      ],
+      "target_route_id": "enterprise.transaction.overview",
+      "execution_service": "platform_assistant",
+      "fallback_strategy": "read_only"
+    }
+  ]
+}

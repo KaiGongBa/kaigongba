@@ -51,6 +51,7 @@ from app.execution import service as execution_service
 from app.llm import LLMError
 from app.llm.platform_gateway import AIModelGateway
 from app.security.permissions import is_admin_user
+from app.service_categories.service import resolve_category_for_requirement
 from app.transaction.object_storage import (
     DownloadTarget,
     ObjectAlreadyExistsError,
@@ -1203,15 +1204,23 @@ def create_requirement(
     request: RequirementWrite,
 ) -> RequirementDetailRead:
     _require_manager(db, current_user, request.organization_id)
+    category_id, category_name = resolve_category_for_requirement(
+        db,
+        category_id=request.category_id,
+        legacy_category=request.category,
+    )
     requirement = TransactionRequirement(
         tenant_id=current_user.tenant_id,
         code=_next_code("XQ"),
         buyer_organization_id=request.organization_id,
         created_by_user_id=current_user.id,
         title=request.title.strip(),
-        category=request.category.strip(),
+        category=category_name if request.category_id else request.category.strip(),
+        category_id=category_id,
+        category_name_snapshot=category_name,
         status="draft",
         visibility=request.visibility,
+        confidentiality_level=request.confidentiality_level,
         budget_min_amount=request.budget_min_amount,
         budget_max_amount=request.budget_max_amount,
         desired_delivery_at=request.desired_delivery_at,
@@ -1252,9 +1261,17 @@ def update_requirement(
     current_version = _requirement_version(db, requirement)
     current_version.status = "superseded"
     db.add(current_version)
+    category_id, category_name = resolve_category_for_requirement(
+        db,
+        category_id=request.category_id,
+        legacy_category=request.category,
+    )
     requirement.title = request.title.strip()
-    requirement.category = request.category.strip()
+    requirement.category = category_name if request.category_id else request.category.strip()
+    requirement.category_id = category_id
+    requirement.category_name_snapshot = category_name
     requirement.visibility = request.visibility
+    requirement.confidentiality_level = request.confidentiality_level
     requirement.budget_min_amount = request.budget_min_amount
     requirement.budget_max_amount = request.budget_max_amount
     requirement.desired_delivery_at = request.desired_delivery_at
@@ -2469,6 +2486,8 @@ def _requirement_summary(
         code=requirement.code,
         title=requirement.title,
         category=requirement.category,
+        category_id=requirement.category_id,
+        category_name_snapshot=requirement.category_name_snapshot,
         status=requirement.status,
         buyer_organization_id=requirement.buyer_organization_id,
         buyer_organization_name=buyer.name if buyer else "未知企业",
@@ -2476,6 +2495,7 @@ def _requirement_summary(
         budget_max_amount=requirement.budget_max_amount,
         currency=requirement.currency,
         desired_delivery_at=requirement.desired_delivery_at,
+        confidentiality_level=requirement.confidentiality_level,
         quote_count=quote_count,
         invitation_count=invitation_count,
         updated_at=requirement.updated_at,
@@ -2491,6 +2511,7 @@ def _requirement_version_read(
         id=version.id,
         version=version.version,
         status=version.status,
+        confidentiality_level=version.confidentiality_level,
         description=version.description,
         deliverables=version.deliverables_json,
         acceptance_criteria=version.acceptance_criteria_json,
@@ -3315,6 +3336,7 @@ def _create_requirement_version(
         "budget_max_amount": str(request.budget_max_amount),
         "desired_delivery_at": request.desired_delivery_at.isoformat(),
         "visibility": request.visibility,
+        "confidentiality_level": request.confidentiality_level,
         "deliverables": request.deliverables,
         "acceptance_criteria": request.acceptance_criteria,
         "attachments": request.attachments,
@@ -3324,6 +3346,7 @@ def _create_requirement_version(
         requirement_id=requirement.id,
         version=version_number,
         status="draft",
+        confidentiality_level=request.confidentiality_level,
         description=request.description.strip(),
         deliverables_json=request.deliverables,
         acceptance_criteria_json=request.acceptance_criteria,
@@ -3532,6 +3555,7 @@ def _requirement_snapshot(
         "desired_delivery_at": (
             requirement.desired_delivery_at.isoformat() if requirement.desired_delivery_at else None
         ),
+        "confidentiality_level": version.confidentiality_level,
         "deliverables": version.deliverables_json,
         "acceptance_criteria": version.acceptance_criteria_json,
         "attachments": version.attachments_json,

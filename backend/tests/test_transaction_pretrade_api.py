@@ -48,6 +48,7 @@ from app.db.models import (
     TransactionPaymentOrder,
     TransactionQuote,
     TransactionRequirement,
+    TransactionRequirementVersion,
     User,
 )
 from app.marketplace.seed import seed_marketplace_development_data
@@ -121,6 +122,8 @@ def test_real_requirement_match_quote_selection_and_two_party_confirmation(
     assert created.status_code == 200, created.text
     requirement_id = created.json()["id"]
     assert created.json()["status"] == "draft"
+    assert created.json()["confidentialityLevel"] == "confidential"
+    assert created.json()["currentVersion"]["confidentialityLevel"] == "confidential"
 
     published = client.post(
         f"/api/transactions/requirements/{requirement_id}/publish",
@@ -390,6 +393,8 @@ def test_real_requirement_match_quote_selection_and_two_party_confirmation(
         ).all()
         assert requirement is not None and requirement.status == "contracted"
         assert agreement is not None and agreement.snapshot_digest
+        assert requirement.confidentiality_level == "confidential"
+        assert agreement.snapshot_json["requirement"]["confidentiality_level"] == "confidential"
         assert {quote.status for quote in quotes} == {"selected", "rejected"}
         assert len(confirmations) == 2
         assert len(payment_rows) == 1
@@ -450,6 +455,83 @@ def test_ai_draft_requires_invited_provider_manager_and_is_tenant_isolated(
 
     assert denied.status_code == 403
     assert cross_org.status_code == 403
+
+
+def test_requirement_confidentiality_persists_in_versions_and_has_safe_default(
+    transaction_app: tuple[TestClient, object, User],
+) -> None:
+    client, engine, user = transaction_app
+    headers = _auth(user)
+    created = client.post(
+        "/api/transactions/requirements",
+        json=_requirement_payload(),
+        headers=headers,
+    )
+    assert created.status_code == 200, created.text
+    requirement_id = created.json()["id"]
+    assert created.json()["confidentialityLevel"] == "confidential"
+    assert created.json()["currentVersion"]["confidentialityLevel"] == "confidential"
+
+    updated_payload = {
+        **_requirement_payload(),
+        "title": "企业 IT 权限与设备运维流程高保密审查",
+        "confidentiality_level": "highly_confidential",
+        "change_summary": "上调保密等级",
+    }
+    updated = client.put(
+        f"/api/transactions/requirements/{requirement_id}",
+        json=updated_payload,
+        headers=headers,
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["confidentialityLevel"] == "highly_confidential"
+    assert (
+        updated.json()["currentVersion"]["confidentialityLevel"]
+        == "highly_confidential"
+    )
+
+    listed = client.get(
+        "/api/transactions/requirements",
+        params={"organizationId": "org_demo_buyer", "perspective": "buyer"},
+        headers=headers,
+    )
+    assert listed.status_code == 200, listed.text
+    listed_row = next(item for item in listed.json() if item["id"] == requirement_id)
+    assert listed_row["confidentialityLevel"] == "highly_confidential"
+
+    default_payload = _requirement_payload()
+    default_payload.pop("confidentiality_level")
+    default_payload["title"] = "默认保密等级需求验证"
+    default_created = client.post(
+        "/api/transactions/requirements",
+        json=default_payload,
+        headers=headers,
+    )
+    assert default_created.status_code == 200, default_created.text
+    assert default_created.json()["confidentialityLevel"] == "standard"
+    assert default_created.json()["currentVersion"]["confidentialityLevel"] == "standard"
+
+    invalid_payload = {**_requirement_payload(), "confidentiality_level": "private"}
+    invalid = client.post(
+        "/api/transactions/requirements",
+        json=invalid_payload,
+        headers=headers,
+    )
+    assert invalid.status_code == 422
+
+    with Session(engine) as db:
+        requirement = db.get(TransactionRequirement, requirement_id)
+        versions = db.exec(
+            select(TransactionRequirementVersion)
+            .where(TransactionRequirementVersion.requirement_id == requirement_id)
+            .order_by(TransactionRequirementVersion.version)
+        ).all()
+        assert requirement is not None
+        assert requirement.confidentiality_level == "highly_confidential"
+        assert [item.confidentiality_level for item in versions] == [
+            "confidential",
+            "highly_confidential",
+        ]
 
 
 def test_real_order_fulfillment_material_delivery_revision_and_acceptance(
@@ -1603,6 +1685,7 @@ def _requirement_payload() -> dict:
         "budget_max_amount": "800.00",
         "desired_delivery_at": "2026-08-20T18:00:00",
         "visibility": "invited_providers",
+        "confidentiality_level": "confidential",
         "invite_limit": 6,
         "deliverables": [
             {"name": "风险清单", "format": ".xlsx", "required": True},

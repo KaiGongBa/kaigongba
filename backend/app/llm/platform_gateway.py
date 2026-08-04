@@ -775,6 +775,7 @@ class AIModelGateway:
         self.organization_id = organization_id
         self.session_id = session_id
         self.tenant_model_config_id = tenant_model_config_id
+        self.last_request_id: str | None = None
 
     def generate_text(self, system_prompt: str, payload: dict[str, Any] | str) -> str:
         return self._run(
@@ -1065,6 +1066,7 @@ class AIModelGateway:
         self.db.add(row)
         self.db.commit()
         self.db.refresh(row)
+        self.last_request_id = row.request_id
         return row
 
     def _finish_audit(
