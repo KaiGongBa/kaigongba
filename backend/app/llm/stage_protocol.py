@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import copy
-import json
 from typing import Any
 
 from app import paths
+from app.llm.json_payload import dumps_model_payload
 
 
 UNIFIED_PROMPT_PATH = (
@@ -149,7 +149,7 @@ def render_stage_user_message(
     projected = _drop_empty_values(payload)
     output_contract = stage.get("output_contract") if isinstance(stage, dict) else None
     if not isinstance(output_contract, str):
-        output_contract = json.dumps(
+        output_contract = dumps_model_payload(
             output_contract or {}, ensure_ascii=False, separators=(",", ":")
         )
     sections = []
@@ -170,7 +170,11 @@ def render_stage_user_message(
             ),
             f"阶段规则：\n{str(stage.get('instructions') or '').strip()}",
             "当前阶段独有内容：\n"
-            + json.dumps(projected, ensure_ascii=False, separators=(",", ":")),
+            + dumps_model_payload(
+                projected,
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ),
             f"输出约束：\n{output_contract}",
         ]
     )
