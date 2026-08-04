@@ -35,6 +35,10 @@ class User(SQLModel, table=True):
     username: str = Field(index=True)
     display_name: Optional[str] = None
     role: str = Field(default="member", index=True)
+    # Platform staff identity is independent from the tenant-level admin/member
+    # role.  A tenant administrator must never inherit global model, billing or
+    # routing privileges merely because they manage their own enterprise.
+    platform_role: Optional[str] = Field(default=None, index=True)
     # 账号来源:web=网页端创建;wechat 等=渠道懒建(用户管理列表默认隐藏)
     source: str = Field(default="web", index=True)
     password_hash: str

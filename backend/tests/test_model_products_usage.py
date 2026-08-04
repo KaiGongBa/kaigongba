@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from decimal import Decimal
 
 from fastapi import HTTPException
 from sqlmodel import Session, SQLModel, create_engine, select
@@ -12,6 +13,8 @@ from app.db.models import (
     AIModelProductDeployment,
     AIProviderCatalogModel,
     AIProviderConnection,
+    AIQuotaAccount,
+    AIQuotaLedger,
     AIUsageEvent,
     AgentProfile,
     Tenant,
@@ -61,6 +64,7 @@ def _user(role: str = "admin") -> User:
         tenant_id="tenant_a",
         username=role,
         role=role,
+        platform_role="super_admin" if role == "admin" else None,
         password_hash="unused",
     )
 
@@ -619,3 +623,37 @@ def test_quota_grant_is_idempotent_and_hard_limit_blocks_reservation(tmp_path) -
             assert exc.detail == "AI_QUOTA_EXCEEDED"
         else:
             raise AssertionError("hard quota limit did not block the request")
+
+
+def test_first_billed_platform_use_creates_default_monthly_quota(tmp_path) -> None:
+    with _db(tmp_path) as db:
+        account, reserved = reserve_quota(
+            db,
+            tenant_id="tenant_a",
+            user_id="user_member",
+            organization_id=None,
+            credits=Decimal("2.5"),
+            idempotency_key="first-platform-call:reserve",
+        )
+        repeated_account, repeated_reserved = reserve_quota(
+            db,
+            tenant_id="tenant_a",
+            user_id="user_member",
+            organization_id=None,
+            credits=Decimal("2.5"),
+            idempotency_key="first-platform-call:reserve",
+        )
+
+        assert account is not None
+        assert repeated_account is not None
+        assert account.id == repeated_account.id
+        assert str(account.granted_credits) == "10000.000000"
+        assert str(account.reserved_credits) == "2.500000"
+        assert reserved == repeated_reserved == Decimal("2.500000")
+        assert account.hard_limit is False
+        assert len(db.exec(select(AIQuotaAccount)).all()) == 1
+        grant_rows = db.exec(
+            select(AIQuotaLedger).where(AIQuotaLedger.event_type == "grant")
+        ).all()
+        assert len(grant_rows) == 1
+        assert grant_rows[0].metadata_json == {"source": "platform_default_policy"}

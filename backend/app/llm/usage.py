@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
+from app.config import get_settings
 from app.db.models import (
     AIModelDeployment,
     AIPriceVersion,
@@ -30,7 +31,11 @@ from app.llm.platform_schemas import (
     AIUsageTotalsRead,
     AIUsageTrendRead,
 )
-from app.security.permissions import is_admin_user
+from app.security.permissions import (
+    has_platform_permission,
+    is_admin_user,
+    require_platform_permission,
+)
 
 
 MONEY_QUANTUM = Decimal("0.00000001")
@@ -38,9 +43,9 @@ CREDIT_QUANTUM = Decimal("0.000001")
 
 
 def require_platform_admin(current_user: User) -> User:
-    if not is_admin_user(current_user):
-        raise HTTPException(status_code=403, detail="PLATFORM_ADMIN_REQUIRED")
-    return current_user
+    if has_platform_permission(current_user, "platform.pricing.manage"):
+        return current_user
+    return require_platform_permission(current_user, "platform.models.manage")
 
 
 def create_price_version(
@@ -150,6 +155,8 @@ def reserve_quota(
         return None, Decimal("0")
     account = active_quota_account(db, tenant_id, user_id, organization_id)
     if account is None:
+        account = ensure_default_quota_account(db, tenant_id)
+    if account is None:
         return None, Decimal("0")
     existing = db.exec(
         select(AIQuotaLedger).where(AIQuotaLedger.idempotency_key == idempotency_key)
@@ -172,6 +179,45 @@ def reserve_quota(
     )
     db.flush()
     return account, amount
+
+
+def ensure_default_quota_account(
+    db: Session, tenant_id: str
+) -> AIQuotaAccount | None:
+    """Create the configurable tenant-wide monthly allowance on first billed use."""
+
+    settings = get_settings()
+    credits = _credits(Decimal(str(settings.ai_default_monthly_credits)))
+    if credits <= 0:
+        return None
+    cycle_start, cycle_end = _quota_cycle(None, None)
+    account = _find_quota_account(db, tenant_id, None, None, cycle_start)
+    if account is not None:
+        return account
+    account = AIQuotaAccount(
+        tenant_id=tenant_id,
+        organization_id=None,
+        user_id=None,
+        cycle_start=cycle_start,
+        cycle_end=cycle_end,
+        granted_credits=credits,
+        hard_limit=settings.ai_default_quota_hard_limit,
+        warning_threshold_percent=settings.ai_quota_warning_threshold_percent,
+    )
+    db.add(account)
+    db.flush()
+    db.add(
+        AIQuotaLedger(
+            account_id=account.id,
+            event_type="grant",
+            amount=credits,
+            balance_after=credits,
+            idempotency_key=f"default-grant:{tenant_id}:{cycle_start.isoformat()}",
+            metadata_json={"source": "platform_default_policy"},
+        )
+    )
+    db.flush()
+    return account
 
 
 def finalize_quota(
@@ -699,7 +745,7 @@ def _parse_datetime(value: str) -> datetime:
 
 
 def is_platform_operator(user: User) -> bool:
-    return user.role == "admin"
+    return has_platform_permission(user, "platform.usage.read")
 
 
 def is_admin_user_like(user: User) -> bool:

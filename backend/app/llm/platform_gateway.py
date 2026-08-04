@@ -63,7 +63,7 @@ from app.llm.usage import (
 )
 from app.llm.usage_context import suspend_ai_usage_capture
 from app.security.encryption import decrypt_secret, encrypt_secret, mask_secret
-from app.security.permissions import is_admin_user
+from app.security.permissions import require_platform_permission
 
 
 AI_CAPABILITIES: tuple[tuple[str, str], ...] = (
@@ -77,15 +77,6 @@ AI_CAPABILITIES: tuple[tuple[str, str], ...] = (
     ("skill_distillation", "Skill 整理与生成"),
 )
 AI_CAPABILITY_IDS = {item[0] for item in AI_CAPABILITIES}
-PLATFORM_MANAGED_CAPABILITIES = {
-    "structured_generation",
-    "demand_analysis",
-    "matching",
-    "quote_draft",
-    "evidence_summary",
-    "knowledge_processing",
-    "skill_distillation",
-}
 
 PROVIDER_KINDS: tuple[tuple[str, str], ...] = (
     ("crun", "CRUN 聚合平台"),
@@ -165,12 +156,7 @@ CERTIFICATION_JSON_SPECS: dict[str, tuple[str, dict[str, Any], tuple[str, ...]]]
 
 
 def require_platform_admin(current_user: User) -> User:
-    # The current product has one platform tenant and already uses tenant admin
-    # for platform operations.  Keeping this check central makes a later
-    # dedicated platform-role migration local to one function.
-    if not is_admin_user(current_user):
-        raise HTTPException(status_code=403, detail="PLATFORM_ADMIN_REQUIRED")
-    return current_user
+    return require_platform_permission(current_user, "platform.models.manage")
 
 
 def model_catalog() -> AIModelCatalogRead:
@@ -706,13 +692,13 @@ def capability_status(db: Session, current_user: User) -> AICapabilityStatusRead
         platform_models = resolve_platform_models_for_capability(
             db, current_user.tenant_id, capability
         )
-        if tenant_available:
-            source = "tenant_byok"
-            primary_model = tenant_config.model if tenant_config else None
-            available = True
-        elif platform_models:
+        if platform_models:
             source = "platform"
             primary_model = platform_models[0].model
+            available = True
+        elif tenant_available:
+            source = "tenant_byok"
+            primary_model = tenant_config.model if tenant_config else None
             available = True
         else:
             source = "unavailable"
@@ -735,10 +721,10 @@ def capability_status(db: Session, current_user: User) -> AICapabilityStatusRead
         platform_available=platform_available,
         tenant_byok_available=tenant_available,
         effective_source=(
-            "tenant_byok"
-            if tenant_available
-            else "platform"
+            "platform"
             if platform_available
+            else "tenant_byok"
+            if tenant_available
             else "unavailable"
         ),
         capabilities=capabilities,
@@ -1035,6 +1021,7 @@ class AIModelGateway:
 
     def _candidates(self) -> tuple[ResolvedModelConfig, ...]:
         tenant_candidates: list[ResolvedModelConfig] = []
+        explicit_tenant_model = self.tenant_model_config_id is not None
         if self.tenant_model_config_id:
             tenant_candidates.append(
                 resolve_model_config_for_runtime(
@@ -1052,7 +1039,9 @@ class AIModelGateway:
         platform_candidates = resolve_platform_models_for_capability(
             self.db, self.tenant_id, self.capability
         )
-        if self.capability in PLATFORM_MANAGED_CAPABILITIES and platform_candidates:
+        if explicit_tenant_model:
+            return tuple(tenant_candidates) + platform_candidates
+        if platform_candidates:
             return platform_candidates + tuple(tenant_candidates)
         return tuple(tenant_candidates) + platform_candidates
 

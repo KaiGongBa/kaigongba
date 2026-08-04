@@ -35,10 +35,35 @@ def test_model_product_usage_migration_and_append_only_guards(tmp_path) -> None:
     metadata.drop_all(bind=engine)
     assert not TABLES.intersection(inspect(engine).get_table_names())
 
-    command.upgrade(config, "head")
-    assert _revision(engine) == "20260803_0018"
-    assert TABLES.issubset(inspect(engine).get_table_names())
+    command.upgrade(config, "20260803_0018")
     with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO users (
+                    id, tenant_id, username, role, source, password_hash,
+                    created_at, updated_at
+                ) VALUES
+                    ('admin', 'tenant_demo', 'admin', 'admin', 'web', 'unused',
+                     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+                    ('qa_admin', 'tenant_demo', 'qa_admin', 'admin', 'web', 'unused',
+                     CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                """
+            )
+        )
+    command.upgrade(config, "head")
+    assert _revision(engine) == "20260804_0019"
+    assert TABLES.issubset(inspect(engine).get_table_names())
+    assert "platform_role" in {
+        column["name"] for column in inspect(engine).get_columns("users")
+    }
+    with engine.begin() as connection:
+        roles = dict(
+            connection.execute(
+                text("SELECT username, platform_role FROM users")
+            ).all()
+        )
+        assert roles == {"admin": "super_admin", "qa_admin": None}
         connection.execute(
             text(
                 """
@@ -91,7 +116,7 @@ def test_model_product_usage_migration_and_append_only_guards(tmp_path) -> None:
     assert _revision(engine) == "20260803_0016"
     assert not TABLES.intersection(inspect(engine).get_table_names())
     command.upgrade(config, "head")
-    assert _revision(engine) == "20260803_0018"
+    assert _revision(engine) == "20260804_0019"
     engine.dispose()
 
 

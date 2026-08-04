@@ -7,7 +7,7 @@ from sqlmodel import Session
 
 from app.db import get_session
 from app.db.models import User
-from app.llm import model_products, platform_gateway, provider_catalog, usage
+from app.llm import model_products, platform_bootstrap, platform_gateway, provider_catalog, usage
 from app.llm.platform_schemas import (
     AICapabilityStatusRead,
     AIInvocationAuditRead,
@@ -25,6 +25,10 @@ from app.llm.platform_schemas import (
     AIModelProductDeploymentWrite,
     AIModelProductRead,
     AIModelProductUpdate,
+    AIPlatformDefaultActivationRead,
+    AIPlatformDefaultActivationRequest,
+    AIPlatformDefaultBootstrapRead,
+    AIPlatformDefaultBootstrapRequest,
     AIPriceVersionCreate,
     AIPriceVersionRead,
     AIProviderConnectionCreate,
@@ -51,6 +55,33 @@ router = APIRouter(
 )
 CurrentUser = Annotated[User, Depends(get_current_user)]
 DatabaseSession = Annotated[Session, Depends(get_session)]
+
+
+@router.post(
+    "/platform/bootstrap-default",
+    response_model=AIPlatformDefaultBootstrapRead,
+)
+def bootstrap_platform_default_model(
+    request: AIPlatformDefaultBootstrapRequest,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+) -> AIPlatformDefaultBootstrapRead:
+    return platform_bootstrap.bootstrap_platform_default(db, current_user, request)
+
+
+@router.post(
+    "/platform/deployments/{deployment_id}/activate-default",
+    response_model=AIPlatformDefaultActivationRead,
+)
+def activate_platform_default_model(
+    deployment_id: str,
+    request: AIPlatformDefaultActivationRequest,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+) -> AIPlatformDefaultActivationRead:
+    return platform_bootstrap.activate_platform_default(
+        db, current_user, deployment_id, request
+    )
 
 
 @router.get("/catalog", response_model=AIModelCatalogRead)

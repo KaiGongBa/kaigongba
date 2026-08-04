@@ -47,6 +47,9 @@ class Settings(BaseSettings):
     model_api_timeout_seconds: float = 600.0
     model_thinking_mode: str = ""
     model_thinking_models: str = ""
+    ai_default_monthly_credits: float = 10_000.0
+    ai_default_quota_hard_limit: bool = False
+    ai_quota_warning_threshold_percent: int = 80
     tool_timeout_seconds: float = 8.0
     tool_base_url: str = "http://localhost:5173"
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
@@ -97,6 +100,10 @@ class Settings(BaseSettings):
             raise ValueError("对象存储签名地址有效期必须在 60～3600 秒之间")
         if self.skill_package_max_bytes <= 0:
             raise ValueError("Skill 包大小上限必须大于 0")
+        if self.ai_default_monthly_credits < 0:
+            raise ValueError("AI 默认月度额度不能为负数")
+        if not 1 <= self.ai_quota_warning_threshold_percent <= 100:
+            raise ValueError("AI 额度预警阈值必须在 1～100 之间")
         if self.hosted_skill_execution_enabled:
             if not 5 <= self.hosted_skill_timeout_seconds <= 300:
                 raise ValueError("托管 Skill 超时必须在 5～300 秒之间")

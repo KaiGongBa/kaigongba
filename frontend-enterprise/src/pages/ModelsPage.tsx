@@ -3,6 +3,7 @@ import { Check, FlaskConical, LoaderCircle } from 'lucide-react';
 
 import { api, TENANT_ID } from '../api/client';
 import type { EnterpriseAuthUser } from '../auth';
+import { canManagePlatformModels } from '../auth';
 import AppHeader from '@/components/AppHeader';
 import { DataTable, type DataTableColumn } from '@/components/DataTable';
 import { Paginator } from '@/components/Paginator';
@@ -391,7 +392,9 @@ export default function ModelsPage({
         </UIButton>
       </div>
 
-      <PlatformModelGatewayPanel tenantId={currentUser?.tenant_id} />
+      {canManagePlatformModels(currentUser) && (
+        <PlatformModelGatewayPanel tenantId={currentUser?.tenant_id} />
+      )}
 
       <div className="flex flex-col gap-[24px] rounded-[20px_20px_0_0] bg-white p-[18px_18px_24px_18px] shadow-[0_-4px_16px_0_rgba(0,0,0,0.05)]">
         <div className="rounded-[12px] border border-[#e7eaf0] bg-[#f8f9fb] px-[14px] py-[11px]">

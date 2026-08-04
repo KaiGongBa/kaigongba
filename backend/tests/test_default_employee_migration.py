@@ -69,7 +69,7 @@ def test_0015_backfills_web_accounts_without_cross_account_or_replay_duplicates(
         db.commit()
 
     command.upgrade(config, "head")
-    assert _revision(engine) == "20260803_0018"
+    assert _revision(engine) == "20260804_0019"
     defaults = _visible_defaults(engine)
     assert {row["owner_user_id"] for row in defaults} == {"user_new", "user_existing"}
     assert len([row for row in defaults if row["owner_user_id"] == "user_new"]) == 1

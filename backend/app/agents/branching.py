@@ -1010,6 +1010,11 @@ def model_for_agent(
                 model = db.get(ModelConfig, binding.model_config_id)
                 if model and model.enabled:
                     return _runtime_model(db, tenant_id, model)
+    platform_model = resolve_platform_model_for_capability(db, tenant_id, capability)
+    if platform_model is None and capability != "agent_chat":
+        platform_model = resolve_platform_model_for_capability(db, tenant_id, "agent_chat")
+    if platform_model is not None:
+        return platform_model
     model = db.exec(
         select(ModelConfig).where(
             ModelConfig.tenant_id == tenant_id,
@@ -1017,12 +1022,7 @@ def model_for_agent(
             ModelConfig.enabled == True,  # noqa: E712
         )
     ).first()
-    if model:
-        return _runtime_model(db, tenant_id, model)
-    platform_model = resolve_platform_model_for_capability(db, tenant_id, capability)
-    if platform_model is None and capability != "agent_chat":
-        platform_model = resolve_platform_model_for_capability(db, tenant_id, "agent_chat")
-    return platform_model
+    return _runtime_model(db, tenant_id, model) if model else None
 
 
 def _runtime_model(

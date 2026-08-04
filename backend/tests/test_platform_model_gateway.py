@@ -51,6 +51,7 @@ def _user(role: str = "admin") -> User:
         tenant_id="tenant_a",
         username=role,
         role=role,
+        platform_role="super_admin" if role == "admin" else None,
         password_hash="unused",
     )
 
@@ -190,9 +191,38 @@ def test_non_admin_cannot_manage_platform_connection(tmp_path) -> None:
             )
         except HTTPException as exc:
             assert exc.status_code == 403
-            assert exc.detail == "PLATFORM_ADMIN_REQUIRED"
+            assert exc.detail == "PLATFORM_PERMISSION_REQUIRED"
         else:
             raise AssertionError("member unexpectedly managed platform credentials")
+
+
+def test_tenant_admin_without_platform_role_cannot_manage_platform_connection(
+    tmp_path,
+) -> None:
+    with _db(tmp_path) as db:
+        tenant_admin = User(
+            id="user_tenant_admin",
+            tenant_id="tenant_a",
+            username="tenant_admin",
+            role="admin",
+            platform_role=None,
+            password_hash="unused",
+        )
+        try:
+            create_provider_connection(
+                db,
+                tenant_admin,
+                AIProviderConnectionCreate(
+                    name="Tenant admin must not manage platform models",
+                    base_url="https://example.com/v1",
+                    api_key="secret",
+                ),
+            )
+        except HTTPException as exc:
+            assert exc.status_code == 403
+            assert exc.detail == "PLATFORM_PERMISSION_REQUIRED"
+        else:
+            raise AssertionError("tenant administrator inherited platform privileges")
 
 
 def test_platform_route_is_default_for_agent_without_byok(tmp_path) -> None:
@@ -330,8 +360,15 @@ def test_platform_business_capability_precedes_tenant_default_model(
             capability="agent_chat",
             user_id="user_member",
         ).generate_text("system", {})
+        AIModelGateway(
+            db,
+            tenant_id="tenant_a",
+            capability="agent_chat",
+            user_id="user_member",
+            tenant_model_config_id="model_tenant_default",
+        ).generate_text("system", {})
 
-        assert calls == ["deepseek-v3.1", "tenant-default-model"]
+        assert calls == ["deepseek-v3.1", "deepseek-v3.1", "tenant-default-model"]
 
 
 def test_streaming_gateway_records_provider_token_usage(tmp_path, monkeypatch) -> None:

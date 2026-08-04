@@ -121,6 +121,36 @@ class AIModelCertificationResponse(BaseModel):
     deployment: AIModelDeploymentRead
 
 
+class AIPlatformDefaultBootstrapRequest(BaseModel):
+    source_model_config_id: str
+    connection_name: str | None = None
+    product_display_name: str | None = None
+
+
+class AIPlatformDefaultBootstrapRead(BaseModel):
+    connection_id: str
+    deployment_id: str
+    product_id: str
+    source_model_config_id: str
+    status: str
+
+
+class AIPlatformDefaultActivationRequest(BaseModel):
+    product_id: str
+    capabilities: list[str] | None = None
+    priority: int = 10
+    timeout_seconds: float = 90.0
+    retry_count: int = 1
+
+
+class AIPlatformDefaultActivationRead(BaseModel):
+    product_id: str
+    deployment_id: str
+    capabilities: list[str]
+    route_ids: list[str]
+    status: str
+
+
 class AIModelRouteWrite(BaseModel):
     capability: str
     deployment_id: str
