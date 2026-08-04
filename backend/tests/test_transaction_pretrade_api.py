@@ -275,6 +275,16 @@ def test_real_requirement_match_quote_selection_and_two_party_confirmation(
         admin = db.get(User, "admin")
         assert admin is not None
         admin_headers = _auth(admin)
+        payment_reviewer = User(
+            id="payment_platform_reviewer",
+            tenant_id="tenant_demo",
+            username="payment_platform_reviewer",
+            role="admin",
+            password_hash="test",
+        )
+        db.add(payment_reviewer)
+        db.commit()
+        payment_reviewer_headers = _auth(payment_reviewer)
 
     wrong_code = client.post(
         f"/api/transactions/payment-orders/{payment_id}/demo-simulate",
@@ -285,7 +295,7 @@ def test_real_requirement_match_quote_selection_and_two_party_confirmation(
             "callback_id": "callback-wrong-code",
             "acknowledged_demo": True,
         },
-        headers=admin_headers,
+        headers=payment_reviewer_headers,
     )
     assert wrong_code.status_code == 403
 
@@ -299,7 +309,7 @@ def test_real_requirement_match_quote_selection_and_two_party_confirmation(
     succeeded = client.post(
         f"/api/transactions/payment-orders/{payment_id}/demo-simulate",
         json=callback_payload,
-        headers=admin_headers,
+        headers=payment_reviewer_headers,
     )
     assert succeeded.status_code == 200, succeeded.text
     assert succeeded.json()["status"] == "succeeded"
@@ -309,7 +319,7 @@ def test_real_requirement_match_quote_selection_and_two_party_confirmation(
     repeated_callback = client.post(
         f"/api/transactions/payment-orders/{payment_id}/demo-simulate",
         json=callback_payload,
-        headers=admin_headers,
+        headers=payment_reviewer_headers,
     )
     assert repeated_callback.status_code == 200
     assert repeated_callback.json()["orderId"] == order_id
