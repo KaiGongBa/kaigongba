@@ -1,11 +1,11 @@
 <div align="center">
 
-<img src="packaging/assets/staffdeck_banner_cn.png" alt="StaffDeck 标志"  />
+<img src="frontend-enterprise/src/assets/brand/kaigongba-logo-cropped.png" alt="开工吧 Logo" width="240" />
 
 <p align="center">
-  <a href="https://staffdeck.openbmb.cn/"><img src="https://img.shields.io/badge/Website-staffdeck.openbmb.cn-FF6B35?style=flat-square&logo=googlechrome&logoColor=white" alt="Official Website"/></a>
+  <a href="https://kaigongba.net/"><img src="https://img.shields.io/badge/Website-kaigongba.net-E63D28?style=flat-square&logo=googlechrome&logoColor=white" alt="开工吧官网"/></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-AGPL_3.0-blue.svg?style=flat-square" alt="License"/></a>
-  <a href="https://github.com/OpenBMB/StaffDeck/stargazers"><img src="https://img.shields.io/github/stars/OpenBMB/StaffDeck?style=flat-square" alt="Stars"/></a>
+  <a href="https://github.com/KaiGongBa/kaigongba/stargazers"><img src="https://img.shields.io/github/stars/KaiGongBa/kaigongba?style=flat-square" alt="Stars"/></a>
   <br/>
   <a href="#-联系我们"><img src="https://img.shields.io/badge/Discord-社群-5865F2?style=for-the-badge&logo=discord&logoColor=white" alt="Discord"/></a>
   &nbsp;
@@ -23,11 +23,11 @@
 
 ## 更新日志
 
-  - **2026-07-15**：StaffDeck正式开源！欢迎大家使用反馈与Star支持。
+  - **开工吧**：基于 StaffDeck 的最小品牌化复刻版本，功能与上游保持一致。
 
-# 💡 关于StaffDeck
+# 💡 关于开工吧
 
-StaffDeck是一套面向企业的数字员工构建与管理平台，帮助专业员工将工作经验、业务流程和判断标准固化为可以持续工作的数字员工，接手重复性任务，并将个人能力沉淀为可复用、可迭代、可追溯的组织资产。StaffDeck由[面壁智能](https://modelbest.cn/)，[东北大学-面壁智能数据智能联合实验室](https://neuir.github.io/)，[清华大学THUNLP实验室](https://nlp.csai.tsinghua.edu.cn/)，[OpenBMB](https://www.openbmb.cn/home)与[AI9Stars](https://github.com/AI9Stars)联合研发，面向希望将 AI 从个人效率工具升级为组织生产力的企业与机构。
+开工吧是一套面向企业的数字员工运营平台，基于 [OpenBMB/StaffDeck](https://github.com/OpenBMB/StaffDeck) 构建，保留模型、数字员工、知识库、技能、SOP、工具、记忆、定时任务和 Trace 的完整能力；改造范围仅限品牌和项目信息。上游归属与许可证见 [开源声明](./OPEN_SOURCE_NOTICES.md)。
 
 ## 核心亮点
 
@@ -38,21 +38,21 @@ StaffDeck是一套面向企业的数字员工构建与管理平台，帮助专�
 
 ## 客户端下载
 
-访问 [StaffDeck 官方网站](https://staffdeck.openbmb.cn/)，或直接下载最新桌面客户端：
+请从本仓库自行构建桌面包；上游 StaffDeck 发布包不代表开工吧版本。
 
 | 平台 | 架构 | 下载 |
 | --- | --- | --- |
-| macOS | Apple Silicon（arm64） | [下载 `.dmg`](https://github.com/OpenBMB/StaffDeck/releases/latest/download/StaffDeck-macos-arm64.dmg) |
-| Windows | x64 | [下载安装程序 `.exe`](https://github.com/OpenBMB/StaffDeck/releases/latest/download/StaffDeck-windows-x64-setup.exe) |
-| Linux | x86_64（Debian/Ubuntu） | [下载 `.deb`](https://github.com/OpenBMB/StaffDeck/releases/latest/download/StaffDeck-linux-x86_64.deb) |
+| macOS | Apple Silicon（arm64） | 请按下方快速开始构建 |
+| Windows | x64 | 请按下方快速开始构建 |
+| Linux | x86_64（Debian/Ubuntu） | 请按下方快速开始构建 |
 
 ## Agent 一键部署
 
 将下面的 Prompt 粘贴给 Cursor、Claude Code 或 Codex：
 
 ```text
-阅读 https://raw.githubusercontent.com/OpenBMB/StaffDeck/main/README.zh.md。
-克隆 OpenBMB/StaffDeck 私有仓库，准备 Python 3.11 或更高版本和 Node.js 20，创建
+阅读 https://raw.githubusercontent.com/KaiGongBa/kaigongba/main/README.zh.md。
+克隆 KaiGongBa/kaigongba 仓库，准备 Python 3.11 或更高版本和 Node.js 20，创建
 backend/.venv，安装前后端依赖，将 backend/.env.example 复制为
 backend/.env；缺少 OpenAI 兼容模型地址或 API Key 时向我询问，并严格使用当前
 系统对应的文档命令。macOS/Linux/WSL 运行 scripts/dev_up.sh --detach，Windows
@@ -63,7 +63,7 @@ PowerShell 运行 .\scripts\dev_up.ps1 --detach；验证 /api/health 和
 
 ## 目录
 
-- [💡 关于StaffDeck](#-关于staffdeck)
+- [💡 关于开工吧](#-关于开工吧)
   - [核心亮点](#核心亮点)
   - [客户端下载](#客户端下载)
   - [Agent 一键部署](#agent-一键部署)
@@ -102,8 +102,8 @@ PowerShell 运行 .\scripts\dev_up.ps1 --detach；验证 /api/health 和
 首先克隆仓库：
 
 ```bash
-git clone https://github.com/OpenBMB/StaffDeck.git
-cd StaffDeck
+git clone https://github.com/KaiGongBa/kaigongba.git
+cd kaigongba
 ```
 
 macOS、Linux 或 WSL：
@@ -283,10 +283,10 @@ StaffDeck/
 路线优先级由真实部署需求驱动。请通过 [Issue](https://github.com/OpenBMB/StaffDeck/issues) 提供可复现的场景和预期行为。
 
 # 💬 联系我们
-- 关于技术问题及功能请求，请提交 [GitHub Issues](https://github.com/OpenBMB/StaffDeck/issues)。
+- 关于技术问题及功能请求，请提交 [GitHub Issues](https://github.com/KaiGongBa/kaigongba/issues)。
 - 商业合作，请联系：
   ```
-  business@modelbest.cn
+  contact@huozaotech.com
   ```
 - 欢迎加入我们的社区与我们交流：
 

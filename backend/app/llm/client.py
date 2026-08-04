@@ -7,6 +7,8 @@ import hashlib
 import json
 import math
 import re
+from datetime import UTC, datetime
+from time import monotonic
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -30,6 +32,7 @@ from app.llm.stage_protocol import (
     TURN_STAGE_MESSAGES_KEY,
     render_stage_user_message,
 )
+from app.llm.usage_context import capture_ai_usage
 from app.observability.spans import current_llm_operation, llm_span_attributes, start_llm_call
 from app.security.encryption import decrypt_secret
 
@@ -70,6 +73,10 @@ class _CurrentStageText(str):
 
 class LLMClient:
     def __init__(self, model_config: ModelConfig):
+        self.model_config_snapshot = model_config
+        self.last_usage_metrics: dict[str, int] = {}
+        self.last_provider_response_id: str | None = None
+        self.last_usage_source = "none"
         try:
             protocol = ModelApiProtocol(
                 getattr(model_config, "api_protocol", "openai_chat_completions")
@@ -141,6 +148,8 @@ class LLMClient:
         response_format: dict[str, str] | None = None,
         cancellation: CancellationToken | None = None,
     ) -> str:
+        usage_started_at = datetime.now(UTC).replace(tzinfo=None)
+        usage_started = monotonic()
         max_output_tokens = operation_output_tokens(
             current_llm_operation(), self.max_output_tokens
         )
@@ -211,6 +220,15 @@ class LLMClient:
                                 self, "_last_stage_request_user_content", None
                             ),
                         )
+                    self._capture_usage(
+                        metrics,
+                        operation=current_llm_operation() or "generate_text",
+                        system_prompt=system_prompt,
+                        user_payload=user_payload,
+                        output=content,
+                        started_at=usage_started_at,
+                        started=usage_started,
+                    )
                     return content
                 span.finish(
                     ttft_ms=span.elapsed_ms(),
@@ -243,6 +261,8 @@ class LLMClient:
         user_payload: dict[str, Any] | str,
         cancellation: CancellationToken | None = None,
     ) -> Iterator[str]:
+        usage_started_at = datetime.now(UTC).replace(tzinfo=None)
+        usage_started = monotonic()
         max_output_tokens = operation_output_tokens(
             current_llm_operation(), self.max_output_tokens
         )
@@ -366,6 +386,17 @@ class LLMClient:
                             self, "_last_stage_request_user_content", None
                         ),
                     )
+                    output = "".join(recorded_parts)
+                    self._capture_usage(
+                        stream_usage_metrics,
+                        operation=current_llm_operation() or "generate_text_stream",
+                        system_prompt=system_prompt,
+                        user_payload=user_payload,
+                        output=output,
+                        started_at=usage_started_at,
+                        started=usage_started,
+                        provider_response_id=sorted(response_ids)[0] if response_ids else None,
+                    )
                     return
                 span.finish(
                     provider_setup_ms=provider_setup_ms,
@@ -420,6 +451,58 @@ class LLMClient:
                 driver = ChatCompletionsDriver(self.client)
             self.driver = driver
         return driver
+
+    def _capture_usage(
+        self,
+        metrics: dict[str, Any],
+        *,
+        operation: str,
+        system_prompt: str,
+        user_payload: dict[str, Any] | str,
+        output: str,
+        started_at: datetime,
+        started: float,
+        provider_response_id: str | None = None,
+    ) -> None:
+        usage: dict[str, Any] = {
+            key: int(value)
+            for key, value in metrics.items()
+            if key in {"input_tokens", "output_tokens", "total_tokens", "cached_input_tokens", "reasoning_tokens"}
+            and isinstance(value, (int, float))
+        }
+        if not usage:
+            serialized = (
+                user_payload
+                if isinstance(user_payload, str)
+                else json.dumps(user_payload, ensure_ascii=False, default=str)
+            )
+            input_tokens = max(1, (len(system_prompt) + len(serialized) + 3) // 4)
+            output_tokens = max(1, (len(output) + 3) // 4)
+            usage = {
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "total_tokens": input_tokens + output_tokens,
+                "usage_source": "estimated",
+            }
+        else:
+            usage["usage_source"] = "provider"
+        response_id = provider_response_id or str(metrics.get("provider_response_id") or "") or None
+        self.last_usage_metrics = {
+            key: value for key, value in usage.items() if isinstance(value, int)
+        }
+        self.last_usage_source = str(usage.get("usage_source") or "provider")
+        self.last_provider_response_id = response_id
+        capture_ai_usage(
+            getattr(self, "model_config_snapshot", None),
+            operation=operation,
+            usage=usage,
+            latency_ms=max(0, int((monotonic() - started) * 1000)),
+            started_at=started_at,
+            finished_at=datetime.now(UTC).replace(tzinfo=None),
+            prompt_hash=_content_digest({"system": system_prompt, "payload": user_payload}),
+            response_hash=_content_digest(output),
+            provider_request_id=response_id,
+        )
 
     def generate_json(
         self,
@@ -836,6 +919,17 @@ def _completion_span_metrics(completion: Any) -> dict[str, Any]:
         "reasoning_chars": len(_reasoning_text(message)),
         **_usage_span_metrics(usage),
     }
+
+
+def _content_digest(value: Any) -> str:
+    serialized = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 
 
 def _usage_span_metrics(usage: Any) -> dict[str, Any]:

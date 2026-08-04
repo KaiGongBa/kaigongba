@@ -22,11 +22,16 @@ import {
   employeeDisplayName,
   employeeDisplayNameWithCreator,
   employeeProfile,
+  isDefaultEmployeeAgent,
+  isEmployeeUsedByCurrentUser,
 } from '../employee';
-import { emitAgentScopeChange, persistSharedAgentScope } from '../lib/agent-scope-storage';
+import {
+  clearSharedAgentScope,
+  emitAgentScopeChange,
+  persistSharedAgentScope,
+  readSharedAgentScope,
+} from '../lib/agent-scope-storage';
 import type { AgentProfileRead } from '../types';
-
-const ENTERPRISE_AGENT_STORAGE_KEY = 'ultrarag_enterprise_agent_scope';
 
 export default function AgentsPage({
   currentUser,
@@ -49,7 +54,7 @@ export default function AgentsPage({
   const [searchTerm, setSearchTerm] = useState('');
   const [employeeFilter, setEmployeeFilter] = useState<'all' | 'online' | 'offline' | 'pending'>('all');
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(
-    () => window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY),
+    () => readSharedAgentScope() || null,
   );
   const navigate = useNavigate();
 
@@ -72,14 +77,17 @@ export default function AgentsPage({
   useEffect(() => {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<{ agentId?: string }>).detail;
-      setSelectedAgentId(detail?.agentId ?? window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY));
+      setSelectedAgentId(detail?.agentId ?? (readSharedAgentScope() || null));
     };
     window.addEventListener('ultrarag-enterprise-agent-scope-change', handler);
     return () => window.removeEventListener('ultrarag-enterprise-agent-scope-change', handler);
   }, []);
 
   const employees = useMemo(
-    () => agents.filter((item) => !item.is_overall && canManageEmployeeAgent(item, currentUser)),
+    () => agents.filter((item) => (
+      !item.is_overall
+      && (canManageEmployeeAgent(item, currentUser) || isEmployeeUsedByCurrentUser(item))
+    )),
     [agents, currentUser],
   );
   const offlineEmployees = employees.filter((item) => item.status !== 'active');
@@ -177,15 +185,15 @@ export default function AgentsPage({
     setDeleting(true);
     try {
       await api.delete(`/api/enterprise/agents/${row.id}?tenant_id=${TENANT_ID}`);
-      if (window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) === row.id) {
+      if (readSharedAgentScope() === row.id) {
         const nextAgent = employees.find((item) => item.id !== row.id && item.status === 'active')
           || employees.find((item) => item.id !== row.id);
         if (nextAgent) {
-          window.localStorage.setItem(ENTERPRISE_AGENT_STORAGE_KEY, nextAgent.id);
-          window.dispatchEvent(new CustomEvent('ultrarag-enterprise-agent-scope-change', { detail: { agentId: nextAgent.id } }));
+          persistSharedAgentScope(nextAgent.id, currentUser?.id);
+          emitAgentScopeChange(nextAgent.id);
         } else {
-          window.localStorage.removeItem(ENTERPRISE_AGENT_STORAGE_KEY);
-          window.dispatchEvent(new CustomEvent('ultrarag-enterprise-agent-scope-change', { detail: { agentId: '' } }));
+          clearSharedAgentScope(currentUser?.id);
+          emitAgentScopeChange('');
         }
       }
       notify.success('员工已删除');
@@ -284,22 +292,28 @@ export default function AgentsPage({
       />
 
       <div className="grid auto-rows-[minmax(262px,auto)] grid-cols-1 content-start gap-[32px] sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4 max-[900px]:gap-[18px]">
-        {filteredEmployees.map((employee) => (
-          <EmployeeCard
-            key={employee.id}
-            employee={employee}
-            busy={selectingAgentId === employee.id}
-            canManage={canManageEmployeeAgent(employee, currentUser)}
-            selected={employee.id === selectedAgentId}
-            onOpen={() => void selectEmployee(employee)}
-            onStatus={(status) => void updateStatus(employee, status)}
-            onGallery={(published) => void updateGalleryState(employee, published)}
-            onDelete={() => setDeleteTarget(employee)}
-            onAvatar={() => setAvatarAgent(employee)}
-            onEdit={() => setProfileAgent(employee)}
-            onChat={() => startEmployeeChat(employee)}
-          />
-        ))}
+        {filteredEmployees.map((employee) => {
+          const canManage = canManageEmployeeAgent(employee, currentUser);
+          return (
+            <EmployeeCard
+              key={employee.id}
+              employee={employee}
+              busy={selectingAgentId === employee.id}
+              canManage={canManage}
+              showMenu={canManage}
+              deletable={!isDefaultEmployeeAgent(employee)}
+              selected={employee.id === selectedAgentId}
+              onOpen={() => void selectEmployee(employee)}
+              onStatus={(status) => void updateStatus(employee, status)}
+              onGallery={(published) => void updateGalleryState(employee, published)}
+              onDelete={() => setDeleteTarget(employee)}
+              onAvatar={() => setAvatarAgent(employee)}
+              onEdit={() => setProfileAgent(employee)}
+              onChat={() => startEmployeeChat(employee)}
+              onConnection={employee.metadata?.external_connection_id ? () => navigate(`/enterprise/agents/external/${encodeURIComponent(String(employee.metadata?.external_connection_id))}`) : undefined}
+            />
+          );
+        })}
         {!filteredEmployees.length && (
           <AgentsEmptyState />
         )}

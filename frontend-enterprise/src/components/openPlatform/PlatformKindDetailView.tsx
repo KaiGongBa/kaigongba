@@ -82,7 +82,7 @@ function DetailSkeleton({ kind }: { kind: PlatformDetailKind }) {
 }
 
 /**
- * Full-list view for a single 开放广场 module (/enterprise/platform/:kind).
+ * Full-list view for a single 公司广场 module (/enterprise/platform/:kind).
  * Mirrors the main platform page card system inside the standard enterprise page shell.
  */
 export default function PlatformKindDetailView({
@@ -126,7 +126,7 @@ export default function PlatformKindDetailView({
       <div className="mt-[20px] mb-[16px] flex flex-wrap justify-end gap-[16px]">
         <UIButton variant="outline" onClick={onBack} className={RETURN_BUTTON_CLASS}>
           <IconArrowRight className="size-3.5 rotate-180" />
-          返回开放广场
+          返回公司广场
         </UIButton>
         <UIButton
           variant="outline"
@@ -182,7 +182,7 @@ export default function PlatformKindDetailView({
           ) : filteredItems.length === 0 ? (
             <div className="grid min-h-[180px] w-full place-items-center content-center gap-[10px] rounded-[18px] border border-dashed border-[#dfe4ec] bg-[#fbfcfd] px-[20px] py-[40px] text-center font-bold text-[#8b94aa]">
               <IconSearch className="size-[20px] shrink-0" />
-              <span>{items.length === 0 ? '暂无开放内容' : '没有匹配的广场内容'}</span>
+              <span>{items.length === 0 ? '暂无共享内容' : '没有匹配的公司共享内容'}</span>
             </div>
           ) : kind === 'agents' ? (
             <div className="grid grid-cols-1 gap-[16px] sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">

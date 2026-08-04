@@ -8,21 +8,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlmodel import Session, select
 
-from app.agents.schema import (
-    AgentModelsUpdateRequest,
-    AgentProfileCreateRequest,
-    AgentProfileRead,
-    AgentProfileUpdateRequest,
-    AgentResourceBindingInput,
-    AgentResourceImportRequest,
-    AgentResourceBindingRead,
-    AgentResourcesUpdateRequest,
-    AgentScopeRead,
-    AgentSkillRollbackRequest,
-    AgentWorkRecordEventRead,
-    AgentWorkRecordRead,
-    AgentWorkRecordReplyStatsRead,
-)
 from app.agents.branching import (
     agent_private_metadata,
     branch_versions,
@@ -38,10 +23,25 @@ from app.agents.branching import (
     sync_branch_from_overall,
     visible_skill_rows,
 )
+from app.agents.schema import (
+    AgentModelsUpdateRequest,
+    AgentProfileCreateRequest,
+    AgentProfileRead,
+    AgentProfileUpdateRequest,
+    AgentResourceBindingInput,
+    AgentResourceBindingRead,
+    AgentResourceImportRequest,
+    AgentResourcesUpdateRequest,
+    AgentScopeRead,
+    AgentSkillRollbackRequest,
+    AgentWorkRecordEventRead,
+    AgentWorkRecordRead,
+    AgentWorkRecordReplyStatsRead,
+)
 from app.db import get_session
 from app.db.models import (
-    AgentModelBinding,
     AgentKnowledgeBranch,
+    AgentModelBinding,
     AgentProfile,
     AgentResourceBinding,
     AgentSkillBranch,
@@ -57,8 +57,8 @@ from app.db.models import (
     ScheduledTask,
     Skill,
     Tool,
-    utc_now,
     User,
+    utc_now,
 )
 from app.security.auth import get_current_user
 from app.security.permissions import agent_owned_by_user as _agent_owned_by_user
@@ -287,6 +287,8 @@ def delete_agent(
     _ensure_can_manage_agent(row, current_user)
     if row.is_overall:
         raise HTTPException(status_code=400, detail="Overall agent cannot be deleted")
+    if (row.metadata_json or {}).get("is_default_employee") is True:
+        raise HTTPException(status_code=400, detail="Default employee cannot be deleted")
     bindings = db.exec(
         select(AgentResourceBinding).where(AgentResourceBinding.agent_id == row.id)
     ).all()
@@ -612,7 +614,11 @@ def list_chat_agents(
         )
         .order_by(AgentProfile.updated_at.desc())
     ).all()
-    rows = [row for row in rows if not _agent_hidden_from_staffdeck(row)]
+    rows = [
+        row
+        for row in rows
+        if not _agent_hidden_from_staffdeck(row) or _platform_assistant(row)
+    ]
     used_agent_ids = _used_agent_ids_for_user(db, tenant_id, current_user)
     rows = [
         row for row in rows if _chat_agent_selectable_to_user(row, current_user, used_agent_ids)
@@ -847,6 +853,10 @@ def _agent_hidden_from_staffdeck(row: AgentProfile) -> bool:
     return (row.metadata_json or {}).get("hidden_from_staffdeck") is True
 
 
+def _platform_assistant(row: AgentProfile) -> bool:
+    return (row.metadata_json or {}).get("platform_assistant") is True
+
+
 def _agent_published_to_gallery(row: AgentProfile) -> bool:
     return (row.metadata_json or {}).get("published_to_gallery") is True
 
@@ -902,6 +912,8 @@ def _mark_agent_used(db: Session, tenant_id: str, user: User, agent_id: str) -> 
 def _chat_agent_selectable_to_user(row: AgentProfile, user: User, used_agent_ids: set[str]) -> bool:
     if row.is_overall:
         return False
+    if _platform_assistant(row):
+        return True
     if _agent_owned_by_user(row, user):
         return True
     if _agent_published_to_gallery(row):

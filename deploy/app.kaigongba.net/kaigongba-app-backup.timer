@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Kai Gong Ba backup
+
+[Timer]
+OnCalendar=*-*-* 03:25:00
+Persistent=true
+RandomizedDelaySec=15m
+Unit=kaigongba-app-backup.service
+
+[Install]
+WantedBy=timers.target

@@ -9,7 +9,7 @@
   "normalization_profile": "agent-golden-v1",
   "source": {
     "kind": "captured_runtime",
-    "repo_revision": "ea475130dc3ba6dddd08d3456769d4062f73b75b",
+    "repo_revision": "3e0fdf79c11b7a63a7a52874f70af12f6221185c",
     "artifacts": [
       {
         "path": "backend/tests/agent_golden/fixture_writer.py",
@@ -25,7 +25,7 @@
       },
       {
         "path": "backend/tests/agent_golden/support.py",
-        "sha256": "sha256:8396ad2520dbeaa8aa4c796c39296dadd5465dc906c9d38596efdc29a6696869"
+        "sha256": "sha256:3b56c82993b54e8d4b4aaf619526d626711ff9aa7140eec960b2ed00c60a445a"
       },
       {
         "path": "backend/tests/agent_golden/scripted_dependencies.py",

@@ -32,6 +32,11 @@ import {
   preferredEmployeeAgent,
   staffdeckDisplayText,
 } from '../../employee';
+import {
+  emitAgentScopeChange,
+  persistSharedAgentScope,
+  readSharedAgentScope,
+} from '../../lib/agent-scope-storage';
 import type {
   AgentProfileRead,
   AgentWorkRecordEventRead,
@@ -45,8 +50,6 @@ import type {
   SkillRead,
   ToolRead,
 } from '../../types';
-
-const ENTERPRISE_AGENT_STORAGE_KEY = 'ultrarag_enterprise_agent_scope';
 
 export default function DashboardPage({
   currentUser,
@@ -71,14 +74,14 @@ export default function DashboardPage({
   const [scheduledTasks, setScheduledTasks] = useState<ScheduledTaskRead[]>([]);
   const [replyStats, setReplyStats] = useState<ReplyStats>({ total: 0, today: 0, byDay: {} });
   const [activityEvents, setActivityEvents] = useState<AgentWorkRecordEventRead[]>([]);
-  const [agentId, setAgentId] = useState(() => window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '');
+  const [agentId, setAgentId] = useState(() => readSharedAgentScope());
   const [avatarEditorOpen, setAvatarEditorOpen] = useState(false);
   const [profileEditorOpen, setProfileEditorOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     const onScopeChange = (event: Event) => {
-      setAgentId((event as CustomEvent<{ agentId?: string }>).detail?.agentId || window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '');
+      setAgentId((event as CustomEvent<{ agentId?: string }>).detail?.agentId || readSharedAgentScope());
     };
     window.addEventListener('ultrarag-enterprise-agent-scope-change', onScopeChange);
     return () => window.removeEventListener('ultrarag-enterprise-agent-scope-change', onScopeChange);
@@ -117,8 +120,8 @@ export default function DashboardPage({
               || preferredEmployeeAgent(visibleAgents)?.id
               || '';
           if (next) {
-            window.localStorage.setItem(ENTERPRISE_AGENT_STORAGE_KEY, next);
-            window.dispatchEvent(new CustomEvent('ultrarag-enterprise-agent-scope-change', { detail: { agentId: next } }));
+            persistSharedAgentScope(next, currentUser?.id);
+            emitAgentScopeChange(next);
             setAgentId(next);
           }
         }
@@ -172,7 +175,7 @@ export default function DashboardPage({
   const negativeFeedback = skills.reduce((sum, item) => sum + (item.total_negative_feedback_count || 0), 0);
   const visibleKnowledgeBases = knowledgeBases.filter((item) => !isEmptyDefaultKnowledgeBase(item));
 
-  // Avoid flashing the 开放广场 / empty state before the agents API resolves,
+  // Avoid flashing the 公司广场 / empty state before the agents API resolves,
   // which would otherwise briefly render before the employee profile appears.
   if (!loaded && agents.length === 0) {
     return <div className="page dashboard-page" />;
@@ -199,12 +202,12 @@ export default function DashboardPage({
     return (
       <div className="page dashboard-page">
         <div className="page-title">
-          <h3>开放广场</h3>
+          <h3>公司广场</h3>
         </div>
         <section className="employee-hero org-hero">
           <div>
-            <span className="section-kicker">开放广场</span>
-            <h2 className="ui-typography">开放广场</h2>
+            <span className="section-kicker">公司广场</span>
+            <h2 className="ui-typography">公司广场</h2>
             <p className="ui-typography">
               汇集所有可共享的 SOP、知识库、技能和工具，新建数字员工时可以从这里复制配置作为起点。
             </p>

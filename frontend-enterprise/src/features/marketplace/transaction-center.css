@@ -1,0 +1,116 @@
+.transaction-center-page { padding-bottom: 40px; }
+.transaction-center-intro,
+.transaction-finance-card,
+.transaction-center-stats,
+.transaction-center-section { width: min(1180px, calc(100% - 48px)); margin-inline: auto; }
+.transaction-center-intro { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 16px; }
+.transaction-center-intro h1 { margin: 0; font-size: 20px; }
+.transaction-center-intro p { margin: 6px 0 0; color: #757f9c; font-size: 12px; }
+.transaction-center-intro > span { display: inline-flex; align-items: center; gap: 5px; border-radius: 20px; padding: 6px 10px; background: #eef8f2; color: #287b51; font-size: 10px; white-space: nowrap; }
+.transaction-center-intro > span svg { width: 14px; }
+
+.transaction-finance-card { overflow: hidden; border: 1px solid #e8ebef; border-radius: 18px; background: #fff; }
+.transaction-finance-card > header { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 18px 20px 14px; }
+.transaction-finance-card h2,
+.transaction-center-section h2 { margin: 0; color: #20242d; font-size: 16px; }
+.transaction-finance-card header p,
+.transaction-center-section header p { margin: 5px 0 0; color: #828a9b; font-size: 10px; }
+.transaction-period-switch { display: flex; gap: 3px; padding: 3px; border-radius: 9px; background: #f1f2f5; }
+.transaction-period-switch button { min-width: 54px; border: 0; border-radius: 7px; padding: 6px 9px; background: transparent; color: #7b8393; font-size: 10px; cursor: pointer; }
+.transaction-period-switch button.is-active { background: #fff; color: #20242d; font-weight: 650; box-shadow: 0 2px 6px rgba(30, 37, 49, .07); }
+.transaction-finance-primary { display: grid; grid-template-columns: repeat(3, 1fr); border-block: 1px solid #edf0f3; }
+.transaction-finance-primary article { display: flex; align-items: center; gap: 13px; min-height: 116px; padding: 20px; border-right: 1px solid #edf0f3; }
+.transaction-finance-primary article:last-child { border-right: 0; }
+.transaction-finance-primary article > span { display: grid; width: 42px; height: 42px; place-items: center; flex: none; border-radius: 13px; background: #f2f5f8; color: #667186; }
+.transaction-finance-primary article > span svg { width: 20px; }
+.transaction-finance-primary article.is-income > span { background: #edf8f2; color: #26845a; }
+.transaction-finance-primary article.is-expense > span { background: #fff3eb; color: #c16a2f; }
+.transaction-finance-primary article.is-negative > span { background: #fff0ef; color: #bf554e; }
+.transaction-finance-primary article > div { display: flex; flex-direction: column; gap: 4px; }
+.transaction-finance-primary small { color: #7c8495; font-size: 10px; }
+.transaction-finance-primary strong { color: #20242d; font-size: 24px; line-height: 1.15; }
+.transaction-finance-primary .is-income strong { color: #238358; }
+.transaction-finance-primary .is-negative strong { color: #bb4f49; }
+.transaction-finance-primary em { color: #a0a6b2; font-size: 9px; font-style: normal; }
+.transaction-finance-secondary { display: grid; grid-template-columns: repeat(4, 1fr); background: #fafbfc; }
+.transaction-finance-secondary article { display: flex; flex-direction: column; gap: 4px; padding: 13px 20px; border-right: 1px solid #edf0f3; }
+.transaction-finance-secondary article:last-child { border-right: 0; }
+.transaction-finance-secondary small { color: #7c8495; font-size: 9px; }
+.transaction-finance-secondary strong { color: #353b48; font-size: 15px; }
+.transaction-finance-secondary em { color: #a0a6b2; font-size: 8px; font-style: normal; }
+
+.transaction-center-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 14px; }
+.transaction-center-stats > * { position: relative; display: grid; grid-template-columns: 38px 1fr auto; grid-template-rows: auto auto; align-items: center; gap: 2px 10px; min-height: 88px; border: 1px solid #eaedf2; border-radius: 14px; padding: 13px 15px; background: #fff; color: inherit; text-align: left; }
+.transaction-center-stats button { cursor: pointer; }
+.transaction-center-stats > * > span { display: grid; grid-row: 1 / 3; width: 38px; height: 38px; place-items: center; border-radius: 11px; background: #f3f5f8; color: #687386; }
+.transaction-center-stats > * > span svg { width: 18px; }
+.transaction-center-stats small { color: #7d8594; font-size: 9px; }
+.transaction-center-stats strong { grid-column: 3; grid-row: 1 / 3; font-size: 24px; }
+.transaction-center-stats em { grid-column: 2; color: #9ba2af; font-size: 8px; font-style: normal; }
+.transaction-center-stats > * > svg { position: absolute; right: 8px; bottom: 7px; width: 12px; color: #a2a8b3; }
+
+.transaction-center-section { margin-top: 26px; }
+.transaction-center-section > header { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 11px; }
+.transaction-center-section > header > button { display: inline-flex; align-items: center; gap: 4px; border: 0; background: transparent; color: #5f6c80; font-size: 10px; cursor: pointer; }
+.transaction-center-section > header > button svg { width: 13px; }
+.transaction-action-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.transaction-action-strip > button { display: flex; min-height: 132px; flex-direction: column; border: 1px solid #e9edf2; border-radius: 14px; padding: 14px 15px; background: #fff; color: inherit; text-align: left; cursor: pointer; }
+.transaction-action-strip header { display: flex; align-items: center; justify-content: space-between; }
+.transaction-action-strip header span,
+.transaction-action-strip header em { border-radius: 20px; padding: 3px 7px; background: #eef4fb; color: #4874a6; font-size: 8px; font-style: normal; }
+.transaction-action-strip header em.is-high { background: #fff0ef; color: #b9514b; }
+.transaction-action-strip > button > strong { margin-top: 11px; font-size: 12px; }
+.transaction-action-strip p { overflow: hidden; margin: 5px 0 10px; color: #7b8394; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.transaction-action-strip footer { display: flex; justify-content: space-between; margin-top: auto; color: #9299a6; font-size: 8px; }
+.transaction-action-strip footer em { font-style: normal; }
+.transaction-inline-empty { display: flex; min-height: 90px; align-items: center; justify-content: center; gap: 7px; border: 1px dashed #dfe4ea; border-radius: 14px; background: #fff; color: #8d95a4; font-size: 10px; }
+.transaction-inline-empty svg { width: 16px; }
+
+.transaction-center-filters { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
+.transaction-center-filters label { display: flex; min-width: 260px; flex: 1; align-items: center; gap: 7px; border: 1px solid #e1e5eb; border-radius: 9px; padding: 8px 10px; background: #fff; }
+.transaction-center-filters label svg { width: 14px; color: #8c94a2; }
+.transaction-center-filters input { min-width: 0; flex: 1; border: 0; outline: 0; font-size: 10px; }
+.transaction-center-filters select { min-width: 108px; border: 1px solid #e1e5eb; border-radius: 9px; padding: 8px 10px; background: #fff; color: #5e6677; font-size: 10px; }
+.transaction-center-filters > span { color: #8b92a1; font-size: 9px; }
+.transaction-center-orders { overflow: hidden; border: 1px solid #e7eaf0; border-radius: 14px; background: #fff; }
+.transaction-center-orders > header,
+.transaction-center-orders > button { display: grid; grid-template-columns: minmax(190px, 1.25fr) minmax(120px, .8fr) 90px minmax(130px, .9fr) minmax(110px, .75fr) 90px 18px; align-items: center; gap: 12px; }
+.transaction-center-orders > header { min-height: 36px; padding: 0 15px; background: #f7f8fa; color: #7f8796; font-size: 8px; }
+.transaction-center-orders > button { width: 100%; min-height: 84px; border: 0; border-top: 1px solid #edf0f3; padding: 12px 15px; background: #fff; color: inherit; text-align: left; cursor: pointer; }
+.transaction-center-orders > button:hover { background: #fbfcfe; }
+.transaction-center-orders > button > span { display: flex; min-width: 0; flex-direction: column; gap: 4px; }
+.transaction-center-orders > button > span > strong { overflow: hidden; color: #353b48; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.transaction-center-orders > button > span > small,
+.transaction-center-orders > button > span > em { overflow: hidden; color: #8a92a2; font-size: 8px; font-style: normal; text-overflow: ellipsis; white-space: nowrap; }
+.transaction-center-orders > button > span > i { align-self: flex-start; border-radius: 20px; padding: 3px 7px; background: #edf4fb; color: #4674a6; font-size: 8px; font-style: normal; }
+.transaction-center-orders > button > span > i.is-provider { background: #edf8f2; color: #2c7b55; }
+.transaction-center-orders > button > svg { width: 14px; color: #9ba2ae; }
+.transaction-order-main strong { font-size: 11px !important; }
+
+.transaction-center-empty { display: flex; width: min(1180px, calc(100% - 48px)); min-height: 250px; align-items: center; justify-content: center; flex-direction: column; margin: 20px auto; border: 1px dashed #dfe4ea; border-radius: 16px; background: #fff; color: #979eaa; }
+.transaction-center-empty svg { width: 30px; }
+.transaction-center-empty strong { margin-top: 9px; color: #515867; font-size: 13px; }
+.transaction-center-empty span { margin-top: 4px; font-size: 10px; }
+.transaction-center-empty.is-inline { width: 100%; min-height: 160px; margin: 0; }
+
+@media (max-width: 1050px) {
+  .transaction-center-stats { grid-template-columns: repeat(2, 1fr); }
+  .transaction-center-orders { overflow-x: auto; }
+  .transaction-center-orders > header,
+  .transaction-center-orders > button { min-width: 880px; }
+}
+
+@media (max-width: 760px) {
+  .transaction-center-intro,
+  .transaction-finance-card,
+  .transaction-center-stats,
+  .transaction-center-section { width: calc(100% - 28px); }
+  .transaction-center-intro { align-items: flex-start; flex-direction: column; }
+  .transaction-finance-primary,
+  .transaction-finance-secondary { grid-template-columns: 1fr; }
+  .transaction-finance-primary article,
+  .transaction-finance-secondary article { border-right: 0; border-bottom: 1px solid #edf0f3; }
+  .transaction-action-strip { grid-template-columns: 1fr; }
+  .transaction-center-filters { align-items: stretch; flex-wrap: wrap; }
+  .transaction-center-filters label { min-width: 100%; }
+}

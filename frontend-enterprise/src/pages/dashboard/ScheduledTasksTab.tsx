@@ -16,12 +16,12 @@ import IconAlignJustify from '../../assets/icons/align-justify.svg?react';
 import IconAlarm from '../../assets/icons/profile-alarm.svg?react';
 import IconSearch from '../../assets/icons/search.svg?react';
 import { useClientPagination } from '../../hooks/useClientPagination';
+import { readSharedAgentScope } from '../../lib/agent-scope-storage';
 import type { AgentProfileRead, ScheduledTaskRead, ScheduledTaskRunRead } from '../../types';
 import { StatusBadge, TaskRunResultBadge, TaskStatusBadge } from '../scheduled-tasks/StatusBadge';
 import { TaskActionsMenu } from '../scheduled-tasks/TaskActionsMenu';
 import { TaskSection } from '../scheduled-tasks/TaskSection';
 import {
-  ENTERPRISE_AGENT_STORAGE_KEY,
   RUN_FILTER_TABS,
   TASK_FILTER_TABS,
   TASK_PAGE_SIZE,
@@ -50,7 +50,7 @@ export default function ScheduledTasksTab() {
   const [rows, setRows] = useState<ScheduledTaskRead[]>([]);
   const [agents, setAgents] = useState<AgentProfileRead[]>([]);
   const [agentId, setAgentId] = useState(
-    () => window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '',
+    () => readSharedAgentScope(),
   );
   const [loading, setLoading] = useState(false);
   const [runsOpen, setRunsOpen] = useState(false);
@@ -70,8 +70,7 @@ export default function ScheduledTasksTab() {
     const onScopeChange = (event: Event) => {
       const nextAgentId =
         (event as CustomEvent<{ agentId?: string }>).detail?.agentId ||
-        window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) ||
-        '';
+        readSharedAgentScope();
       setAgentId(nextAgentId);
     };
     window.addEventListener('ultrarag-enterprise-agent-scope-change', onScopeChange);

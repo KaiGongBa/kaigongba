@@ -1,0 +1,72 @@
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: kaigongba
+      POSTGRES_USER: kaigongba
+      POSTGRES_PASSWORD: ${KGB_POSTGRES_PASSWORD:-kaigongba-dev-only}
+    ports:
+      - "${KGB_POSTGRES_PORT:-55432}:5432"
+    volumes:
+      - phase3i_postgres_data:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kaigongba -d kaigongba"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${KGB_MINIO_ACCESS_KEY:-kaigongba}
+      MINIO_ROOT_PASSWORD: ${KGB_MINIO_SECRET_KEY:-kaigongba-dev-only}
+    ports:
+      - "${KGB_MINIO_PORT:-59000}:9000"
+      - "${KGB_MINIO_CONSOLE_PORT:-59001}:9001"
+    volumes:
+      - phase3i_minio_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "/config/create-bucket.sh"]
+    environment:
+      MINIO_ROOT_USER: ${KGB_MINIO_ACCESS_KEY:-kaigongba}
+      MINIO_ROOT_PASSWORD: ${KGB_MINIO_SECRET_KEY:-kaigongba-dev-only}
+      MINIO_BUCKET: ${KGB_MINIO_BUCKET:-kaigongba-order-files}
+    volumes:
+      - ./minio/create-bucket.sh:/config/create-bucket.sh:ro
+
+  redis:
+    image: redis:7
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - ${KGB_REDIS_PASSWORD:-kaigongba-dev-only}
+    environment:
+      REDISCLI_AUTH: ${KGB_REDIS_PASSWORD:-kaigongba-dev-only}
+    ports:
+      - "${KGB_REDIS_PORT:-56379}:6379"
+    volumes:
+      - phase3i_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  phase3i_postgres_data:
+  phase3i_minio_data:
+  phase3i_redis_data:

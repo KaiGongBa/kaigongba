@@ -9,7 +9,7 @@
   "normalization_profile": "agent-golden-v1",
   "source": {
     "kind": "captured_runtime",
-    "repo_revision": "ea475130dc3ba6dddd08d3456769d4062f73b75b",
+    "repo_revision": "3e0fdf79c11b7a63a7a52874f70af12f6221185c",
     "artifacts": [
       {
         "path": "backend/tests/agent_golden/fixture_writer.py",
@@ -25,7 +25,7 @@
       },
       {
         "path": "backend/tests/agent_golden/support.py",
-        "sha256": "sha256:8396ad2520dbeaa8aa4c796c39296dadd5465dc906c9d38596efdc29a6696869"
+        "sha256": "sha256:3b56c82993b54e8d4b4aaf619526d626711ff9aa7140eec960b2ed00c60a445a"
       },
       {
         "path": "backend/tests/agent_golden/scripted_dependencies.py",
@@ -46,7 +46,7 @@
     "interaction_id": "absent",
     "run_id": "absent"
   },
-  "content_hash": "sha256:d0265e18d7d73a9ea3442b23c0d38e2fcee64c37b64a8ba60b5cf46f6295f1b2",
+  "content_hash": "sha256:74997b947ba82a4bd1f6d0abec958a0dd49647bcf9c2c0de29d0abde0fd34e2a",
   "joins": [],
   "happens_before": [
     {
@@ -125,7 +125,7 @@
           "code": "LLM_ERROR",
           "message": "scripted failure at Router",
           "client_turn_id": "client-llm-error",
-          "error_traceback": "Traceback (most recent call last):\n  File \"<repo>/backend/app/core/agent_loop.py\", line <line>, in handle_turn_stream\n    router_decision = self.router.decide(\n                      ^^^^^^^^^^^^^^^^^^^\n  File \"<repo>/backend/app/core/router.py\", line <line>, in decide\n    raw = LLMClient(model_config).generate_json(\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<repo>/backend/tests/agent_golden/scripted_dependencies.py\", line <line>, in generate_json\n    self._raise_if_scripted(phase)\n  File \"<repo>/backend/tests/agent_golden/scripted_dependencies.py\", line <line>, in _raise_if_scripted\n    raise LLMError(f\"scripted failure at {phase}\")\napp.llm.client.LLMError: scripted failure at Router\n",
+          "error_traceback": "Traceback (most recent call last):\n  File \"<repo>/backend/app/core/agent_loop.py\", line <line>, in handle_turn_stream\n  File \"<repo>/backend/app/core/router.py\", line <line>, in decide\n  File \"<repo>/backend/tests/agent_golden/scripted_dependencies.py\", line <line>, in generate_json\n  File \"<repo>/backend/tests/agent_golden/scripted_dependencies.py\", line <line>, in _raise_if_scripted\napp.llm.client.LLMError: scripted failure at Router\n",
           "user_message_id": "<id:0001>",
           "turn_id": "<id:0001>"
         }

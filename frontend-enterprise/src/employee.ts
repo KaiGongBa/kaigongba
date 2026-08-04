@@ -310,7 +310,7 @@ export function employeeProfile(agent?: AgentProfileRead | null): EmployeeProfil
     : 'preset';
   return {
     roleKey: stringFromMeta(metadata, 'role_key') || template?.key || '',
-    roleName: isOverall ? '开放广场' : stringFromMeta(metadata, 'role_name') || template?.roleName || '待补充岗位',
+    roleName: isOverall ? '公司广场' : stringFromMeta(metadata, 'role_name') || template?.roleName || '待补充岗位',
     avatarText: isOverall ? '广' : stringFromMeta(metadata, 'avatar_text') || preset.text || template?.avatarText || '员',
     avatarTone: isOverall ? 'overall' : stringFromMeta(metadata, 'avatar_tone') || preset.tone || template?.avatarTone || 'teal',
     avatarKind: isOverall ? 'preset' : avatarKind,
@@ -325,7 +325,7 @@ export function employeeProfile(agent?: AgentProfileRead | null): EmployeeProfil
 
 export function employeeDisplayName(agent?: AgentProfileRead | null): string {
   if (!agent) return '数字员工';
-  if (agent.is_overall) return '开放广场';
+  if (agent.is_overall) return '公司广场';
   return agent.name || '数字员工';
 }
 
@@ -361,7 +361,14 @@ export function visibleChatEmployees(
   rows: AgentProfileRead[],
   user?: EnterpriseAuthUser | null,
 ): AgentProfileRead[] {
-  return currentEmployeeAgents(rows, user, { activeOnly: true });
+  return currentEmployeeAgents(rows, user, { activeOnly: true })
+    .filter((agent) => !isPlatformAssistantAgent(agent));
+}
+
+export function isPlatformAssistantAgent(
+  agent?: Pick<AgentProfileRead, 'metadata'> | null,
+): boolean {
+  return agent?.metadata?.platform_assistant === true;
 }
 
 export function agentResourceCount(agent: AgentProfileRead, resourceType: AgentResourceType): number {

@@ -101,6 +101,8 @@ class LegacyConversationProjection:
             metadata["interaction_mode"] = "scheduled_task"
         if request.model_config_id:
             metadata["model_config_id"] = request.model_config_id
+        if request.model_product_id:
+            metadata["model_product_id"] = request.model_product_id
         if request.attachments:
             metadata["attachments"] = [
                 item.model_dump(mode="json") for item in request.attachments

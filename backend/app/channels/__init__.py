@@ -5,8 +5,11 @@ import os
 import threading
 import time
 from contextlib import contextmanager
+from hashlib import sha256
 from pathlib import Path
-from typing import IO
+from typing import IO, Any
+
+from sqlalchemy import text
 
 from app.config import get_settings
 
@@ -20,25 +23,69 @@ _dingtalk_stream_manager = None
 _binding_lifecycle_locks: dict[str, threading.RLock] = {}
 _binding_lifecycle_locks_guard = threading.Lock()
 _connector_lock_file: IO[bytes] | None = None
+_connector_lock_connection: Any | None = None
+_connector_lock_key: int | None = None
 _connector_lock_pid: int | None = None
 _intake_sweep_thread: threading.Thread | None = None
 
 
 def _acquire_connector_process_lock() -> bool:
-    global _connector_lock_file, _connector_lock_pid
+    global _connector_lock_connection, _connector_lock_file, _connector_lock_key
+    global _connector_lock_pid
     current_pid = os.getpid()
-    if _connector_lock_file is not None and _connector_lock_pid == current_pid:
+    if (
+        (_connector_lock_file is not None or _connector_lock_connection is not None)
+        and _connector_lock_pid == current_pid
+    ):
         return True
     if _connector_lock_file is not None:
         # preload 后 fork 的子进程不能把继承句柄当作自己已持有锁。
         _connector_lock_file.close()
         _connector_lock_file = None
         _connector_lock_pid = None
+    if _connector_lock_connection is not None:
+        # PostgreSQL advisory lock 属于连接会话；fork 子进程只关闭继承句柄，
+        # 不应把父进程仍在使用的锁当作自己的锁。
+        _connector_lock_connection.close()
+        _connector_lock_connection = None
+        _connector_lock_key = None
+        _connector_lock_pid = None
     from app.db import engine
 
+    backend_name = engine.url.get_backend_name()
     database_path = engine.url.database
-    if engine.url.get_backend_name() != "sqlite" or not database_path or database_path == ":memory:":
-        logger.error("渠道服务要求文件 SQLite 进程锁；当前数据库不支持可靠的单实例 Outbox")
+
+    if backend_name == "postgresql":
+        lock_identity = f"staffdeck-channel-connector:{database_path or ''}"
+        lock_key = int.from_bytes(
+            sha256(lock_identity.encode("utf-8")).digest()[:8],
+            byteorder="big",
+            signed=True,
+        )
+        connection = engine.connect()
+        try:
+            acquired = bool(
+                connection.execute(
+                    text("SELECT pg_try_advisory_lock(:lock_key)"),
+                    {"lock_key": lock_key},
+                ).scalar_one()
+            )
+        except Exception:
+            connection.close()
+            raise
+        if not acquired:
+            connection.close()
+            return False
+        _connector_lock_connection = connection
+        _connector_lock_key = lock_key
+        _connector_lock_pid = current_pid
+        return True
+
+    if backend_name != "sqlite" or not database_path or database_path == ":memory:":
+        logger.error(
+            "渠道服务仅支持 PostgreSQL advisory lock 或文件 SQLite 进程锁；"
+            "当前数据库不能保证单实例 Outbox"
+        )
         return False
     lock_path = Path(database_path).resolve().with_name(f"{Path(database_path).name}.connector.lock")
     handle = lock_path.open("a+b")
@@ -65,7 +112,23 @@ def _acquire_connector_process_lock() -> bool:
 
 
 def _release_connector_process_lock() -> None:
-    global _connector_lock_file, _connector_lock_pid
+    global _connector_lock_connection, _connector_lock_file, _connector_lock_key
+    global _connector_lock_pid
+    connection = _connector_lock_connection
+    if connection is not None:
+        try:
+            if _connector_lock_pid == os.getpid() and _connector_lock_key is not None:
+                connection.execute(
+                    text("SELECT pg_advisory_unlock(:lock_key)"),
+                    {"lock_key": _connector_lock_key},
+                )
+        finally:
+            connection.close()
+            _connector_lock_connection = None
+            _connector_lock_key = None
+            _connector_lock_pid = None
+        return
+
     handle = _connector_lock_file
     if handle is None:
         return
@@ -133,9 +196,9 @@ def channel_services_enabled() -> bool:
 
 def _ensure_adapters_registered() -> None:
     # 各适配器模块导入即自注册(模块级 register_channel_adapter)
-    import app.channels.adapters.feishu  # noqa: F401
-    import app.channels.adapters.dingtalk  # noqa: F401
-    import app.channels.adapters.wechat  # noqa: F401
+    import app.channels.adapters.dingtalk
+    import app.channels.adapters.feishu
+    import app.channels.adapters.wechat
     import app.channels.adapters.wecom  # noqa: F401
 
 

@@ -22,18 +22,27 @@ import {
   type StreamEvent,
 } from '@/api/client';
 import { clearEnterpriseAuthSession, getEnterpriseAuthSession } from '@/auth';
-import { emitAgentScopeChange, persistSharedAgentScope } from '@/lib/agent-scope-storage';
+import {
+  emitAgentScopeChange,
+  persistSessionFilter,
+  persistSharedAgentScope,
+  readSessionFilter,
+  readSharedAgentScope,
+} from '@/lib/agent-scope-storage';
 import { getClientTimeZone } from '@/lib/timezone';
 import {
   agentResourceCount,
   employeeDisplayName,
   employeeDisplayNameWithCreator,
   employeeProfile,
+  isPlatformAssistantAgent,
   visibleChatEmployees,
 } from '@/employee';
 import { notify } from '@/components/ui/app-toast';
 import { useI18n } from '@/i18n';
 import type {
+  AICapabilityStatusRead,
+  AIModelOptionsRead,
   AgentProfileRead,
   ChatAttachmentRead,
   ChatMessage,
@@ -55,7 +64,6 @@ import {
   CHAT_STREAM_HEARTBEAT_GRACE_MS,
   HIDDEN_GENERAL_SKILL_TRACE_PHASES,
   RUNNING_EVENT_RECOVERY_WINDOW_MS,
-  SELECTED_AGENT_STORAGE_KEY,
   STREAM_TERMINAL_EVENTS,
   attachTurnIdsToServerMessages,
   buildTurnAliasMap,
@@ -102,7 +110,6 @@ import {
   routerDecisionTraceLine,
   sameRoleTurn,
   scheduledDraftForMessage,
-  sessionFilterStorageKey,
   shouldKeepRealtimeMessage,
   stepResultTraceLine,
   streamErrorTraceLine,
@@ -114,6 +121,7 @@ import {
   upsertStreamingTracePlaceholder,
   upsertTraceStatusPlaceholder,
 } from './chatHelpers';
+
 import {
   createEmptySlot,
   createStreamSlot,
@@ -132,6 +140,7 @@ import {
   type PreparedChatTurn,
 } from './chatQueueStorage';
 
+const AI_CAPABILITIES_UPDATED_EVENT = 'kaigongba-ai-capabilities-updated';
 const CHAT_BASE_PATH = '/workspace/chat';
 const STREAM_TEXT_EVENTS = new Set(['stream_replace', 'stream_delta', 'token']);
 const STREAM_RELAY_RECOVERY_POLL_INTERVAL_MS = 5 * 1000;
@@ -143,6 +152,7 @@ const SCHEDULE_WEEKDAY_LABELS = ['周一', '周二', '周三', '周四', '周五
 const ENTERPRISE_SIDEBAR_STORAGE_KEY = 'ultrarag_enterprise_sidebar_expanded';
 const MISSING_MODEL_CONFIG_PATTERN = /missing_model_config|missing model config|没有默认模型配置|没有可用模型|模型配置不存在|模型未配置/i;
 const MODEL_CONFIGS_UPDATED_EVENT = 'ultrarag-enterprise-model-configs-updated';
+const MODEL_OPTION_STORAGE_PREFIX = 'kaigongba_chat_model_option';
 const ONBOARDING_SEEN_KEY = 'staffdeck_onboarding_guide_seen';
 const QUICK_START_SEEN_KEY = 'staffdeck_quick_start_guide_seen';
 
@@ -163,6 +173,10 @@ function isMissingModelConfigurationError(value: unknown): boolean {
 
 function chatSessionPath(id: string): string {
   return `${CHAT_BASE_PATH}/${id}`;
+}
+
+function modelOptionStorageKey(tenantId: string): string {
+  return `${MODEL_OPTION_STORAGE_PREFIX}:${tenantId}`;
 }
 
 function queuedTurnPreview(turn: PreparedChatTurn): ChatMessage {
@@ -293,12 +307,16 @@ export type UseChatSessionOptions = {
    * `window.location.href = '/'`.
    */
   anonymous?: boolean;
+  sessionId?: string;
+  draftAgentId?: string;
 };
 
 export function useChatSession(options: UseChatSessionOptions = {}) {
   const { anonymous = false } = options;
   const { t } = useI18n();
-  const { sessionId, draftAgentId } = useParams<{ sessionId?: string; draftAgentId?: string }>();
+  const routeParams = useParams<{ sessionId?: string; draftAgentId?: string }>();
+  const sessionId = options.sessionId ?? routeParams.sessionId;
+  const draftAgentId = options.draftAgentId ?? routeParams.draftAgentId;
   const navigate = useNavigate();
   const [auth] = useState(() => getEnterpriseAuthSession());
   const tenantId = auth?.user.tenant_id || TENANT_ID;
@@ -312,18 +330,29 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
   const [sessionReadTimes, setSessionReadTimes] = useState<Record<string, string>>(() => loadSessionReadTimes(userId));
   const [agents, setAgents] = useState<AgentProfileRead[]>([]);
   const [agentsLoaded, setAgentsLoaded] = useState(false);
-  const [selectedAgentId, setSelectedAgentId] = useState(() => window.localStorage.getItem(SELECTED_AGENT_STORAGE_KEY) || '');
+  const [selectedAgentId, setSelectedAgentId] = useState(() => readSharedAgentScope());
   const [sessionAgentFilter, setSessionAgentFilter] = useState(() => (
-    window.localStorage.getItem(sessionFilterStorageKey(userId))
-    || window.localStorage.getItem(SELECTED_AGENT_STORAGE_KEY)
+    readSessionFilter(userId)
+    || readSharedAgentScope()
     || 'all'
   ));
   const [modelConfigs, setModelConfigs] = useState<ModelConfigRead[]>([]);
-  const [selectedModelConfigId, setSelectedModelConfigId] = useState(
+  const [, setSelectedModelConfigId] = useState(
     () => window.localStorage.getItem(modelStorageKey(tenantId)) || '',
   );
+  const [modelOptions, setModelOptions] = useState<AIModelOptionsRead>({
+    smart_match_available: false,
+    platform_models: [],
+    enterprise_models: [],
+  });
+  const [selectedModelChoice, setSelectedModelChoice] = useState(
+    () => window.localStorage.getItem(modelOptionStorageKey(tenantId)) || 'auto',
+  );
+  const [modelOptionsLoading, setModelOptionsLoading] = useState(Boolean(auth));
   const [modelConfigsLoading, setModelConfigsLoading] = useState(Boolean(auth));
   const [modelConfigsLoadError, setModelConfigsLoadError] = useState('');
+  const [aiCapabilityStatus, setAiCapabilityStatus] = useState<AICapabilityStatusRead | null>(null);
+  const [aiCapabilityLoading, setAiCapabilityLoading] = useState(Boolean(auth));
   const [modelSetupOpen, setModelSetupOpen] = useState(false);
   const [input, setInput] = useState('');
   const [composerAttachments, setComposerAttachments] = useState<ComposerAttachment[]>([]);
@@ -347,7 +376,7 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
   const persistChatSessionAgentFilter = useCallback((value: string) => {
     const next = value || 'all';
     setSessionAgentFilter(next);
-    window.localStorage.setItem(sessionFilterStorageKey(userId), next);
+    persistSessionFilter(userId, next);
   }, [userId]);
   const [activeCitation, setActiveCitation] = useState<KnowledgeCitation | null>(null);
   const [handoffs, setHandoffs] = useState<HumanHandoffRead[]>([]);
@@ -493,7 +522,24 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
     });
   }, [userId]);
 
-  const currentSession = sessionId ? sessions.find((item) => item.id === sessionId) || null : null;
+  const platformAssistantAgentIds = useMemo(
+    () => new Set(agents.filter(isPlatformAssistantAgent).map((agent) => agent.id)),
+    [agents],
+  );
+  const employeeSessions = useMemo(
+    () => sessions.filter((item) => !item.agent_id || !platformAssistantAgentIds.has(item.agent_id)),
+    [platformAssistantAgentIds, sessions],
+  );
+  const routeTargetsPlatformAssistant = Boolean(
+    sessionId && sessions.some((item) => (
+      item.id === sessionId
+      && item.agent_id
+      && platformAssistantAgentIds.has(item.agent_id)
+    )),
+  );
+  const currentSession = sessionId
+    ? employeeSessions.find((item) => item.id === sessionId) || null
+    : null;
   const availableAgents = visibleChatEmployees(agents, auth?.user);
   const explicitDraftAgentId = draftAgentId || '';
   const routeDraftAgent = explicitDraftAgentId
@@ -539,46 +585,77 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
     ];
   const sessionFilterOptions = useMemo(() => {
     const counts = new Map<string, number>();
-    sessions.forEach((session) => {
+    employeeSessions.forEach((session) => {
       if (!session.agent_id) return;
       counts.set(session.agent_id, (counts.get(session.agent_id) || 0) + 1);
     });
     const rows = availableAgents
       .sort((a, b) => employeeDisplayName(a).localeCompare(employeeDisplayName(b), 'zh-Hans-CN'));
     return [
-      { value: 'all', label: `全部会话 · ${sessions.length}` },
+      { value: 'all', label: `全部会话 · ${employeeSessions.length}` },
       ...rows.map((agent) => ({
         value: agent.id,
         label: `${employeeDisplayNameWithCreator(agent)} · ${counts.get(agent.id) || 0}`,
       })),
     ];
-  }, [availableAgents, sessions]);
+  }, [availableAgents, employeeSessions]);
   const visibleSidebarSessions = useMemo(() => (
     sessionAgentFilter === 'all'
-      ? sessions
-      : sessions.filter((session) => session.agent_id === sessionAgentFilter)
-  ), [sessionAgentFilter, sessions]);
+      ? employeeSessions
+      : employeeSessions.filter((session) => session.agent_id === sessionAgentFilter)
+  ), [employeeSessions, sessionAgentFilter]);
+
+  useEffect(() => {
+    if (!routeTargetsPlatformAssistant) return;
+    navigate('/workspace/gallery', { replace: true });
+  }, [navigate, routeTargetsPlatformAssistant]);
   const enabledModelConfigs = useMemo(() => modelConfigs.filter((item) => item.enabled), [modelConfigs]);
-  const selectedModelConfig = (
-    enabledModelConfigs.find((item) => item.id === selectedModelConfigId)
-    || enabledModelConfigs.find((item) => item.is_default)
-    || enabledModelConfigs[0]
-    || null
-  );
+  const selectedPlatformProductId = selectedModelChoice.startsWith('platform:')
+    ? selectedModelChoice.slice('platform:'.length)
+    : '';
+  const selectedEnterpriseModelId = selectedModelChoice.startsWith('enterprise:')
+    ? selectedModelChoice.slice('enterprise:'.length)
+    : '';
+  const selectedModelProduct = modelOptions.platform_models.find(
+    (item) => item.id === selectedPlatformProductId,
+  ) || null;
+  const selectedModelConfig = selectedEnterpriseModelId
+    ? enabledModelConfigs.find((item) => item.id === selectedEnterpriseModelId) || null
+    : null;
   const canConfigureModels = auth?.user.role === 'admin';
-  const showModelSetupNotice = !modelConfigsLoading && !modelConfigsLoadError && !selectedModelConfig;
+  const hasPlatformAgentChat = Boolean(aiCapabilityStatus?.capabilities.some(
+    (item) => item.capability === 'agent_chat' && item.available,
+  ));
+  const showModelSetupNotice = !modelConfigsLoading
+    && !modelOptionsLoading
+    && !aiCapabilityLoading
+    && !modelConfigsLoadError
+    && !hasPlatformAgentChat
+    && enabledModelConfigs.length === 0;
   const modelSetupNoticeText = canConfigureModels
-    ? t('还没有可用模型配置，发送消息前请先完成模型配置。')
-    : t('系统管理员尚未配置可用模型，暂时无法发送消息。请联系管理员完成模型配置。');
+    ? t('平台和企业均没有可用模型，发送消息前请先完成模型配置。')
+    : t('平台 AI 服务暂不可用，请联系平台管理员。');
+
+  const changeModelOption = useCallback((value: string) => {
+    setSelectedModelChoice(value);
+    window.localStorage.setItem(modelOptionStorageKey(tenantId), value);
+    if (value.startsWith('enterprise:')) {
+      const configId = value.slice('enterprise:'.length);
+      setSelectedModelConfigId(configId);
+      window.localStorage.setItem(modelStorageKey(tenantId), configId);
+    }
+  }, [tenantId]);
 
   const changeModelConfig = useCallback((value: string) => {
     setSelectedModelConfigId(value);
     if (value) {
       window.localStorage.setItem(modelStorageKey(tenantId), value);
+      changeModelOption(`enterprise:${value}`);
     } else {
       window.localStorage.removeItem(modelStorageKey(tenantId));
+      changeModelOption('auto');
     }
-  }, [tenantId]);
+  }, [changeModelOption, tenantId]);
 
   const completeModelSetup = useCallback((model: ModelConfigRead) => {
     const next = [...modelConfigs.filter((item) => item.id !== model.id), model];
@@ -588,18 +665,24 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
     changeModelConfig(model.id);
   }, [changeModelConfig, modelConfigs]);
 
-  const invalidateModelSelection = useCallback((modelId?: string) => {
+  const invalidateModelSelection = useCallback((modelId?: string, productId?: string) => {
     if (modelId) {
       setModelConfigs((current) => current.filter((item) => item.id !== modelId));
-    } else {
-      setModelConfigs([]);
     }
-    changeModelConfig('');
-    setModelSetupOpen(true);
-  }, [changeModelConfig]);
+    if (productId) {
+      setModelOptions((current) => ({
+        ...current,
+        platform_models: current.platform_models.filter((item) => item.id !== productId),
+      }));
+    }
+    changeModelOption('auto');
+    if (!hasPlatformAgentChat && enabledModelConfigs.length === 0) {
+      setModelSetupOpen(true);
+    }
+  }, [changeModelOption, enabledModelConfigs.length, hasPlatformAgentChat]);
 
   const ensureModelAvailable = useCallback(() => {
-    if (modelConfigsLoading) {
+    if (modelConfigsLoading || modelOptionsLoading || aiCapabilityLoading) {
       notify.warning(t('模型配置正在加载，请稍后再发送'));
       return false;
     }
@@ -607,16 +690,21 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
       notify.error(t('无法读取模型配置，请刷新页面后重试'));
       return false;
     }
-    if (!selectedModelConfig) {
+    const selectedChoiceAvailable = selectedModelChoice === 'auto'
+      ? hasPlatformAgentChat || enabledModelConfigs.length > 0
+      : selectedModelChoice.startsWith('platform:')
+        ? Boolean(selectedModelProduct)
+        : Boolean(selectedModelConfig);
+    if (!selectedChoiceAvailable) {
       if (canConfigureModels) {
         setModelSetupOpen(true);
       } else {
-        notify.warning(t('系统管理员尚未配置可用模型，请联系管理员完成模型配置'));
+        notify.warning(t('平台 AI 服务暂不可用，请联系平台管理员。'));
       }
       return false;
     }
     return true;
-  }, [canConfigureModels, modelConfigsLoadError, modelConfigsLoading, selectedModelConfig, t]);
+  }, [aiCapabilityLoading, canConfigureModels, enabledModelConfigs.length, hasPlatformAgentChat, modelConfigsLoadError, modelConfigsLoading, modelOptionsLoading, selectedModelChoice, selectedModelConfig, selectedModelProduct, t]);
 
   const loadAgents = useCallback(async (preferredAgentId?: string) => {
     setAgentsLoaded(false);
@@ -672,14 +760,14 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
     const onScopeChange = (event: Event) => {
       const nextAgentId = (
         (event as CustomEvent<{ agentId?: string }>).detail?.agentId
-        || window.localStorage.getItem(SELECTED_AGENT_STORAGE_KEY)
+        || readSharedAgentScope()
         || ''
       );
       if (!nextAgentId) return;
       setSelectedAgentId(nextAgentId);
       setSessionAgentFilter((current) => {
         if (current === 'all') return current;
-        window.localStorage.setItem(sessionFilterStorageKey(userId), nextAgentId);
+        persistSessionFilter(userId, nextAgentId);
         return nextAgentId;
       });
     };
@@ -720,6 +808,58 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
       .finally(() => setModelConfigsLoading(false));
   }, [auth, redirectToLogin, tenantId]);
 
+  const loadModelOptions = useCallback(() => {
+    if (!auth) {
+      setModelOptionsLoading(false);
+      return Promise.resolve();
+    }
+    setModelOptionsLoading(true);
+    return api
+      .get<AIModelOptionsRead>('/api/ai/models/options')
+      .then((value) => setModelOptions(value))
+      .catch((error) => {
+        if (isAuthError(error)) {
+          redirectToLogin();
+          return;
+        }
+        setModelOptions({ smart_match_available: false, platform_models: [], enterprise_models: [] });
+      })
+      .finally(() => setModelOptionsLoading(false));
+  }, [auth, redirectToLogin]);
+
+  useEffect(() => {
+    void loadModelOptions();
+  }, [loadModelOptions]);
+
+  const loadAiCapabilityStatus = useCallback(() => {
+    if (!auth) {
+      setAiCapabilityLoading(false);
+      return Promise.resolve();
+    }
+    setAiCapabilityLoading(true);
+    return api
+      .get<AICapabilityStatusRead>('/api/ai/capabilities/status')
+      .then((status) => setAiCapabilityStatus(status))
+      .catch((error) => {
+        if (isAuthError(error)) {
+          redirectToLogin();
+          return;
+        }
+        setAiCapabilityStatus(null);
+      })
+      .finally(() => setAiCapabilityLoading(false));
+  }, [auth, redirectToLogin]);
+
+  useEffect(() => {
+    void loadAiCapabilityStatus();
+  }, [loadAiCapabilityStatus]);
+
+  useEffect(() => {
+    const refresh = () => void loadAiCapabilityStatus();
+    window.addEventListener(AI_CAPABILITIES_UPDATED_EVENT, refresh);
+    return () => window.removeEventListener(AI_CAPABILITIES_UPDATED_EVENT, refresh);
+  }, [loadAiCapabilityStatus]);
+
   useEffect(() => {
     const onModelConfigsUpdated = (event: Event) => {
       const rows = (event as CustomEvent<{ models?: ModelConfigRead[] }>).detail?.models;
@@ -727,6 +867,8 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
       setModelConfigs(rows);
       setModelConfigsLoadError('');
       setModelConfigsLoading(false);
+      void loadAiCapabilityStatus();
+      void loadModelOptions();
       setSelectedModelConfigId((current) => {
         const enabledRows = rows.filter((item) => item.enabled);
         if (current && enabledRows.some((item) => item.id === current)) return current;
@@ -741,15 +883,38 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
     };
     window.addEventListener(MODEL_CONFIGS_UPDATED_EVENT, onModelConfigsUpdated);
     return () => window.removeEventListener(MODEL_CONFIGS_UPDATED_EVENT, onModelConfigsUpdated);
-  }, [tenantId]);
+  }, [loadAiCapabilityStatus, loadModelOptions, tenantId]);
 
   useEffect(() => {
-    if (!auth || modelConfigsLoading || modelConfigsLoadError || selectedModelConfig) return;
+    if (!auth || !sessionId) return;
+    void api
+      .get<{
+        selection_mode: 'inherit' | 'auto' | 'platform_product' | 'enterprise_model';
+        model_product_id?: string;
+        tenant_model_config_id?: string;
+      }>(`/api/ai/sessions/${encodeURIComponent(sessionId)}/model-selection?tenant_id=${encodeURIComponent(tenantId)}`)
+      .then((selection) => {
+        if (selection.selection_mode === 'platform_product' && selection.model_product_id) {
+          setSelectedModelChoice(`platform:${selection.model_product_id}`);
+        } else if (selection.selection_mode === 'enterprise_model' && selection.tenant_model_config_id) {
+          setSelectedModelChoice(`enterprise:${selection.tenant_model_config_id}`);
+        } else if (selection.selection_mode === 'auto') {
+          setSelectedModelChoice('auto');
+        }
+      })
+      .catch(() => undefined);
+  }, [auth, sessionId, tenantId]);
+
+  useEffect(() => {
+    if (
+      !auth
+      || !showModelSetupNotice
+    ) return;
     const onboardingSeen = window.localStorage.getItem(ONBOARDING_SEEN_KEY);
     const quickStartSeen = window.localStorage.getItem(QUICK_START_SEEN_KEY);
     if (!onboardingSeen || !quickStartSeen) return;
     setModelSetupOpen(true);
-  }, [auth, modelConfigsLoadError, modelConfigsLoading, selectedModelConfig]);
+  }, [auth, showModelSetupNotice]);
 
   const toggleTrace = useCallback((turnId: string, isExpanded = false) => {
     if (isExpanded) {
@@ -2208,7 +2373,7 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
     if (item.event === 'stream_interrupted' || item.event === 'error_occurred') {
       const interruptedStreamTurnId = eventStream.turnId || traceTurnId;
       if (isMissingModelConfigurationError(item.data)) {
-        invalidateModelSelection(selectedModelConfigId);
+        invalidateModelSelection(selectedModelConfig?.id, selectedModelProduct?.id);
       }
       finishTrace(traceTurnId, true);
       if (!shouldTouchStream) {
@@ -2281,7 +2446,7 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
     }
     if (item.event === 'error') {
       if (isMissingModelConfigurationError(item.data)) {
-        invalidateModelSelection(selectedModelConfigId);
+        invalidateModelSelection(selectedModelConfig?.id, selectedModelProduct?.id);
       }
       if (!shouldTouchStream) {
         finishTrace(traceTurnId, true);
@@ -2324,7 +2489,8 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
     loadTraces,
     notifyStore,
     notifyStream,
-    selectedModelConfigId,
+    selectedModelConfig?.id,
+    selectedModelProduct?.id,
     notifyTrace,
     ensureStreamingTraceMessage,
     syncTurnUntilAssistant,
@@ -2944,6 +3110,8 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
         interaction_mode: resolvedInteractionMode,
         client_timezone: getClientTimeZone(),
         model_config_id: prepared.modelConfigId,
+        model_product_id: prepared.modelProductId,
+        model_selection_mode: prepared.modelSelectionMode,
       };
       if (!startedAsDraftConversation) {
         requestBody.session_id = currentConversationId;
@@ -3010,7 +3178,7 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
         finishTrace(getStreamSlot(liveConversationId).turnId || turnId, true);
         clearStreamSlot(liveConversationId, true);
         clearRunningTurn();
-        invalidateModelSelection(prepared.modelConfigId);
+        invalidateModelSelection(prepared.modelConfigId, prepared.modelProductId);
         notifyStream();
         return;
       }
@@ -3121,6 +3289,12 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
       attachments: readyComposerAttachments.map(toRequestAttachment),
       interactionMode: resolvedInteractionMode,
       modelConfigId: selectedModelConfig?.id,
+      modelProductId: selectedModelProduct?.id,
+      modelSelectionMode: selectedModelChoice === 'auto'
+        ? 'auto'
+        : selectedModelChoice.startsWith('platform:')
+          ? 'platform_product'
+          : 'enterprise_model',
       createdAt: new Date().toISOString(),
     };
     setInput('');
@@ -3156,7 +3330,9 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
     readyComposerAttachments,
     replyToHandoff,
     selectedAgentId,
+    selectedModelChoice,
     selectedModelConfig?.id,
+    selectedModelProduct?.id,
     sessionId,
     sessions,
     sessionsLoading,
@@ -3168,11 +3344,7 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
     const nextTurn = queuedTurnsRef.current[0];
     if (!nextTurn) return;
     if (sessionsLoading) return;
-    if (modelConfigsLoading || modelConfigsLoadError) return;
-    if (!selectedModelConfig) {
-      if (canConfigureModels) setModelSetupOpen(true);
-      return;
-    }
+    if (modelConfigsLoading || modelOptionsLoading || modelConfigsLoadError) return;
     const queuedSession = sessions.find((item) => item.id === nextTurn.conversationId);
     if (
       queuedSession
@@ -3200,13 +3372,12 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
   }, [
     executePreparedTurn,
     getStreamSlot,
-    canConfigureModels,
     modelConfigsLoadError,
     modelConfigsLoading,
+    modelOptionsLoading,
     notifyQueue,
     persistQueuedTurns,
     runningTurn,
-    selectedModelConfig,
     sessions,
     sessionsLoading,
   ]);
@@ -3266,10 +3437,10 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
     SHOW_DEBUG,
     lastTurn,
     // sessions + agents
-    sessions,
+    sessions: employeeSessions,
     sessionsLoading,
     visibleSidebarSessions,
-    agents,
+    agents: availableAgents,
     sessionId,
     sessionReadTimes,
     sessionAgentFilter,
@@ -3318,7 +3489,12 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
     isComposing,
     setIsComposing,
     enabledModelConfigs,
+    modelOptions,
+    modelOptionsLoading,
+    selectedModelChoice,
+    selectedModelProduct,
     selectedModelConfig,
+    changeModelOption,
     changeModelConfig,
     showModelSetupNotice,
     modelSetupNoticeText,

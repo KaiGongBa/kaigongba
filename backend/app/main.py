@@ -1,80 +1,82 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from sqlmodel import Session
 
 from app.api import (
     agents,
     auth,
     channels,
     chat,
+    collaboration,
+    disputes,
+    executions,
+    external_agents,
     feedback,
     general_skills,
+    identity_internal,
     knowledge,
     knowledge_bases,
+    marketplace,
+    marketplace_management,
     memories,
     mock,
     model_configs,
+    platform_models,
     persona,
     scheduled_tasks,
     sessions,
     skills,
+    staffdeck_internal,
     tools,
     traces,
+    transactions,
     ui_config,
 )
+from app.app_factory import create_api_app
 from app.async_jobs import shutdown_async_jobs
 from app.channels import start_channel_services, stop_channel_services
-from app.config import get_settings
-from app.db import engine, init_db
-from app.db.seed import seed_demo_data
+from app.db.startup import prepare_database
 from app.scheduled_tasks.worker import start_background_worker, stop_background_worker
-
-settings = get_settings()
-
-app = FastAPI(
-    title=settings.app_name,
-    version="0.1.0",
-    docs_url=None,
-    redoc_url=None,
-    openapi_url=None,
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origin_list,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+from app.transaction.outbox_worker import (
+    start_transaction_outbox_worker,
+    stop_transaction_outbox_worker,
 )
 
 
-@app.on_event("startup")
-def on_startup() -> None:
-    init_db()
-    with Session(engine) as db:
-        seed_demo_data(db)
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    prepare_database()
     start_background_worker()
+    start_transaction_outbox_worker()
     start_channel_services()
+    try:
+        yield
+    finally:
+        stop_channel_services()
+        stop_transaction_outbox_worker()
+        stop_background_worker()
+        shutdown_async_jobs()
 
 
-@app.on_event("shutdown")
-def on_shutdown() -> None:
-    stop_channel_services()
-    stop_background_worker()
-    shutdown_async_jobs()
-
-
-@app.get("/api/health", tags=["health"])
-def health() -> dict[str, str]:
-    return {"status": "ok", "app": "StaffDeck"}
+app = create_api_app("all-in-one", lifespan=lifespan)
 
 
 app.include_router(chat.router)
 app.include_router(agents.chat_router)
 app.include_router(ui_config.chat_router)
 app.include_router(auth.router)
+app.include_router(identity_internal.router)
+app.include_router(marketplace.router)
+app.include_router(marketplace_management.router)
+app.include_router(transactions.router)
+app.include_router(executions.router)
+app.include_router(external_agents.enterprise_router)
+app.include_router(external_agents.agent_router)
+app.include_router(collaboration.router)
+app.include_router(disputes.router)
 app.include_router(agents.scope_router)
 app.include_router(agents.enterprise_router)
 app.include_router(general_skills.router)
@@ -82,6 +84,7 @@ app.include_router(knowledge_bases.router)
 app.include_router(knowledge.router)
 app.include_router(skills.router)
 app.include_router(model_configs.router)
+app.include_router(platform_models.router)
 app.include_router(memories.router)
 app.include_router(feedback.router)
 app.include_router(persona.router)
@@ -95,3 +98,4 @@ app.include_router(tools.mcp_router)
 app.include_router(sessions.router)
 app.include_router(traces.router)
 app.include_router(mock.router)
+app.include_router(staffdeck_internal.router)

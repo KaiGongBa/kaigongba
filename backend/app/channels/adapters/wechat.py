@@ -632,18 +632,24 @@ class WeChatPollManager:
                 new_cursor = str(resp.get("get_updates_buf") or "")
                 from app.channels.service_intake import process_inbound
 
-                for msg in resp.get("msgs") or []:
+                messages = resp.get("msgs") or []
+                for msg in messages:
                     if not isinstance(msg, dict) or is_self_message(msg, ilink_bot_id):
                         continue
                     # 批内异常外抛:游标不推进,下轮重拉整批,靠事件幂等去重
                     process_inbound(binding, msg, db_engine=self._engine)
                 # 整批处理完才推进游标
-                if not self._persist_cursor(
+                cursor_unchanged = new_cursor == cursor
+                if not (cursor_unchanged and binding.connected) and not self._persist_cursor(
                     binding_id,
                     new_cursor,
                     expected_revision=binding.config_revision,
                 ):
                     return
+                if cursor_unchanged and not messages:
+                    # 正常官方长轮询会在服务端等待；若上游异常地立即返回空结果，
+                    # 本地退让可避免 CPU 忙循环和无意义数据库写入。
+                    stop_flag.wait(0.05)
             except Exception:
                 logger.exception("微信 poll 线程异常 binding=%s", binding_id)
                 stop_flag.wait(backoff)

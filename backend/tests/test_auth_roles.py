@@ -10,7 +10,9 @@ from app.api.auth import (
     login,
     update_user,
 )
-from app.db.models import Tenant, User
+from app.agents.default_employee import ensure_personal_default_employee
+from app.api.agents import list_agents
+from app.db.models import AgentProfile, Tenant, User
 from app.security.auth import hash_password
 
 
@@ -73,6 +75,16 @@ def test_database_role_controls_account_management() -> None:
             db,
         )
         assert created.role == "admin"
+        defaults = [
+            row
+            for row in db.exec(select(AgentProfile)).all()
+            if (row.metadata_json or {}).get("owner_user_id") == created.id
+            and (row.metadata_json or {}).get("is_default_employee") is True
+        ]
+        assert len(defaults) == 1
+        assert defaults[0].status == "active"
+        assert defaults[0].metadata_json.get("system_generated_default") is True
+        assert defaults[0].metadata_json.get("blank_onboarding") is True
 
         updated = update_user(
             created.id,
@@ -81,6 +93,64 @@ def test_database_role_controls_account_management() -> None:
             db,
         )
         assert updated.role == "member"
+
+
+def test_personal_default_employee_is_idempotent_private_and_skips_channel_users() -> None:
+    with _test_session() as db:
+        db.add(Tenant(id="tenant_demo", name="Demo"))
+        first = User(
+            id="user_first",
+            tenant_id="tenant_demo",
+            username="first",
+            display_name="First",
+            password_hash=hash_password("secret"),
+        )
+        second = User(
+            id="user_second",
+            tenant_id="tenant_demo",
+            username="second",
+            display_name="Second",
+            password_hash=hash_password("secret"),
+        )
+        channel = User(
+            id="user_channel",
+            tenant_id="tenant_demo",
+            username="channel",
+            source="wechat",
+            password_hash=hash_password("secret"),
+        )
+        db.add(first)
+        db.add(second)
+        db.add(channel)
+        db.flush()
+
+        first_default = ensure_personal_default_employee(db, first)
+        repeated = ensure_personal_default_employee(db, first)
+        second_default = ensure_personal_default_employee(db, second)
+        channel_default = ensure_personal_default_employee(db, channel)
+        db.commit()
+
+        assert first_default is not None
+        assert repeated is not None
+        assert first_default.id == repeated.id
+        assert second_default is not None
+        assert second_default.id != first_default.id
+        assert first_default.name != second_default.name
+        assert first_default.metadata_json.get("owner_user_id") == first.id
+        assert second_default.metadata_json.get("owner_user_id") == second.id
+        assert channel_default is None
+        assert {row.id for row in list_agents("tenant_demo", db=db, current_user=first)} == {
+            first_default.id
+        }
+        assert {row.id for row in list_agents("tenant_demo", db=db, current_user=second)} == {
+            second_default.id
+        }
+        defaults = [
+            row
+            for row in db.exec(select(AgentProfile)).all()
+            if (row.metadata_json or {}).get("is_default_employee") is True
+        ]
+        assert len(defaults) == 2
 
 
 def _test_session() -> Session:

@@ -1,0 +1,82 @@
+name: production-gate
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: kaigongba_test
+          POSTGRES_USER: kaigongba
+          POSTGRES_PASSWORD: test-password
+        ports: ["55432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U kaigongba -d kaigongba_test"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      redis:
+        image: redis:7.4-alpine
+        ports: ["56379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v6
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend-enterprise/package-lock.json
+      - name: Backend dependencies
+        run: uv sync --project backend --extra dev --locked
+      - name: No newly skipped tests
+        env:
+          KGB_PHASE5C_BASE_REF: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || 'HEAD^' }}
+        run: ./scripts/phase5c_no_new_skips.sh
+      - name: Backend lint
+        working-directory: backend
+        run: uv run ruff check app tests
+      - name: Backend regression
+        working-directory: backend
+        run: uv run pytest -q
+      - name: PostgreSQL migration upgrade/rollback/re-upgrade
+        working-directory: backend
+        env:
+          KGB_POSTGRES_TEST_URL: postgresql://kaigongba:test-password@127.0.0.1:55432/kaigongba_test
+        run: uv run pytest -q tests/test_postgres_migrations.py
+      - name: Redis shared-runtime verification
+        working-directory: backend
+        env:
+          KGB_REDIS_TEST_URL: redis://127.0.0.1:56379/15
+        run: uv run pytest -q tests/test_redis_runtime.py
+      - name: Frontend dependencies
+        run: npm --prefix frontend-enterprise ci
+      - name: Frontend tests
+        run: npm --prefix frontend-enterprise test
+      - name: Frontend build
+        run: npm --prefix frontend-enterprise run build
+      - name: Frontend i18n coverage
+        run: npm --prefix frontend-enterprise run i18n:check
+      - name: Frontend configuration
+        run: npm --prefix frontend-enterprise run config:check
+      - name: Release-candidate manifest
+        run: python3 scripts/phase5c_release_manifest.py --require-clean --output .artifacts/phase5c/release-manifest.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase5c-release-manifest
+          path: .artifacts/phase5c/release-manifest.json

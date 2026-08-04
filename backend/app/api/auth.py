@@ -8,10 +8,11 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, Res
 from pydantic import BaseModel
 from sqlmodel import Session, select
 
+from app.agents.default_employee import ensure_personal_default_employee
 from app.db import get_session
 from app.db.models import User, UserAvatar, utc_now
 from app.security.auth import create_access_token, get_current_user, hash_password, verify_password
-from app.security.permissions import MEMBER_ROLE, is_admin_user
+from app.security.permissions import MEMBER_ROLE, PLATFORM_ROLES, is_admin_user
 from app.security.tenant import ensure_tenant
 
 
@@ -47,6 +48,7 @@ class UserRead(BaseModel):
     username: str
     display_name: Optional[str] = None
     role: Literal["admin", "member"]
+    platform_role: Optional[str] = None
     source: str = "web"
     # 仅 /me 与 /login 带出:头像资源指针(存在性标识),不内联二进制——
     # 完整 data_url 可达 2.67MB,内联会把登录/会话刷新响应与前端 localStorage 撑爆
@@ -205,6 +207,8 @@ def create_user(
         password_hash=hash_password(request.password),
     )
     db.add(user)
+    db.flush()
+    ensure_personal_default_employee(db, user)
     db.commit()
     db.refresh(user)
     return _user_read(user)
@@ -284,6 +288,7 @@ def _user_read(user: User, avatar_url: Optional[str] = None) -> UserRead:
         username=user.username,
         display_name=user.display_name,
         role=user.role,
+        platform_role=user.platform_role if user.platform_role in PLATFORM_ROLES else None,
         source=user.source,
         avatar_url=avatar_url,
         created_at=user.created_at.isoformat() if user.created_at else None,

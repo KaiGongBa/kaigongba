@@ -314,6 +314,237 @@ export type ModelConfigRead = {
   updated_at: string;
 };
 
+export type AICapabilityRead = {
+  capability: string;
+  available: boolean;
+  source: 'tenant_byok' | 'platform' | 'unavailable';
+  primary_model?: string;
+  fallback_count: number;
+};
+
+export type AICapabilityStatusRead = {
+  tenant_id: string;
+  platform_available: boolean;
+  tenant_byok_available: boolean;
+  effective_source: 'tenant_byok' | 'platform' | 'unavailable';
+  capabilities: AICapabilityRead[];
+};
+
+export type AIModelCatalogRead = {
+  provider_kinds: Array<{ id: string; label: string }>;
+  model_families: Array<{ id: string; label: string }>;
+  capabilities: Array<{ id: string; label: string }>;
+  protocols: Array<'openai_chat_completions' | 'anthropic_messages' | 'gemini_generate_content'>;
+};
+
+export type AIProviderConnectionRead = {
+  id: string;
+  name: string;
+  provider_kind: string;
+  api_protocol: string;
+  base_url?: string;
+  api_key_masked: string;
+  enabled: boolean;
+  trust_status: string;
+  verified_at?: string;
+  verification_error_code?: string;
+  model_count: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AIProviderCatalogSyncResponse = {
+  connection_id: string;
+  discovered_count: number;
+  created_count: number;
+  updated_count: number;
+  unavailable_count: number;
+  deployment_draft_count: number;
+  product_draft_count: number;
+  synced_at: string;
+};
+
+export type AIModelProductRead = {
+  id: string;
+  slug: string;
+  display_name: string;
+  description?: string;
+  category: string;
+  model_family: string;
+  capabilities: string[];
+  feature_tags: string[];
+  context_window_tokens?: number;
+  usage_tier: string;
+  visibility_mode: string;
+  visible_to_users: boolean;
+  enabled: boolean;
+  is_default: boolean;
+  sort_order: number;
+  available: boolean;
+  backing_deployment_count: number;
+  available_deployment_count: number;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AIModelOptionRead = {
+  id: string;
+  source: 'platform_product' | 'enterprise_model';
+  display_name: string;
+  description?: string;
+  category: string;
+  model_family: string;
+  feature_tags: string[];
+  context_window_tokens?: number;
+  usage_tier: string;
+  is_default: boolean;
+};
+
+export type AIModelOptionsRead = {
+  smart_match_available: boolean;
+  platform_models: AIModelOptionRead[];
+  enterprise_models: AIModelOptionRead[];
+};
+
+export type AgentModelPolicyRead = {
+  id?: string;
+  tenant_id: string;
+  agent_id: string;
+  selection_mode: 'auto' | 'platform_product' | 'enterprise_model';
+  model_product_id?: string;
+  tenant_model_config_id?: string;
+  allow_platform_fallback: boolean;
+  updated_at?: string;
+};
+
+export type AIUsageSummaryRead = {
+  quota: AIQuotaRead;
+  totals: {
+    request_count: number;
+    input_tokens: number;
+    output_tokens: number;
+    total_tokens: number;
+    platform_cost: string;
+    billable_credits: string;
+    byok_tokens: number;
+  };
+  trend: Array<{ date: string; total_tokens: number; billable_credits: string; request_count: number }>;
+  by_agent: Array<{ agent_id?: string; agent_name: string; total_tokens: number; request_count: number; billable_credits: string }>;
+};
+
+export type AIQuotaRead = {
+  account_id?: string;
+  cycle_start?: string;
+  cycle_end?: string;
+  granted_credits: string;
+  reserved_credits: string;
+  consumed_credits: string;
+  available_credits: string;
+  percent_used: number;
+  hard_limit: boolean;
+  warning_threshold_percent: number;
+};
+
+export type AIModelCapabilityCheckRead = {
+  id: string;
+  certification_run_id: string;
+  deployment_id: string;
+  capability: string;
+  check_type: string;
+  status: 'passed' | 'failed' | 'running' | string;
+  error_code?: string;
+  latency_ms?: number;
+  metadata: Record<string, unknown>;
+  started_at: string;
+  finished_at?: string;
+  created_at: string;
+};
+
+export type AIModelCertificationResponse = {
+  success: boolean;
+  certification_run_id: string;
+  certified_capabilities: string[];
+  failed_capabilities: string[];
+  checks: AIModelCapabilityCheckRead[];
+  deployment: AIModelDeploymentRead;
+};
+
+export type AIPriceVersionRead = {
+  id: string;
+  deployment_id: string;
+  currency: string;
+  input_per_million: string;
+  output_per_million: string;
+  cached_input_per_million: string;
+  reasoning_per_million: string;
+  credits_per_currency_unit: string;
+  source: string;
+  effective_from: string;
+  effective_to?: string;
+  created_at: string;
+};
+
+export type AIModelDeploymentRead = {
+  id: string;
+  connection_id: string;
+  connection_name: string;
+  name: string;
+  model: string;
+  model_family: string;
+  temperature: number;
+  max_output_tokens: number;
+  capabilities: string[];
+  protocol_options: Record<string, unknown>;
+  pricing: Record<string, unknown>;
+  enabled: boolean;
+  health_status: string;
+  last_health_check_at?: string;
+  last_error_code?: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AIModelRouteRead = {
+  id: string;
+  capability: string;
+  deployment_id: string;
+  deployment_name: string;
+  connection_id: string;
+  connection_name: string;
+  model: string;
+  model_family: string;
+  priority: number;
+  timeout_seconds: number;
+  retry_count: number;
+  enabled: boolean;
+  available: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AIInvocationAuditRead = {
+  id: string;
+  request_id: string;
+  tenant_id: string;
+  user_id?: string;
+  agent_id?: string;
+  capability: string;
+  operation: string;
+  source_scope: string;
+  provider_connection_id?: string;
+  deployment_id?: string;
+  status: string;
+  attempt_count: number;
+  latency_ms?: number;
+  input_tokens?: number;
+  output_tokens?: number;
+  estimated_cost?: string;
+  error_code?: string;
+  created_at: string;
+  finished_at?: string;
+};
+
 export type PersonaRead = {
   tenant_id: string;
   system_prompt: string;

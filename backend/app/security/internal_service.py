@@ -7,13 +7,13 @@ from fastapi import Header, HTTPException
 
 from app.config import get_settings
 
-
 INTERNAL_SERVICE_HEADER = "X-UltraRAG-Internal-Token"
 _INTERNAL_SERVICE_SCOPE = b"ultrarag-internal-mock-api-v1"
 
 
 def internal_service_token() -> str:
-    secret = get_settings().app_secret.encode("utf-8")
+    settings = get_settings()
+    secret = (settings.internal_service_secret or settings.app_secret).encode("utf-8")
     return hmac.new(secret, _INTERNAL_SERVICE_SCOPE, hashlib.sha256).hexdigest()
 
 

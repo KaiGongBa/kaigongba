@@ -63,6 +63,7 @@ import AppHeader from '@/components/AppHeader';
 import { ModelConfigDropdown } from '@/components/ModelConfigDropdown';
 import { cn } from '@/lib/utils';
 import { SELECT_TRIGGER_CLASS } from '@/lib/enterprise-ui';
+import { readSharedAgentScope } from '@/lib/agent-scope-storage';
 import type { EnterpriseAuthUser } from '../auth';
 import {
   ACTION_EMPTY_CLASS,
@@ -401,7 +402,6 @@ const DEFAULT_DISTILL_MESSAGES: ChatItem[] = [
     content: '请粘贴原始技能说明，或点击右侧某一块后告诉我需要怎样改写。',
   },
 ];
-const ENTERPRISE_AGENT_STORAGE_KEY = 'ultrarag_enterprise_agent_scope';
 const DISTILL_REWRITE_MODEL_STORAGE_KEY = 'skill-distill-rewrite-model';
 
 type DistillCacheSnapshot = {
@@ -486,7 +486,7 @@ export default function DistillPage({ active = true, searchParamsOverride, curre
   const skillId = searchParams.get('skill_id');
   const mode = searchParams.get('mode') || '';
   const workspaceId = searchParams.get('workspace_id') || '';
-  const [selectedAgentId, setSelectedAgentId] = useState(() => window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '');
+  const [selectedAgentId, setSelectedAgentId] = useState(() => readSharedAgentScope());
   const activeAgentId = searchParams.get('agent_id') || selectedAgentId;
   const agentQuery = activeAgentId ? `&agent_id=${encodeURIComponent(activeAgentId)}` : '';
   const agentSearchParam = activeAgentId ? `agent_id=${encodeURIComponent(activeAgentId)}` : '';
@@ -548,7 +548,7 @@ export default function DistillPage({ active = true, searchParamsOverride, curre
   useEffect(() => {
     const onScopeChange = (event: Event) => {
       const agentId = (event as CustomEvent<{ agentId?: string }>).detail?.agentId || '';
-      setSelectedAgentId(agentId || window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '');
+      setSelectedAgentId(agentId || readSharedAgentScope());
     };
     window.addEventListener('ultrarag-enterprise-agent-scope-change', onScopeChange);
     return () => window.removeEventListener('ultrarag-enterprise-agent-scope-change', onScopeChange);
@@ -3788,26 +3788,27 @@ function buildSkillFlowCanvasLayout(
   });
 
   const rawEdges = Array.isArray(skill.edges) ? skill.edges : [];
-  const edgeSiblingCounts = rawEdges.reduce<Record<string, number>>((acc, edge) => {
+  const edgeSiblingCounts = rawEdges.reduce<Map<string, number>>((acc, edge) => {
     const sourceId = String(edge.source_node_id || '');
-    if (sourceId) acc[sourceId] = (acc[sourceId] || 0) + 1;
+    if (sourceId) acc.set(sourceId, (acc.get(sourceId) || 0) + 1);
     return acc;
-  }, {});
-  const sourceEdgeLabelCounts = rawEdges.reduce<Record<string, Record<string, number>>>((acc, edge) => {
+  }, new Map());
+  const sourceEdgeLabelCounts = rawEdges.reduce<Map<string, Map<string, number>>>((acc, edge) => {
     const sourceId = String(edge.source_node_id || '').trim();
     if (!sourceId) return acc;
     const label = normalizedEdgeLabel(edge, nodeNameMap);
-    if (!acc[sourceId]) acc[sourceId] = {};
-    acc[sourceId][label] = (acc[sourceId][label] || 0) + 1;
+    const labels = acc.get(sourceId) || new Map<string, number>();
+    labels.set(label, (labels.get(label) || 0) + 1);
+    acc.set(sourceId, labels);
     return acc;
-  }, {});
-  const incomingCounts = rawEdges.reduce<Record<string, number>>((acc, edge) => {
+  }, new Map());
+  const incomingCounts = rawEdges.reduce<Map<string, number>>((acc, edge) => {
     const targetId = String(edge.next_node_id || '');
-    if (targetId) acc[targetId] = (acc[targetId] || 0) + 1;
+    if (targetId) acc.set(targetId, (acc.get(targetId) || 0) + 1);
     return acc;
-  }, {});
-  const edgeSiblingIndexes: Record<string, number> = {};
-  const incomingIndexes: Record<string, number> = {};
+  }, new Map());
+  const edgeSiblingIndexes = new Map<string, number>();
+  const incomingIndexes = new Map<string, number>();
   const layoutEdges: SkillFlowCanvasEdge[] = [];
   const height = paddingY * 2 + rootHeight + rootGap + layerLayout.layers.length * cardHeight + Math.max(0, layerLayout.layers.length - 1) * rowGap;
   const startNode = positionMap.get(String(skill.start_node_id || positionedNodes[0]?.nodeId || ''));
@@ -3840,17 +3841,17 @@ function buildSkillFlowCanvasLayout(
     const source = positionMap.get(sourceId);
     const target = positionMap.get(targetId);
     if (!source || !target) return;
-    const siblingCount = edgeSiblingCounts[sourceId] || 1;
+    const siblingCount = edgeSiblingCounts.get(sourceId) || 1;
     const baseLabel = normalizedEdgeLabel(edge, nodeNameMap);
-    const hasDuplicateSourceLabel = (sourceEdgeLabelCounts[sourceId]?.[baseLabel] || 0) > 1;
+    const hasDuplicateSourceLabel = (sourceEdgeLabelCounts.get(sourceId)?.get(baseLabel) || 0) > 1;
     const isParallelFlow = hasDuplicateSourceLabel;
     const label = flowEdgeDisplayLabel(edge, nodeNameMap, siblingCount, hasDuplicateSourceLabel);
     const title = incomingEdgeLabel(edge, nodeNameMap);
-    const siblingIndex = edgeSiblingIndexes[sourceId] || 0;
-    edgeSiblingIndexes[sourceId] = siblingIndex + 1;
-    const incomingCount = incomingCounts[targetId] || 1;
-    const incomingIndex = incomingIndexes[targetId] || 0;
-    incomingIndexes[targetId] = incomingIndex + 1;
+    const siblingIndex = edgeSiblingIndexes.get(sourceId) || 0;
+    edgeSiblingIndexes.set(sourceId, siblingIndex + 1);
+    const incomingCount = incomingCounts.get(targetId) || 1;
+    const incomingIndex = incomingIndexes.get(targetId) || 0;
+    incomingIndexes.set(targetId, incomingIndex + 1);
     const sourceX = source.x + source.width / 2;
     const sourceY = source.y + source.height + 8;
     const targetX = target.x + target.width / 2;

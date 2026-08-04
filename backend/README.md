@@ -22,8 +22,36 @@ cp .env.example .env
 
 Swagger UI: `http://localhost:5173/docs`
 
-The current production schema migration path supports SQLite only. Non-SQLite
-database URLs are not a supported deployment configuration.
+## Database migrations and Marketplace data
+
+SQLite remains the default local database. PostgreSQL is supported through
+`psycopg` 3; both `postgres://...` and `postgresql://...` URLs are normalized to
+the SQLAlchemy `postgresql+psycopg://...` driver.
+
+Run the Alembic migration before starting a new environment:
+
+```bash
+cd backend
+.venv/bin/python -m app.db.migrate
+```
+
+The Marketplace pages use persisted API data by default. To write the repeatable
+development seed into the same real tables used by the application:
+
+```bash
+cd backend
+.venv/bin/python -m app.marketplace.seed
+```
+
+`MARKETPLACE_SEED_ENABLED=true` may be used for local startup only. Keep it
+`false` in production; production Marketplace records must be created by business
+workflows, not by development seed data.
+
+Phase 3B adds persisted organization profiles, member roles and invitations,
+provider onboarding, AI service/Skill draft versions, review submissions and
+platform review decisions. A submitted version is frozen for review and only
+becomes visible in the public Marketplace after an administrator approves it.
+All of these transitions write Marketplace audit records.
 
 `CORS_ORIGINS` controls the allowed frontend origins. The root `scripts/dev_up.sh`
 sets the local single-port origin by default and can add a public tunnel origin with

@@ -36,11 +36,12 @@ import {
   employeeProfile,
   preferredEmployeeAgent,
 } from "./employee";
-import AccountsPage from "./pages/AccountsPage";
+import AccountManagementLayout, { LegacyOrganizationTeamRedirect } from "./pages/AccountManagementLayout";
 import AgentsPage from "./pages/AgentsPage";
+import ExternalAgentEnrollmentPage from "./pages/ExternalAgentEnrollmentPage";
+import ExternalAgentOperationsPage from "./pages/ExternalAgentOperationsPage";
 import ChannelsPage from "./pages/ChannelsPage";
-import ChatPage from "./pages/chat/ChatPage";
-import ChatGalleryPage from "./pages/chat/ChatGalleryPage";
+import ConversationWorkspaceShell from "./pages/chat/ConversationWorkspaceShell";
 import DashboardPage from "./pages/dashboard/DashboardPage";
 import EmptyEmployeeState from "./components/EmptyEmployeeState";
 import DistillPage from "./pages/DistillPage";
@@ -51,6 +52,7 @@ import GeneralSkillsPage, {
 import KnowledgeManagePage, { KnowledgeAddPage } from "./pages/KnowledgePage";
 import LoginPage from "./pages/LoginPage";
 import ModelsPage from "./pages/ModelsPage";
+import AIUsagePage from "./pages/AIUsagePage";
 import OpenPlatformPage from "./pages/OpenPlatformPage";
 import SkillsPage from "./pages/SkillsPage";
 import {
@@ -83,8 +85,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { notify } from "@/components/ui/app-toast";
 import {
   emitAgentScopeChange,
-  ENTERPRISE_AGENT_STORAGE_KEY,
   persistSharedAgentScope,
+  readSharedAgentScope,
 } from "@/lib/agent-scope-storage";
 import { cn } from "@/lib/utils";
 import {
@@ -93,12 +95,26 @@ import {
   DIALOG_FOOTER_CLASS,
   DIALOG_PRIMARY_BUTTON_CLASS,
 } from "@/lib/enterprise-ui";
-import type { AgentProfileRead, ModelConfigRead } from "./types";
+import type { AICapabilityStatusRead, AIModelOptionsRead, AgentProfileRead, ModelConfigRead } from "./types";
 import { useI18n } from "./i18n";
+import MarketReviewPage from "./features/marketplace/MarketReviewPage";
+import TransactionSupervisionPage from "./features/marketplace/TransactionSupervisionPage";
+import PlatformDisputesPage from "./features/marketplace/PlatformDisputesPage";
+import PlatformDisputeDetailPage from "./features/marketplace/PlatformDisputeDetailPage";
+import { isMarketplaceWorkspacePath } from "./features/marketplace/MarketplaceWorkspacePage";
+import "./features/marketplace/marketplace.css";
+import "./features/marketplace/management.css";
+import "./features/marketplace/transaction.css";
+import "./features/marketplace/payment-order.css";
+import "./features/marketplace/fulfillment.css";
+import "./features/marketplace/collaboration.css";
+import "./features/marketplace/disputes.css";
+import "./features/external-agent.css";
 
 const ENTERPRISE_SIDEBAR_STORAGE_KEY = "ultrarag_enterprise_sidebar_expanded";
 const MODEL_CONFIGS_UPDATED_EVENT = "ultrarag-enterprise-model-configs-updated";
-type AgentCreateMode = "copy" | "blank";
+const AI_CAPABILITIES_UPDATED_EVENT = "kaigongba-ai-capabilities-updated";
+type AgentCreateMode = "copy" | "external" | "blank";
 
 type AgentCreateFormState = {
   name: string;
@@ -106,6 +122,9 @@ type AgentCreateFormState = {
   roleName: string;
   sourceMode: AgentCreateMode;
   copyFromAgentId: string;
+  modelSelectionMode: "auto" | "platform_product" | "enterprise_model";
+  modelProductId: string;
+  tenantModelConfigId: string;
 };
 
 const EMPTY_AGENT_FORM: AgentCreateFormState = {
@@ -114,6 +133,9 @@ const EMPTY_AGENT_FORM: AgentCreateFormState = {
   roleName: "",
   sourceMode: "copy",
   copyFromAgentId: "",
+  modelSelectionMode: "auto",
+  modelProductId: "",
+  tenantModelConfigId: "",
 };
 
 function Shell({
@@ -129,7 +151,7 @@ function Shell({
   const [agents, setAgents] = useState<AgentProfileRead[]>([]);
   const [agentsLoaded, setAgentsLoaded] = useState(false);
   const [selectedAgentId, setSelectedAgentId] = useState(
-    () => window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || "",
+    () => readSharedAgentScope(),
   );
   const [sidebarExpanded, setSidebarExpanded] = useState(() => {
     const stored = window.localStorage.getItem(ENTERPRISE_SIDEBAR_STORAGE_KEY);
@@ -140,6 +162,13 @@ function Shell({
     useState<AgentCreateFormState>(EMPTY_AGENT_FORM);
   const [modelConfigs, setModelConfigs] = useState<ModelConfigRead[]>([]);
   const [modelConfigsLoaded, setModelConfigsLoaded] = useState(false);
+  const [aiCapabilityStatus, setAiCapabilityStatus] = useState<AICapabilityStatusRead | null>(null);
+  const [aiCapabilityStatusLoaded, setAiCapabilityStatusLoaded] = useState(false);
+  const [modelOptions, setModelOptions] = useState<AIModelOptionsRead>({
+    smart_match_available: false,
+    platform_models: [],
+    enterprise_models: [],
+  });
   const [guidesCompleted, setGuidesCompleted] = useState(() => Boolean(
     window.localStorage.getItem(ONBOARDING_SEEN_KEY)
     && window.localStorage.getItem(QUICK_START_SEEN_KEY),
@@ -148,22 +177,23 @@ function Shell({
   const isAdmin = isEnterpriseAdmin(auth.user);
   const accountRoleLabel = isAdmin ? "管理员" : "";
   const isDistillRoute = location.pathname === "/enterprise/skills/distill";
-  const selected =
-    location.pathname === "/enterprise"
-      ? "/enterprise/dashboard"
-      : location.pathname.startsWith("/enterprise/platform")
-        ? "/enterprise/platform"
-        : location.pathname.startsWith("/enterprise/knowledge")
-          ? "/enterprise/knowledge"
-          : location.pathname.startsWith("/enterprise/general-skills")
-            ? "/enterprise/general-skills"
-            : location.pathname.startsWith("/enterprise/tools")
-              ? "/enterprise/tools"
-              : location.pathname.startsWith("/enterprise/scheduled-tasks")
-                ? "/enterprise/scheduled-tasks"
-                : isDistillRoute
-                  ? "/enterprise/skills"
-                  : location.pathname;
+  const isMarketplaceRoute = location.pathname.startsWith(EnterpriseRoute.MarketReview)
+    || location.pathname.startsWith(EnterpriseRoute.TransactionSupervision)
+    || location.pathname.startsWith(EnterpriseRoute.DisputeManagement);
+  const selected = (() => {
+    if (location.pathname === "/enterprise") return EnterpriseRoute.Dashboard;
+    if (location.pathname.startsWith(EnterpriseRoute.MarketReview)) return EnterpriseRoute.MarketReview;
+    if (location.pathname.startsWith(EnterpriseRoute.TransactionSupervision)) return EnterpriseRoute.TransactionSupervision;
+    if (location.pathname.startsWith(EnterpriseRoute.DisputeManagement)) return EnterpriseRoute.DisputeManagement;
+    if (location.pathname.startsWith("/enterprise/platform")) return EnterpriseRoute.Platform;
+    if (location.pathname.startsWith("/enterprise/knowledge")) return EnterpriseRoute.Knowledge;
+    if (location.pathname.startsWith("/enterprise/general-skills")) return EnterpriseRoute.GeneralSkills;
+    if (location.pathname.startsWith("/enterprise/tools")) return EnterpriseRoute.Tools;
+    if (location.pathname.startsWith(EnterpriseRoute.Accounts)) return EnterpriseRoute.Accounts;
+    if (location.pathname.startsWith("/enterprise/scheduled-tasks")) return EnterpriseRoute.ScheduledTasks;
+    if (isDistillRoute) return EnterpriseRoute.Skills;
+    return location.pathname;
+  })();
   const isAgentRosterRoute = location.pathname.startsWith("/enterprise/agents");
   const [lastDistillSearch, setLastDistillSearch] = useState(() =>
     isDistillRoute ? location.search : "",
@@ -197,9 +227,33 @@ function Shell({
       });
   }, []);
 
+  const loadAiCapabilityStatus = useCallback(() => {
+    return api
+      .get<AICapabilityStatusRead>("/api/ai/capabilities/status")
+      .then((status) => {
+        setAiCapabilityStatus(status);
+        setAiCapabilityStatusLoaded(true);
+      })
+      .catch(() => {
+        setAiCapabilityStatus(null);
+        setAiCapabilityStatusLoaded(true);
+      });
+  }, []);
+
   useEffect(() => {
     void loadModelConfigs();
-  }, [loadModelConfigs]);
+    void loadAiCapabilityStatus();
+    void api
+      .get<AIModelOptionsRead>("/api/ai/models/options")
+      .then(setModelOptions)
+      .catch(() => setModelOptions({ smart_match_available: false, platform_models: [], enterprise_models: [] }));
+  }, [loadAiCapabilityStatus, loadModelConfigs]);
+
+  useEffect(() => {
+    const refresh = () => void loadAiCapabilityStatus();
+    window.addEventListener(AI_CAPABILITIES_UPDATED_EVENT, refresh);
+    return () => window.removeEventListener(AI_CAPABILITIES_UPDATED_EVENT, refresh);
+  }, [loadAiCapabilityStatus]);
 
   useEffect(() => {
     const onModelConfigsUpdated = (event: Event) => {
@@ -210,10 +264,11 @@ function Shell({
       } else {
         void loadModelConfigs();
       }
+      void loadAiCapabilityStatus();
     };
     window.addEventListener(MODEL_CONFIGS_UPDATED_EVENT, onModelConfigsUpdated);
     return () => window.removeEventListener(MODEL_CONFIGS_UPDATED_EVENT, onModelConfigsUpdated);
-  }, [loadModelConfigs]);
+  }, [loadAiCapabilityStatus, loadModelConfigs]);
 
   useEffect(() => {
     const onQuickStartCompleted = () => setGuidesCompleted(true);
@@ -252,8 +307,7 @@ function Shell({
     const onScopeChange = (event: Event) => {
       const nextAgentId =
         (event as CustomEvent<{ agentId?: string }>).detail?.agentId ||
-        window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) ||
-        "";
+        readSharedAgentScope();
       if (nextAgentId) {
         persistSharedAgentScope(nextAgentId, auth.user.id);
         const knownSelectableAgent = agents.some(
@@ -271,8 +325,14 @@ function Shell({
       window.removeEventListener(
         "ultrarag-enterprise-agent-scope-change",
         onScopeChange,
-      );
+    );
   }, [agents, auth.user.id]);
+
+  useEffect(() => {
+    if (!selectedAgentId) return;
+    persistSharedAgentScope(selectedAgentId, auth.user.id);
+    emitAgentScopeChange(selectedAgentId);
+  }, [auth.user.id, selectedAgentId]);
 
   useEffect(() => {
     const onCreateAgent = () => openCreateAgentModal();
@@ -296,7 +356,6 @@ function Shell({
             requestedAgentId &&
             selectableRows.some((item) => item.id === requestedAgentId)
           ) {
-            persistSharedAgentScope(requestedAgentId, auth.user.id);
             return requestedAgentId;
           }
           const manageableRows = selectableRows.filter((item) =>
@@ -307,12 +366,6 @@ function Shell({
             : preferredEmployeeAgent(manageableRows)?.id ||
               preferredEmployeeAgent(selectableRows)?.id ||
               "";
-          if (next) {
-            persistSharedAgentScope(next, auth.user.id);
-            if (next !== current) {
-              emitAgentScopeChange(next);
-            }
-          }
           return next;
         });
       })
@@ -326,8 +379,6 @@ function Shell({
 
   function changeAgentScope(agentId: string) {
     setSelectedAgentId(agentId);
-    persistSharedAgentScope(agentId, auth.user.id);
-    emitAgentScopeChange(agentId);
   }
 
   function handleSidebarOpenChange(open: boolean) {
@@ -339,11 +390,20 @@ function Shell({
   }
 
   const scopeAgents = agents.filter(canUseAgentScope);
-  const hasUsableModelConfig = modelConfigs.some((item) => item.enabled);
-  const showModelSetupNotice = guidesCompleted && modelConfigsLoaded && !hasUsableModelConfig;
+  const hasUsableTenantModelConfig = modelConfigs.some((item) => item.enabled);
+  const hasUsablePlatformModel = Boolean(
+    aiCapabilityStatus?.capabilities.some(
+      (item) => item.capability === "agent_chat" && item.available,
+    ),
+  );
+  const hasUsableModelConfig = hasUsableTenantModelConfig || hasUsablePlatformModel;
+  const showModelSetupNotice = guidesCompleted
+    && modelConfigsLoaded
+    && aiCapabilityStatusLoaded
+    && !hasUsableModelConfig;
   const modelSetupNoticeText = isAdmin
-    ? t("还没有可用模型配置，数字员工暂不能调用模型。请先完成模型配置。")
-    : t("系统管理员尚未配置可用模型，数字员工暂不能调用模型。请联系管理员完成模型配置。");
+    ? t("平台和企业均没有可用模型，数字员工暂不能调用模型。请先配置平台模型或企业自有模型。")
+    : t("平台 AI 服务暂不可用，请联系平台管理员。");
   const selectedAgent = scopeAgents.find((item) => item.id === selectedAgentId);
   const sidebarAgent = selectedAgent;
   // Routes that operate on a specific employee; show the empty guide when none exist.
@@ -374,21 +434,36 @@ function Shell({
     : "未选择";
   const selectedAgentCaption = selectedAgent
     ? selectedAgent.is_overall
-      ? "开放广场"
+      ? "公司广场"
       : employeeProfile(selectedAgent).roleName
     : "-";
   function openCreateAgentModal() {
     setAgentForm({
       ...EMPTY_AGENT_FORM,
       copyFromAgentId: selectedAgentId || sourceAgents[0]?.id || "",
+      modelProductId: modelOptions.platform_models.find((item) => item.is_default)?.id || modelOptions.platform_models[0]?.id || "",
+      tenantModelConfigId: modelOptions.enterprise_models.find((item) => item.is_default)?.id || modelOptions.enterprise_models[0]?.id || "",
     });
     setAgentCreateOpen(true);
   }
 
   async function saveAgentCreateModal() {
+    if (agentForm.sourceMode === "external") {
+      setAgentCreateOpen(false);
+      navigate("/enterprise/agents/external/connect");
+      return;
+    }
     const name = agentForm.name.trim();
     if (!name) {
       notify.error("请填写数字员工姓名");
+      return;
+    }
+    if (agentForm.modelSelectionMode === "platform_product" && !agentForm.modelProductId) {
+      notify.error("请选择一个已发布的平台模型");
+      return;
+    }
+    if (agentForm.modelSelectionMode === "enterprise_model" && !agentForm.tenantModelConfigId) {
+      notify.error("请选择企业自有模型");
       return;
     }
     const isBlankOnboarding = agentForm.sourceMode === "blank";
@@ -445,6 +520,17 @@ function Shell({
             : baseMetadata,
         },
       );
+      try {
+        await api.put(`/api/ai/agents/${encodeURIComponent(created.id)}/model-policy`, {
+          tenant_id: TENANT_ID,
+          selection_mode: agentForm.modelSelectionMode,
+          model_product_id: agentForm.modelSelectionMode === "platform_product" ? agentForm.modelProductId : undefined,
+          tenant_model_config_id: agentForm.modelSelectionMode === "enterprise_model" ? agentForm.tenantModelConfigId : undefined,
+          allow_platform_fallback: true,
+        });
+      } catch (error) {
+        notify.warning(error instanceof Error ? `员工已创建，模型策略保存失败：${error.message}` : "员工已创建，模型策略保存失败");
+      }
       await loadAgents();
       changeAgentScope(created.id);
       setAgentCreateOpen(false);
@@ -484,9 +570,9 @@ function Shell({
       />
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <div
-          className={`content flex-1 ${isDistillRoute ? "flex min-h-0 flex-col overflow-hidden p-0!" : ""} ${selected === "/enterprise/dashboard" ? "sd1-dashboard-content" : ""} ${selected !== "/enterprise/dashboard" && !isDistillRoute ? "sd1-management-content" : ""}`}
+          className={`content flex-1 ${isDistillRoute ? "flex min-h-0 flex-col overflow-hidden p-0!" : ""} ${isMarketplaceRoute ? "marketplace-content" : ""} ${selected === "/enterprise/dashboard" ? "sd1-dashboard-content" : ""} ${selected !== "/enterprise/dashboard" && !isDistillRoute && !isMarketplaceRoute ? "sd1-management-content" : ""}`}
         >
-          {showModelSetupNotice && (
+          {showModelSetupNotice && !isMarketplaceRoute && (
             <div className="mx-[24px] mt-[18px] mb-[10px] flex shrink-0 flex-col items-start justify-between gap-[12px] rounded-[12px] border border-[#f3d28b] bg-[#fff8e8] px-[18px] py-[12px] text-[#6f4500] shadow-[0_8px_24px_rgba(92,62,0,0.08)] sm:flex-row sm:items-center">
               <div className="flex min-w-0 items-center gap-[10px]">
                 <span className="flex size-[28px] shrink-0 items-center justify-center rounded-[8px] bg-[#ffe7ad] text-[#8a4b00]">
@@ -520,14 +606,14 @@ function Shell({
               onLogout={onLogout}
             />
           </div>
-          {!isDistillRoute && showEmployeeEmptyState && (
+          {!isDistillRoute && !isMarketplaceRoute && showEmployeeEmptyState && (
             <EmptyEmployeeState
               isAdmin={isAdmin}
               onCreate={openCreateAgentModal}
               onBrowsePlatform={() => navigate(EnterpriseRoute.Platform)}
             />
           )}
-          {!isDistillRoute && !showEmployeeEmptyState && (
+          {!isDistillRoute && (!showEmployeeEmptyState || isMarketplaceRoute) && (
             <Routes>
               <Route
                 path="/enterprise"
@@ -554,6 +640,38 @@ function Shell({
                 }
               />
               <Route
+                path="/enterprise/platform/market-reviews"
+                element={
+                  isAdmin
+                    ? <MarketReviewPage />
+                    : <Navigate to={EnterpriseRoute.Publishing} replace />
+                }
+              />
+              <Route
+                path="/enterprise/platform/transaction-supervision"
+                element={
+                  isAdmin
+                    ? <TransactionSupervisionPage />
+                    : <Navigate to={EnterpriseRoute.Orders} replace />
+                }
+              />
+              <Route
+                path="/enterprise/platform/disputes"
+                element={
+                  isAdmin
+                    ? <PlatformDisputesPage />
+                    : <Navigate to={EnterpriseRoute.Orders} replace />
+                }
+              />
+              <Route
+                path="/enterprise/platform/disputes/:caseId"
+                element={
+                  isAdmin
+                    ? <PlatformDisputeDetailPage />
+                    : <Navigate to={EnterpriseRoute.Orders} replace />
+                }
+              />
+              <Route
                 path="/enterprise/dashboard"
                 element={
                   <DashboardPage
@@ -562,6 +680,14 @@ function Shell({
                     onLogout={onLogout}
                   />
                 }
+              />
+              <Route
+                path="/enterprise/agents/external/connect"
+                element={<ExternalAgentEnrollmentPage />}
+              />
+              <Route
+                path="/enterprise/agents/external/:connectionId"
+                element={<ExternalAgentOperationsPage />}
               />
               <Route
                 path="/enterprise/agents"
@@ -683,14 +809,12 @@ function Shell({
                 }
               />
               <Route
-                path="/enterprise/accounts"
-                element={
-                  isAdmin ? (
-                    <AccountsPage currentUser={auth.user} onLogout={onLogout} />
-                  ) : (
-                    <Navigate to={EnterpriseRoute.Gallery} replace />
-                  )
-                }
+                path="/enterprise/accounts/*"
+                element={<AccountManagementLayout currentUser={auth.user} onLogout={onLogout} />}
+              />
+              <Route
+                path="/enterprise/organization/team"
+                element={<LegacyOrganizationTeamRedirect />}
               />
               <Route
                 path="/enterprise/models"
@@ -701,6 +825,10 @@ function Shell({
                     <Navigate to={EnterpriseRoute.Gallery} replace />
                   )
                 }
+              />
+              <Route
+                path="/enterprise/ai-usage"
+                element={<AIUsagePage currentUser={auth.user} onLogout={onLogout} />}
               />
               <Route
                 path="/enterprise/tools"
@@ -764,35 +892,36 @@ function Shell({
           <div className="agent-editor-form min-h-0 flex-1 overflow-y-auto px-[24px] pb-[16px]">
             <label>
               创建方式
-              <div className="inline-flex w-fit gap-[4px] rounded-[10px] border border-border p-[2px]">
+              <div className="grid w-full gap-[6px]">
                 {[
-                  { label: "从广场复制", value: "copy" as const },
-                  { label: "从空白开始", value: "blank" as const },
+                  { label: "从广场招募", description: "复制平台内已有数字员工及已授权资源", value: "copy" as const },
+                  { label: "外接已有 Agent", description: "连接本地或云端 Agent，后续仍在原环境运行", value: "external" as const },
+                  { label: "从空白创建", description: "手工配置一个新的平台数字员工", value: "blank" as const },
                 ].map((option) => (
                   <button
                     key={option.value}
                     type="button"
                     className={cn(
-                      "rounded-[8px] px-[14px] py-[5px] text-[13px] font-medium transition-colors",
+                      "flex flex-col items-start rounded-[9px] border px-[12px] py-[9px] text-left text-[13px] font-medium transition-colors",
                       agentForm.sourceMode === option.value
-                        ? "bg-[#18181a] text-white"
-                        : "text-[#5b6273] hover:text-foreground",
+                        ? "border-[#18181a] bg-[#18181a] text-white"
+                        : "border-border text-[#303541] hover:border-[#aeb5c0]",
                     )}
                     onClick={() =>
                       setAgentForm((prev) => ({
                         ...prev,
                         sourceMode: option.value,
                         copyFromAgentId:
-                          option.value === "blank" ? "" : prev.copyFromAgentId,
+                          option.value !== "copy" ? "" : prev.copyFromAgentId,
                       }))
                     }
                   >
-                    {option.label}
+                    <span>{option.label}</span><small className={agentForm.sourceMode === option.value ? "text-white/65" : "text-[#858c98]"}>{option.description}</small>
                   </button>
                 ))}
               </div>
             </label>
-            <label>
+            {agentForm.sourceMode !== "external" && <label>
               职位
               <Input
                 value={agentForm.roleName}
@@ -804,7 +933,7 @@ function Shell({
                 }
                 placeholder="例如 研发工程师、财务助理"
               />
-            </label>
+            </label>}
             <div className="grid content-start gap-[6px]">
             {agentForm.sourceMode === "copy" && (
               <label>
@@ -835,7 +964,7 @@ function Shell({
                     {sourceAgents.map((agent) => (
                       <SelectItem key={agent.id} value={agent.id}>
                         {agent.is_overall
-                          ? "开放广场"
+                          ? "公司广场"
                           : `${employeeDisplayNameWithCreator(agent)} · ${employeeProfile(agent).roleName}${isGalleryEmployee(agent) ? " · 广场" : ""}`}
                       </SelectItem>
                     ))}
@@ -848,8 +977,13 @@ function Shell({
                 从空白开始创建，不继承任何已有配置。
               </div>
             )}
+            {agentForm.sourceMode === "external" && (
+              <div className="agent-definition-note">
+                下一步将生成一次性配对码。平台默认只接收你确认的能力元数据，不会自动上传源码、知识正文或密钥。
+              </div>
+            )}
             </div>
-            <label>
+            {agentForm.sourceMode !== "external" && <label>
               数字员工姓名
               <Input
                 value={agentForm.name}
@@ -860,8 +994,8 @@ function Shell({
                   }))
                 }
               />
-            </label>
-            <label>
+            </label>}
+            {agentForm.sourceMode !== "external" && <label>
               岗位描述
               <Textarea
                 rows={3}
@@ -874,7 +1008,71 @@ function Shell({
                 }
                 placeholder="概括这个数字员工的岗位边界、服务风格和执行重点"
               />
-            </label>
+            </label>}
+            {agentForm.sourceMode !== "external" && <label>
+              模型策略
+              <div className="grid grid-cols-3 gap-[6px]">
+                {[
+                  { value: "auto" as const, label: "智能匹配" },
+                  { value: "platform_product" as const, label: "指定平台模型" },
+                  { value: "enterprise_model" as const, label: "企业自有模型" },
+                ].map((option) => (
+                  <button
+                    type="button"
+                    key={option.value}
+                    className={cn(
+                      "h-[36px] rounded-[9px] border px-[8px] text-[12px] transition-colors",
+                      agentForm.modelSelectionMode === option.value
+                        ? "border-[#18181a] bg-[#18181a] text-white"
+                        : "border-border bg-white text-[#464c5e] hover:border-[#aeb5c0]",
+                    )}
+                    onClick={() => setAgentForm((current) => ({ ...current, modelSelectionMode: option.value }))}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </label>}
+            {agentForm.sourceMode !== "external" && agentForm.modelSelectionMode === "platform_product" && (
+              <label>
+                平台模型
+                <UISelect
+                  value={agentForm.modelProductId || undefined}
+                  onValueChange={(value) => setAgentForm((current) => ({ ...current, modelProductId: value }))}
+                >
+                  <SelectTrigger className={cn(SELECT_TRIGGER_CLASS, "w-full")}>
+                    <SelectValue placeholder="选择已发布的平台模型" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {modelOptions.platform_models.map((model) => (
+                      <SelectItem key={model.id} value={model.id}>
+                        {model.display_name} · {model.model_family}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </UISelect>
+              </label>
+            )}
+            {agentForm.sourceMode !== "external" && agentForm.modelSelectionMode === "enterprise_model" && (
+              <label>
+                企业自有模型
+                <UISelect
+                  value={agentForm.tenantModelConfigId || undefined}
+                  onValueChange={(value) => setAgentForm((current) => ({ ...current, tenantModelConfigId: value }))}
+                >
+                  <SelectTrigger className={cn(SELECT_TRIGGER_CLASS, "w-full")}>
+                    <SelectValue placeholder="选择企业自有模型" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {modelOptions.enterprise_models.map((model) => (
+                      <SelectItem key={model.id} value={model.id}>
+                        {model.display_name} · {model.description}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </UISelect>
+              </label>
+            )}
           </div>
           <div className={cn(DIALOG_FOOTER_CLASS, "shrink-0 border-t border-border")}>
             <UIButton
@@ -888,7 +1086,7 @@ function Shell({
               className={DIALOG_PRIMARY_BUTTON_CLASS}
               onClick={() => void saveAgentCreateModal()}
             >
-              创建
+              {agentForm.sourceMode === "external" ? "开始连接" : "创建"}
             </UIButton>
           </div>
         </DialogContent>
@@ -930,22 +1128,14 @@ function AuthedApp({
     const nextPath = location.pathname.replace(/^\/enterprise\/chat/, EnterpriseRoute.Chat);
     return <Navigate to={`${nextPath}${location.search}`} replace />;
   }
+  if (isMarketplaceWorkspacePath(location.pathname)) {
+    return <ConversationWorkspaceShell />;
+  }
   if (location.pathname.startsWith(EnterpriseRoute.Workspace)) {
-    return (
-      <Routes>
-        <Route
-          path="/workspace"
-          element={<Navigate to="/workspace/gallery" replace />}
-        />
-        <Route path="/workspace/gallery" element={<ChatGalleryPage />} />
-        <Route path="/workspace/chat" element={<ChatPage />} />
-        <Route
-          path="/workspace/chat/draft/:draftAgentId"
-          element={<ChatPage />}
-        />
-        <Route path="/workspace/chat/:sessionId" element={<ChatPage />} />
-      </Routes>
-    );
+    if (location.pathname === EnterpriseRoute.Workspace) {
+      return <Navigate to="/workspace/gallery" replace />;
+    }
+    return <ConversationWorkspaceShell />;
   }
   return <Shell auth={auth} onLogout={onLogout} />;
 }

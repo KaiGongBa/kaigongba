@@ -11,9 +11,58 @@ ADMIN_ROLE = "admin"
 MEMBER_ROLE = "member"
 USER_ROLES = {ADMIN_ROLE, MEMBER_ROLE}
 
+PLATFORM_SUPER_ADMIN_ROLE = "super_admin"
+PLATFORM_MODEL_ADMIN_ROLE = "model_admin"
+PLATFORM_OPERATIONS_ROLE = "operations"
+PLATFORM_FINANCE_ROLE = "finance"
+PLATFORM_DISPUTE_ROLE = "dispute_reviewer"
+PLATFORM_ROLES = {
+    PLATFORM_SUPER_ADMIN_ROLE,
+    PLATFORM_MODEL_ADMIN_ROLE,
+    PLATFORM_OPERATIONS_ROLE,
+    PLATFORM_FINANCE_ROLE,
+    PLATFORM_DISPUTE_ROLE,
+}
+
+PLATFORM_ROLE_PERMISSIONS: dict[str, frozenset[str]] = {
+    PLATFORM_SUPER_ADMIN_ROLE: frozenset({"*"}),
+    PLATFORM_MODEL_ADMIN_ROLE: frozenset(
+        {
+            "platform.models.manage",
+            "platform.routes.manage",
+            "platform.pricing.manage",
+            "platform.usage.read",
+        }
+    ),
+    PLATFORM_OPERATIONS_ROLE: frozenset(
+        {
+            "platform.models.read",
+            "platform.usage.read",
+        }
+    ),
+    PLATFORM_FINANCE_ROLE: frozenset(
+        {
+            "platform.pricing.manage",
+            "platform.usage.read",
+        }
+    ),
+    PLATFORM_DISPUTE_ROLE: frozenset(),
+}
+
 
 def is_admin_user(current_user: User) -> bool:
     return current_user.role == ADMIN_ROLE
+
+
+def has_platform_permission(current_user: User, permission: str) -> bool:
+    permissions = PLATFORM_ROLE_PERMISSIONS.get(current_user.platform_role or "")
+    return bool(permissions and ("*" in permissions or permission in permissions))
+
+
+def require_platform_permission(current_user: User, permission: str) -> User:
+    if not has_platform_permission(current_user, permission):
+        raise HTTPException(status_code=403, detail="PLATFORM_PERMISSION_REQUIRED")
+    return current_user
 
 
 def ensure_tenant_admin(tenant_id: str, current_user: User) -> User:

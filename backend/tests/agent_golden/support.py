@@ -159,10 +159,19 @@ class CanonicalNormalizer:
             if strategy == "monotonic_time_map":
                 return self._stable_map(self._times, value, "time")
             if strategy == "traceback_normalized":
-                return re.sub(
+                normalized_traceback = re.sub(
                     r'  File "[^"]+/(backend/(?:app|tests)/[^"]+)", line \d+',
                     r'  File "<repo>/\1", line <line>',
                     value,
+                )
+                # Python 3.14 includes multiline expressions, caret markers and
+                # collapsed source ranges in formatted tracebacks. Contract
+                # fixtures care about frame order and exception identity, not
+                # interpreter-specific source rendering.
+                return "".join(
+                    line
+                    for line in normalized_traceback.splitlines(keepends=True)
+                    if not line.startswith(("    ", "        "))
                 )
         if strategy == "duration_placeholder" and isinstance(value, (int, float)) and not isinstance(value, bool):
             return "<duration_ms>"

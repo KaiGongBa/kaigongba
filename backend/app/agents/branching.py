@@ -8,6 +8,7 @@ from sqlmodel import Session, select
 from app.db.models import (
     AgentKnowledgeBranch,
     AgentModelBinding,
+    AgentModelPolicy,
     AgentProfile,
     AgentResourceBinding,
     AgentSkillBranch,
@@ -28,6 +29,8 @@ from app.db.models import (
 )
 from app.llm.model_config_resolver import (
     ResolvedModelConfig,
+    resolve_platform_model_for_capability,
+    resolve_platform_model_for_product,
     resolve_model_config_for_runtime,
 )
 
@@ -965,6 +968,34 @@ def model_for_agent(
     db: Session, tenant_id: str, agent_id: str | None, role: str = "default"
 ) -> ResolvedModelConfig | None:
     agent = get_agent(db, tenant_id, agent_id)
+    policy = None
+    if agent:
+        policy = db.exec(
+            select(AgentModelPolicy).where(
+                AgentModelPolicy.tenant_id == tenant_id,
+                AgentModelPolicy.agent_id == agent.id,
+            )
+        ).first()
+    capability = "structured_generation" if role in {"router", "reflection"} else "agent_chat"
+    if policy:
+        if policy.selection_mode == "platform_product" and policy.model_product_id:
+            return resolve_platform_model_for_product(
+                db, tenant_id, policy.model_product_id
+            )
+        if policy.selection_mode == "enterprise_model" and policy.tenant_model_config_id:
+            return resolve_model_config_for_runtime(
+                db, tenant_id, policy.tenant_model_config_id
+            )
+        if policy.selection_mode == "auto":
+            platform_model = resolve_platform_model_for_capability(
+                db, tenant_id, capability
+            )
+            if platform_model is None and capability != "agent_chat":
+                platform_model = resolve_platform_model_for_capability(
+                    db, tenant_id, "agent_chat"
+                )
+            if platform_model is not None:
+                return platform_model
     roles: Iterable[str] = (role, "default") if role != "default" else ("default",)
     if agent:
         for candidate_role in roles:
@@ -979,6 +1010,11 @@ def model_for_agent(
                 model = db.get(ModelConfig, binding.model_config_id)
                 if model and model.enabled:
                     return _runtime_model(db, tenant_id, model)
+    platform_model = resolve_platform_model_for_capability(db, tenant_id, capability)
+    if platform_model is None and capability != "agent_chat":
+        platform_model = resolve_platform_model_for_capability(db, tenant_id, "agent_chat")
+    if platform_model is not None:
+        return platform_model
     model = db.exec(
         select(ModelConfig).where(
             ModelConfig.tenant_id == tenant_id,

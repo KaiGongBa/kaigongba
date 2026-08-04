@@ -7,7 +7,7 @@ import BrandLogo from '../components/BrandLogo';
 import IconFieldClear from '../assets/icons/field-clear.svg?react';
 import IconFieldEye from '../assets/icons/field-eye.svg?react';
 import IconFieldEyeOn from '../assets/icons/field-eye-on.svg?react';
-import loginPreview from '../assets/staffdeck/login-preview.png';
+import loginPreview from '../assets/brand/kaigongba-product-preview-v2.png';
 
 export type LoginPageProps = {
   onLogin: (session: EnterpriseAuthSession) => void;
@@ -15,7 +15,7 @@ export type LoginPageProps = {
 
 /**
  * Signed-out landing / login page. Mirrors Figma node 68:201 (`Login_light`):
- * a full-bleed hero with the StaffDeck wordmark and a product-preview placeholder
+ * a full-bleed hero with the 开工吧 wordmark and a product-preview placeholder
  * anchored to the bottom. Clicking "登录" slides the credentials form (node 68:1563)
  * down into view in place of the call-to-action button.
  */
@@ -74,7 +74,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
             我们来做什么？
           </span>
           <h1 className="mt-[6px] text-center text-[54px] font-semibold leading-[80px] tracking-[1.08px] text-[#18181a]">
-            StaffDeck
+            开工吧
             <br />
             数字员工运营平台
           </h1>
@@ -169,7 +169,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
         <div className="mt-[32px] flex w-full justify-center">
           <img
             src={loginPreview}
-            alt="StaffDeck 产品预览"
+            alt="开工吧产品预览"
             className="h-auto w-full max-w-[1200px] select-none object-contain"
             draggable={false}
           />

@@ -60,6 +60,11 @@ import {
   visibleEmployeeAgents,
 } from '../employee';
 import { useClientPagination } from '../hooks/useClientPagination';
+import {
+  emitAgentScopeChange,
+  persistSharedAgentScope,
+  readSharedAgentScope,
+} from '../lib/agent-scope-storage';
 import { StatusBadge } from './scheduled-tasks/StatusBadge';
 import type {
   AgentProfileRead,
@@ -77,7 +82,6 @@ type ToolPageProps = {
   onLogout?: () => void;
 };
 
-const ENTERPRISE_AGENT_STORAGE_KEY = 'ultrarag_enterprise_agent_scope';
 const TOOL_PAGE_SIZE = 10;
 const TOOL_FORM_INITIAL_VALUES = {
   tool_type: 'http',
@@ -108,7 +112,7 @@ const TRANSPORT_OPTIONS: { value: MCPTransport; label: string; hint: string }[] 
 
 export default function ToolsPage({ currentUser, onLogout }: ToolPageProps = {}) {
   const [rows, setRows] = useState<ToolRead[]>([]);
-  const [agentId, setAgentId] = useState(() => window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '');
+  const [agentId, setAgentId] = useState(() => readSharedAgentScope());
   const [isOverallAgent, setIsOverallAgent] = useState(true);
   const [agentScopeLoaded, setAgentScopeLoaded] = useState(false);
   const [bucketFilter, setBucketFilter] = useState('__all__');
@@ -187,7 +191,7 @@ export default function ToolsPage({ currentUser, onLogout }: ToolPageProps = {})
 
   useEffect(() => {
     const onScopeChange = (event: Event) => {
-      const nextAgentId = (event as CustomEvent<{ agentId?: string }>).detail?.agentId || window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '';
+      const nextAgentId = (event as CustomEvent<{ agentId?: string }>).detail?.agentId || readSharedAgentScope();
       setAgentId(nextAgentId);
     };
     window.addEventListener('ultrarag-enterprise-agent-scope-change', onScopeChange);
@@ -372,7 +376,7 @@ export default function ToolsPage({ currentUser, onLogout }: ToolPageProps = {})
       return;
     }
     if (!importSourceAgentId) {
-      notify.warning(importMode === 'plaza' ? '请选择开放广场' : '请选择复制来源员工');
+      notify.warning(importMode === 'plaza' ? '请选择公司广场' : '请选择复制来源员工');
       return;
     }
     if (importSelectedToolIds.length === 0) {
@@ -395,8 +399,8 @@ export default function ToolsPage({ currentUser, onLogout }: ToolPageProps = {})
       notify.success(`已复制 ${importedCount} 个工具${missingCount ? `，${missingCount} 个未复制` : ''}`);
       setImportOpen(false);
       if (targetAgentId !== agentId) {
-        window.localStorage.setItem(ENTERPRISE_AGENT_STORAGE_KEY, targetAgentId);
-        window.dispatchEvent(new CustomEvent('ultrarag-enterprise-agent-scope-change', { detail: { agentId: targetAgentId } }));
+        persistSharedAgentScope(targetAgentId, currentUser?.id);
+        emitAgentScopeChange(targetAgentId);
         setAgentId(targetAgentId);
       } else {
         await load();
@@ -840,9 +844,9 @@ export default function ToolsPage({ currentUser, onLogout }: ToolPageProps = {})
         targetPlaceholder="选择目标员工"
         targets={importTargetCandidates().map((item) => ({ value: item.id, label: item.name }))}
         targetId={importTargetAgentId}
-        sourcePlaceholder={importMode === 'plaza' ? '选择开放广场' : '选择复制来源'}
+        sourcePlaceholder={importMode === 'plaza' ? '选择公司广场' : '选择复制来源'}
         sources={importMode === 'plaza'
-          ? openGalleryImportSourceOptions(agents, '开放广场')
+          ? openGalleryImportSourceOptions(agents, '公司广场')
           : visibleEmployeeAgents(agents, currentUser, { activeOnly: true, excludeAgentId: importTargetAgentId })
             .map((item) => ({ value: item.id, label: item.name }))}
         sourceId={importSourceAgentId}
@@ -860,7 +864,7 @@ export default function ToolsPage({ currentUser, onLogout }: ToolPageProps = {})
         emptyText="没有可复制的工具"
         note={
           importMode === 'plaza'
-            ? '从开放广场复制可用工具；复制后会成为当前员工的本地工具绑定。'
+            ? '从公司广场复制内部共享的工具；复制后会成为当前员工的本地工具绑定。'
             : '从数字员工复制可用工具；不可见内容不会出现在列表。'
         }
         onTargetChange={handleImportTargetChange}
@@ -2066,7 +2070,7 @@ async function loadBucketOptions() {
 }
 
 function currentAgentQuery() {
-  const agentId = window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '';
+  const agentId = readSharedAgentScope();
   return agentId ? `&agent_id=${encodeURIComponent(agentId)}` : '';
 }
 

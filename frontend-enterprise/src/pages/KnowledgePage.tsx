@@ -58,8 +58,8 @@ import { DIALOG_CANCEL_BUTTON_CLASS, DIALOG_FOOTER_CLASS, DIALOG_PRIMARY_BUTTON_
 import {
   clearSharedAgentScope,
   emitAgentScopeChange,
-  ENTERPRISE_AGENT_STORAGE_KEY,
   persistSharedAgentScope,
+  readSharedAgentScope,
 } from '@/lib/agent-scope-storage';
 import IconAdd from '../assets/icons/add.svg?react';
 import IconChevronDown from '../assets/icons/chevron-down.svg?react';
@@ -166,7 +166,7 @@ export default function KnowledgeManagePage({ currentUser, onLogout }: Knowledge
   const [selectedDocument, setSelectedDocument] = useState<KnowledgeDocumentRead | null>(null);
   const [buckets, setBuckets] = useState<KnowledgeBucketRead[]>([]);
   const [loading, setLoading] = useState(false);
-  const [agentId, setAgentId] = useState(() => window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '');
+  const [agentId, setAgentId] = useState(() => readSharedAgentScope());
   const [agentScopeLoaded, setAgentScopeLoaded] = useState(false);
   const [agents, setAgents] = useState<AgentProfileRead[]>([]);
   const [importOpen, setImportOpen] = useState(false);
@@ -330,7 +330,7 @@ export default function KnowledgeManagePage({ currentUser, onLogout }: Knowledge
 
   useEffect(() => {
     const onScopeChange = (event: Event) => {
-      setAgentId((event as CustomEvent<{ agentId?: string }>).detail?.agentId || window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '');
+      setAgentId((event as CustomEvent<{ agentId?: string }>).detail?.agentId || readSharedAgentScope());
     };
     window.addEventListener('ultrarag-enterprise-agent-scope-change', onScopeChange);
     return () => window.removeEventListener('ultrarag-enterprise-agent-scope-change', onScopeChange);
@@ -551,7 +551,7 @@ export default function KnowledgeManagePage({ currentUser, onLogout }: Knowledge
       return;
     }
     if (!importSourceAgentId) {
-      notify.warning(importMode === 'plaza' ? '请选择开放广场' : '请选择来源员工');
+      notify.warning(importMode === 'plaza' ? '请选择公司广场' : '请选择来源员工');
       return;
     }
     if (importSelectedKnowledgeBaseIds.length === 0) {
@@ -1229,9 +1229,9 @@ export default function KnowledgeManagePage({ currentUser, onLogout }: Knowledge
         loading={importLoading}
         icon={<DatabaseOutlined />}
         title={importMode === 'plaza' ? '从广场复制知识库' : '从数字员工复制知识库'}
-        sourcePlaceholder={importMode === 'plaza' ? '选择开放广场' : '选择来源员工'}
+        sourcePlaceholder={importMode === 'plaza' ? '选择公司广场' : '选择来源员工'}
         sources={importMode === 'plaza'
-          ? openGalleryImportSourceOptions(agents, '开放广场')
+          ? openGalleryImportSourceOptions(agents, '公司广场')
           : visibleEmployeeAgents(agents, currentUser, { activeOnly: true, excludeAgentId: agentId })
             .map((item) => ({ value: item.id, label: item.name }))}
         sourceId={importSourceAgentId}
@@ -1248,7 +1248,7 @@ export default function KnowledgeManagePage({ currentUser, onLogout }: Knowledge
         selectedIds={importSelectedKnowledgeBaseIds}
         emptyText="没有可复制的知识库"
         note={importMode === 'plaza'
-          ? '从开放广场复制可用知识库；不可复制内容不会出现在列表。'
+          ? '从公司广场复制内部共享的知识库；不可复制内容不会出现在列表。'
           : '从数字员工复制可用知识库；不可见内容不会出现在列表。'}
         submitText="复制"
         onSourceChange={(value) => {
@@ -1592,8 +1592,8 @@ export default function KnowledgeManagePage({ currentUser, onLogout }: Knowledge
         onOpenChange={(open) => !open && setDeleteKbTarget(null)}
         title={deleteKbTarget ? `${isOverallAgent ? '删除' : '移除'}知识库：${deleteKbTarget.name}` : ''}
         description={!isOverallAgent
-          ? '这只会在当前数字员工中隐藏该知识库；开放广场和其他数字员工仍然保留。'
-          : '开放广场会永久删除该知识库及其文档、内部索引、引用来源和版本记录。'}
+          ? '这只会在当前数字员工中隐藏该知识库；公司广场和其他数字员工仍然保留。'
+          : '公司广场会永久删除该知识库及其文档、内部索引、引用来源和版本记录。'}
         confirmText={isOverallAgent ? '删除' : '移除'}
         onConfirm={() => void runDeleteKnowledgeBase()}
       />
@@ -1605,7 +1605,7 @@ export function KnowledgeAddPage({ currentUser }: KnowledgePageProps = {}) {
   const navigate = useNavigate();
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBaseRead[]>([]);
   const [jobs, setJobs] = useState<Record<string, KnowledgeIngestJobRead>>({});
-  const [agentId, setAgentId] = useState(() => window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '');
+  const [agentId, setAgentId] = useState(() => readSharedAgentScope());
   const [agentScopeLoaded, setAgentScopeLoaded] = useState(false);
   const [checkedDiscoveryJobIds, setCheckedDiscoveryJobIds] = useState<string[]>([]);
   const [pendingDiscoveries, setPendingDiscoveries] = useState<KnowledgeDiscoveryRead[]>([]);
@@ -1661,7 +1661,7 @@ export function KnowledgeAddPage({ currentUser }: KnowledgePageProps = {}) {
 
   useEffect(() => {
     const onScopeChange = (event: Event) => {
-      setAgentId((event as CustomEvent<{ agentId?: string }>).detail?.agentId || window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '');
+      setAgentId((event as CustomEvent<{ agentId?: string }>).detail?.agentId || readSharedAgentScope());
     };
     window.addEventListener('ultrarag-enterprise-agent-scope-change', onScopeChange);
     return () => window.removeEventListener('ultrarag-enterprise-agent-scope-change', onScopeChange);

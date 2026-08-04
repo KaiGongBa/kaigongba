@@ -1,0 +1,252 @@
+.transaction-page { min-width: 0; padding-bottom: 92px; }
+.transaction-page button, .transaction-page input, .transaction-page textarea, .transaction-page select { font: inherit; }
+.transaction-page input, .transaction-page textarea, .transaction-page select {
+  border: 1px solid #dfe3ea; border-radius: 7px; outline: none; background: #fff; color: #242832;
+}
+.transaction-page input:focus, .transaction-page textarea:focus, .transaction-page select:focus { border-color: #697386; box-shadow: 0 0 0 3px rgb(37 42 52 / 6%); }
+.transaction-page input:disabled, .transaction-page textarea:disabled, .transaction-page select:disabled { color: #5f6673; background: #f6f7f9; }
+.transaction-page textarea { resize: vertical; }
+.transaction-steps { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 8px 0 18px; padding: 0 34px; }
+.transaction-steps span { display: flex; align-items: center; gap: 9px; color: #8a91a0; font-size: 13px; }
+.transaction-steps span::after { height: 1px; flex: 1; margin-left: 8px; background: #e2e5ea; content: ""; }
+.transaction-steps span:last-child::after { display: none; }
+.transaction-steps b { display: grid; width: 28px; height: 28px; place-items: center; border: 1px solid #e0e4e9; border-radius: 50%; background: #fafbfc; color: #555d6b; }
+.transaction-steps .is-active { color: #23262d; font-weight: 650; }
+.transaction-steps .is-active b { border-color: #202329; background: #202329; color: #fff; }
+.transaction-editor-layout { display: grid; grid-template-columns: minmax(620px, 1fr) 330px; align-items: start; gap: 18px; }
+.transaction-form-stack, .transaction-side-stack { display: flex; min-width: 0; flex-direction: column; gap: 14px; }
+.transaction-card { min-width: 0; border: 1px solid #e3e6eb; border-radius: 10px; padding: 16px; background: #fff; }
+.transaction-card > h2, .transaction-card .marketplace-card-heading h2 { display: flex; align-items: center; gap: 7px; margin: 0 0 14px; color: #22262e; font-size: 14px; font-weight: 700; }
+.transaction-card > h2 svg { width: 16px; color: #6b64d8; }
+.transaction-card > label, .transaction-budget-card > label, .transaction-buyer-note { display: flex; flex-direction: column; gap: 6px; margin-top: 13px; color: #535b69; font-size: 12px; }
+.transaction-card > label > input, .transaction-card > label > textarea, .transaction-card > label > select,
+.transaction-budget-card input, .transaction-budget-card select { min-height: 38px; width: 100%; padding: 9px 11px; }
+.transaction-card > label > textarea { min-height: 96px; line-height: 1.65; }
+.transaction-card .marketplace-form-grid { margin: 13px 0 0; }
+.transaction-card .marketplace-form-grid label { display: flex; flex-direction: column; gap: 6px; color: #535b69; font-size: 12px; }
+.transaction-card .marketplace-form-grid input, .transaction-card .marketplace-form-grid select, .transaction-card .marketplace-form-grid textarea { min-height: 38px; width: 100%; padding: 9px 11px; }
+.transaction-card .marketplace-form-grid textarea { min-height: 126px; line-height: 1.55; }
+.transaction-upload { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 14px; border-top: 1px solid #eceef2; padding-top: 14px; }
+.transaction-upload > div { display: flex; flex-direction: column; gap: 3px; }
+.transaction-upload small { color: #828a98; font-size: 11px; }
+.transaction-file-row { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 10px; margin-top: 9px; border: 1px solid #e6e8ed; border-radius: 8px; padding: 9px 11px; }
+.transaction-file-row > svg:first-child { width: 24px; color: #3878df; }
+.transaction-file-row > svg:nth-last-child(2) { width: 15px; color: #25a65a; }
+.transaction-file-row > span { display: flex; min-width: 0; flex-direction: column; }
+.transaction-file-row small { color: #858d9b; font-size: 10px; }
+.transaction-file-row button, .transaction-deliverable-table button, .transaction-criterion button, .transaction-milestone-table button {
+  display: grid; width: 28px; height: 28px; place-items: center; border: 0; border-radius: 6px; background: transparent; color: #7f8796;
+}
+.transaction-file-row button:hover, .transaction-deliverable-table button:hover, .transaction-criterion button:hover { background: #f4f5f7; color: #c33333; }
+.transaction-file-row button svg, .transaction-deliverable-table button svg, .transaction-criterion button svg, .transaction-milestone-table button svg { width: 14px; }
+.transaction-deliverable-table { margin-bottom: 10px; }
+.transaction-deliverable-table > div { display: grid; grid-template-columns: 26px minmax(260px, 1fr) 100px 88px 32px; align-items: center; gap: 5px; margin-top: 5px; }
+.transaction-deliverable-table b { color: #737b89; text-align: center; }
+.transaction-deliverable-table input, .transaction-deliverable-table select { min-height: 34px; padding: 7px 9px; }
+.transaction-deliverable-table label { display: flex; align-items: center; gap: 5px; font-size: 11px; }
+.transaction-deliverable-table label input { min-height: 0; width: auto; }
+.transaction-criterion { display: grid; grid-template-columns: 22px minmax(0, 1fr) 32px; align-items: center; gap: 6px; margin-top: 6px; }
+.transaction-criterion > svg { width: 16px; color: #24a059; }
+.transaction-criterion input { min-height: 34px; padding: 7px 9px; }
+.transaction-completeness { display: block; margin: 8px 0; color: #2ba25c; font-size: 29px; font-weight: 550; }
+.transaction-progress { height: 6px; overflow: hidden; border-radius: 3px; background: #edeff2; }
+.transaction-progress span { display: block; height: 100%; border-radius: inherit; background: #2ca258; }
+.transaction-card > small { display: block; margin-top: 8px; color: #7b8391; font-size: 11px; }
+.transaction-budget-card .marketplace-secondary-button, .transaction-budget-card .marketplace-submit-button { width: 100%; margin-top: 10px; }
+.transaction-privacy-note { display: flex; align-items: flex-start; gap: 10px; background: #fbfcff; }
+.transaction-privacy-note > svg { width: 18px; flex: none; color: #51658c; }
+.transaction-privacy-note p { margin: 5px 0 0; color: #737c8e; font-size: 11px; line-height: 1.65; }
+.transaction-requirement-hero, .transaction-compare-hero, .transaction-agreement-header {
+  display: grid; grid-template-columns: minmax(280px, 1fr) auto; gap: 18px; margin: 8px 0 14px; border: 1px solid #e2e5ea; border-radius: 10px; padding: 17px; background: #fff;
+}
+.transaction-requirement-hero > div:first-child h1, .transaction-compare-hero h1, .transaction-agreement-header h1 { margin: 7px 0 4px; font-size: 19px; }
+.transaction-requirement-hero > div:first-child p, .transaction-compare-hero p, .transaction-agreement-header p { margin: 0; color: #737c8e; font-size: 11px; }
+.transaction-requirement-hero dl { display: grid; grid-template-columns: repeat(4, minmax(110px, 1fr)); grid-column: 1 / -1; margin: 4px 0 0; }
+.transaction-requirement-hero dl div { border-right: 1px solid #e8eaee; padding: 0 22px; }
+.transaction-requirement-hero dl div:first-child { padding-left: 0; }
+.transaction-requirement-hero dl div:last-child { border: 0; }
+.transaction-requirement-hero dt, .transaction-definition-list dt { color: #7c8594; font-size: 10px; }
+.transaction-requirement-hero dd { margin: 5px 0 0; font-size: 13px; font-weight: 650; }
+.transaction-lifecycle { display: grid; grid-template-columns: repeat(4, 1fr); grid-column: 1 / -1; margin-top: 7px; border-top: 1px solid #eceef2; padding-top: 14px; }
+.transaction-lifecycle span { display: flex; align-items: center; gap: 7px; color: #959ca8; font-size: 11px; }
+.transaction-lifecycle span:not(:last-child)::after { height: 1px; flex: 1; margin: 0 14px; background: #e1e4e9; content: ""; }
+.transaction-lifecycle b, .transaction-lifecycle svg { display: grid; width: 20px; height: 20px; place-items: center; border-radius: 50%; }
+.transaction-lifecycle .is-done { color: #31925a; }
+.transaction-lifecycle .is-active { color: #20242b; font-weight: 650; }
+.transaction-lifecycle .is-active b { background: #20242b; color: #fff; text-align: center; line-height: 20px; }
+.transaction-detail-layout { display: grid; grid-template-columns: minmax(300px, .85fr) minmax(420px, 1.2fr) 300px; align-items: start; gap: 14px; }
+.transaction-definition-list { margin: 0; }
+.transaction-definition-list > div { display: grid; grid-template-columns: 90px 1fr; gap: 8px; border-top: 1px solid #eceef2; padding: 10px 0; }
+.transaction-definition-list > div:first-child { border-top: 0; }
+.transaction-definition-list dd { margin: 0; color: #404652; font-size: 11px; line-height: 1.65; }
+.transaction-card > h3 { margin: 16px 0 6px; font-size: 12px; }
+.transaction-muted { color: #78818f; font-size: 11px; line-height: 1.6; }
+.transaction-question-compose { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-bottom: 12px; }
+.transaction-question-compose textarea { min-height: 64px; padding: 9px; }
+.transaction-question-compose button, .transaction-answer-form button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; border: 0; border-radius: 7px; padding: 0 13px; background: #202329; color: #fff; font-size: 11px; }
+.transaction-question-compose button svg { width: 14px; }
+.transaction-question { position: relative; margin-top: 10px; border: 1px solid #e5e7ec; border-radius: 9px; padding: 12px; }
+.transaction-question.is-open { border-color: #f1c27c; background: #fffaf2; }
+.transaction-question header { display: flex; align-items: center; gap: 7px; color: #7b8492; font-size: 10px; }
+.transaction-question header > span { border-radius: 10px; padding: 2px 6px; background: #eaf8ef; color: #28834e; }
+.transaction-question.is-open header > span { background: #fff0dc; color: #b6630d; }
+.transaction-question header time { margin-left: auto; }
+.transaction-question h3 { margin: 10px 0; font-size: 13px; }
+.transaction-answer { display: grid; grid-template-columns: auto 1fr; gap: 7px; border-radius: 7px; padding: 9px; background: #f6f8fa; }
+.transaction-answer svg { width: 14px; color: #22a158; }
+.transaction-answer p { margin: 0; font-size: 11px; line-height: 1.6; }
+.transaction-answer small { grid-column: 2; color: #808896; font-size: 9px; }
+.transaction-answer-form { display: grid; grid-template-columns: 1fr auto; gap: 7px; }
+.transaction-answer-form textarea { min-height: 58px; padding: 8px; font-size: 11px; }
+.transaction-mini-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 10px 0; }
+.transaction-mini-stats span { display: flex; align-items: center; flex-direction: column; gap: 2px; border: 1px solid #e7e9ed; border-radius: 8px; padding: 9px 4px; color: #777f8e; font-size: 10px; }
+.transaction-mini-stats b { color: #252932; font-size: 18px; }
+.transaction-side-stack .marketplace-submit-button { width: 100%; margin-top: 10px; }
+.transaction-side-stack select { min-height: 38px; width: 100%; padding: 8px 10px; }
+.transaction-match-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.transaction-match-grid article { border: 1px solid #e5e7ec; border-radius: 9px; padding: 12px; }
+.transaction-match-grid header { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 9px; }
+.transaction-match-grid header > span:first-child { display: grid; width: 36px; height: 36px; place-items: center; border-radius: 50%; background: #eff7f1; color: #239450; font-weight: 700; }
+.transaction-match-grid header div { display: flex; flex-direction: column; }
+.transaction-match-grid small { color: #7d8593; font-size: 10px; }
+.transaction-match-grid ul { margin: 10px 0 0; padding-left: 18px; color: #596170; font-size: 11px; line-height: 1.7; }
+.transaction-match-grid p { color: #b45d12; font-size: 10px; }
+.transaction-version-row { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 9px; margin-top: 7px; border: 1px solid #e7e9ed; border-radius: 8px; padding: 9px; }
+.transaction-version-row > svg { width: 17px; color: #486fd3; }
+.transaction-version-row > div { display: flex; flex-direction: column; }
+.transaction-version-row small { color: #7e8694; font-size: 10px; }
+.transaction-version-row code { color: #6f7786; font-size: 9px; }
+.transaction-ai-banner { display: flex; align-items: center; gap: 9px; margin: 6px 0 14px; border: 1px solid #d8d4fb; border-radius: 9px; padding: 10px 13px; background: #faf9ff; color: #5c54c1; font-size: 11px; }
+.transaction-ai-banner > svg { width: 18px; }
+.transaction-ai-banner span { flex: 1; }
+.transaction-ai-banner button { display: inline-flex; align-items: center; gap: 5px; border: 1px solid #dddfe5; border-radius: 7px; padding: 7px 10px; background: #fff; color: #404650; }
+.transaction-ai-banner button svg { width: 14px; }
+.transaction-quote-layout { display: grid; grid-template-columns: minmax(680px, 1fr) 330px; align-items: start; gap: 16px; }
+.transaction-quote-metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.transaction-quote-metrics > label { display: flex; flex-direction: column; gap: 6px; border: 1px solid #e4e7ec; border-radius: 9px; padding: 12px; color: #6f7786; font-size: 11px; }
+.transaction-quote-metrics b { display: flex; align-items: center; color: #22262e; font-size: 18px; white-space: nowrap; }
+.transaction-quote-metrics input { min-width: 0; width: 100%; border: 0; padding: 3px; font-size: inherit; }
+.transaction-milestone-table { margin: 12px 0; overflow-x: auto; border: 1px solid #e2e5ea; border-radius: 8px; }
+.transaction-milestone-table > header, .transaction-milestone-table > div { display: grid; grid-template-columns: 150px 1.1fr 1fr 75px 90px 34px; min-width: 760px; }
+.transaction-milestone-table > header { background: #f5f6f8; color: #6c7483; font-size: 10px; }
+.transaction-milestone-table > header span { padding: 9px; }
+.transaction-milestone-table > div { border-top: 1px solid #e6e8ed; }
+.transaction-milestone-table > div > * { min-width: 0; border: 0; border-right: 1px solid #eceef1; border-radius: 0; padding: 8px; font-size: 10px; }
+.transaction-milestone-table > div textarea { min-height: 72px; }
+.transaction-milestone-table > div strong { display: flex; align-items: flex-start; gap: 3px; }
+.transaction-milestone-table > div strong input { min-width: 0; width: 100%; border: 0; }
+.transaction-milestone-table > div label { display: flex; align-items: center; gap: 2px; }
+.transaction-milestone-table > div label input { min-width: 0; width: 100%; border: 0; }
+.transaction-milestone-table footer { display: flex; align-items: center; justify-content: flex-end; gap: 18px; min-width: 760px; border-top: 1px solid #e1e4e9; padding: 9px 12px; font-size: 11px; }
+.transaction-milestone-table footer strong { font-size: 15px; }
+.is-valid { color: #218d50 !important; }
+.is-invalid { color: #c86b18 !important; }
+.transaction-validation-list { display: flex; flex-direction: column; gap: 8px; }
+.transaction-validation-list p { display: flex; align-items: center; gap: 7px; margin: 0; font-size: 11px; }
+.transaction-validation-list svg { width: 14px; }
+.transaction-confirm-card label { display: flex !important; align-items: flex-start; flex-direction: row !important; gap: 7px !important; color: #3e4551; font-size: 11px; line-height: 1.55; }
+.transaction-confirm-card label input { width: auto !important; min-height: 0 !important; margin-top: 2px; }
+.transaction-confirm-card .marketplace-secondary-button { width: 100%; margin-top: 8px; }
+.transaction-success { display: flex; align-items: flex-start; gap: 7px; color: #248c50; font-size: 11px; line-height: 1.6; }
+.transaction-success svg { width: 17px; flex: none; }
+.transaction-compare-hero { align-items: center; }
+.transaction-compare-layout { display: grid; grid-template-columns: minmax(720px, 1fr) 320px; align-items: start; gap: 16px; }
+.transaction-comparison { overflow: hidden; }
+.transaction-comparison-grid { display: grid; grid-template-columns: 220px repeat(var(--quote-count), minmax(270px, 1fr)); overflow-x: auto; border: 1px solid #e1e4e9; border-radius: 8px; }
+.transaction-comparison-labels, .transaction-comparison-column { display: grid; grid-template-rows: 74px 54px 44px 44px minmax(116px, auto) minmax(80px, auto) minmax(108px, auto) 44px minmax(96px, auto) 44px; }
+.transaction-comparison-labels > *, .transaction-comparison-column > * { margin: 0; border-bottom: 1px solid #e4e6eb; padding: 10px; }
+.transaction-comparison-labels { background: #f7f8fa; color: #4d5562; font-size: 11px; }
+.transaction-comparison-column { cursor: pointer; border-left: 1px solid #e1e4e9; font-size: 11px; }
+.transaction-comparison-column.is-selected { background: #f8fbff; box-shadow: inset 0 0 0 2px #5d83d7; }
+.transaction-comparison-column header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.transaction-comparison-column header div { display: flex; flex-direction: column; }
+.transaction-comparison-column header strong { display: flex; align-items: center; gap: 8px; }
+.transaction-comparison-column header em { font-style: normal; }
+.transaction-comparison-column header small { display: flex; align-items: center; gap: 3px; color: #777f8e; }
+.transaction-comparison-column header svg { width: 13px; color: #279957; }
+.transaction-comparison-column .is-price { font-size: 18px; font-weight: 700; }
+.transaction-comparison-column > span { display: flex; flex-direction: column; gap: 5px; }
+.transaction-comparison-column i { display: flex; align-items: flex-start; gap: 5px; color: #4d5562; font-style: normal; line-height: 1.45; }
+.transaction-comparison-column i svg { width: 13px; flex: none; color: #1e9b53; }
+.transaction-comparison-column i.is-exclusion svg { color: #d64545; }
+.transaction-warning { margin-top: 10px; border: 1px solid #efcf9f; border-radius: 7px; padding: 9px; background: #fff9ef; color: #9d651d; font-size: 10px; }
+.transaction-buyer-note textarea { min-height: 72px; padding: 9px; }
+.transaction-decision-card h2 { justify-content: space-between; }
+.transaction-score { display: flex; align-items: flex-end; gap: 8px; border-bottom: 1px solid #eceef2; padding: 4px 0 12px; }
+.transaction-score strong { font-size: 30px; }
+.transaction-score span { color: #7c8492; font-size: 10px; line-height: 1.5; }
+.transaction-decision-card ul, .transaction-note-list { padding-left: 18px; color: #596170; font-size: 11px; line-height: 1.75; }
+.transaction-ai-recommendation { display: flex; gap: 8px; margin-top: 12px; border-radius: 8px; padding: 10px; background: #f3f6ff; color: #4a5daa; }
+.transaction-ai-recommendation svg { width: 18px; flex: none; }
+.transaction-ai-recommendation p { display: flex; flex-direction: column; margin: 0; font-size: 11px; }
+.transaction-ai-recommendation small { margin-top: 3px; color: #828aa0; font-size: 9px; }
+.transaction-sticky-action { position: fixed; z-index: 12; right: 0; bottom: 0; left: var(--sidebar-width, 220px); display: flex; min-height: 68px; align-items: center; justify-content: flex-end; gap: 20px; border-top: 1px solid #dfe2e8; padding: 10px 28px; background: rgb(255 255 255 / 96%); box-shadow: 0 -8px 24px rgb(35 42 54 / 5%); }
+.sidebar-collapsed .transaction-sticky-action { left: var(--sidebar-width-icon, 72px); }
+.transaction-sticky-action > div { margin-right: auto; }
+.transaction-sticky-action > div span { color: #7c8492; font-size: 11px; }
+.transaction-sticky-action > div b { margin-left: 18px; }
+.transaction-sticky-action label { display: flex; align-items: center; gap: 7px; font-size: 11px; }
+.transaction-sticky-action .marketplace-submit-button { min-width: 210px; padding: 0 20px; }
+.transaction-agreement-steps { display: grid; grid-template-columns: repeat(4, 1fr); margin: 7px 0 14px; border: 1px solid #e1e4e9; border-radius: 10px; padding: 16px 32px; background: #fff; }
+.transaction-agreement-steps span { position: relative; display: grid; grid-template-columns: auto 1fr; align-items: center; column-gap: 9px; color: #778090; }
+.transaction-agreement-steps span:not(:last-child)::after { position: absolute; right: 18px; left: 92px; height: 1px; border-top: 1px dashed #bfc5cf; content: ""; }
+.transaction-agreement-steps svg { grid-row: 1 / 3; width: 30px; height: 30px; border: 1px solid #d8dce3; border-radius: 50%; padding: 7px; }
+.transaction-agreement-steps b { color: #343a45; font-size: 12px; }
+.transaction-agreement-steps small { font-size: 9px; }
+.transaction-agreement-steps .is-done svg { border-color: #aad8b8; background: #eff9f2; color: #289450; }
+.transaction-agreement-steps .is-active svg { border-color: #22262d; background: #22262d; color: #fff; }
+.transaction-agreement-header { align-items: center; }
+.transaction-legal-review { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 7px; color: #365b45; }
+.transaction-legal-review svg { grid-row: 1 / 3; width: 28px; color: #4aaf6c; }
+.transaction-legal-review small { font-size: 9px; }
+.transaction-agreement-layout { display: grid; grid-template-columns: 190px minmax(580px, 1fr) 340px; align-items: start; gap: 14px; }
+.transaction-agreement-toc { position: sticky; top: 8px; display: flex; flex-direction: column; gap: 5px; border: 1px solid #e3e6eb; border-radius: 10px; padding: 14px; background: #fff; }
+.transaction-agreement-toc h2 { margin: 0 0 8px; font-size: 13px; }
+.transaction-agreement-toc a { border-left: 2px solid transparent; padding: 6px 8px; color: #647086; font-size: 10px; text-decoration: none; }
+.transaction-agreement-toc a:hover { border-color: #455f9b; background: #f4f6fa; color: #26385c; }
+.transaction-agreement-toc button { width: 100%; margin-top: 8px; font-size: 10px; }
+.transaction-agreement-document { border: 1px solid #e1e4e9; border-radius: 10px; padding: 28px 32px; background: #fff; color: #303640; }
+.transaction-agreement-document > h1 { margin: 0 0 18px; text-align: center; }
+.transaction-agreement-document > p { font-size: 11px; line-height: 1.7; }
+.transaction-agreement-document section { scroll-margin-top: 20px; border-top: 1px solid #dfe2e7; padding: 16px 0; }
+.transaction-agreement-document section h2 { margin: 0 0 10px; font-size: 14px; }
+.transaction-agreement-document section h3 { margin: 12px 0 6px; font-size: 11px; }
+.transaction-agreement-document section p, .transaction-agreement-document section li { font-size: 11px; line-height: 1.75; }
+.transaction-agreement-document section ul { padding-left: 0; list-style: none; }
+.transaction-agreement-document section li { display: flex; gap: 6px; }
+.transaction-agreement-document section li svg { width: 13px; color: #219950; }
+.transaction-agreement-document section li.is-exclusion::before { color: #d64343; content: "×"; }
+.transaction-agreement-price { display: flex; justify-content: space-between; gap: 10px; border: 1px solid #eccda3; padding: 9px; background: #fffaf1; font-size: 11px; }
+.transaction-agreement-document table { width: 100%; margin-top: 10px; border-collapse: collapse; font-size: 10px; }
+.transaction-agreement-document th, .transaction-agreement-document td { border: 1px solid #e2e5e9; padding: 8px; text-align: left; }
+.transaction-agreement-document th { background: #f6f7f9; color: #687181; }
+.transaction-party-confirmation { margin-top: 8px; border: 1px solid #e5e7ec; border-radius: 8px; padding: 10px; }
+.transaction-party-confirmation.is-confirmed { border-color: #b9dfc4; background: #f4fbf6; }
+.transaction-party-confirmation header { display: flex; justify-content: space-between; gap: 8px; }
+.transaction-party-confirmation p { margin: 6px 0; font-size: 11px; }
+.transaction-party-confirmation small { color: #808896; font-size: 10px; }
+.transaction-party-confirmation dl { margin: 6px 0 0; }
+.transaction-party-confirmation dl div { display: grid; grid-template-columns: 64px 1fr; gap: 5px; margin-top: 4px; font-size: 9px; }
+.transaction-party-confirmation dt { color: #7c8492; }
+.transaction-party-confirmation dd { margin: 0; }
+.marketplace-status.is-matching, .marketplace-status.is-quoting, .marketplace-status.is-agreement_pending, .marketplace-status.is-partially_confirmed { color: #b56a18; background: #fff2e2; }
+.marketplace-status.is-contracted, .marketplace-status.is-active, .marketplace-status.is-selected, .marketplace-status.is-sent, .marketplace-status.is-quote_submitted, .marketplace-status.is-viewed { color: #1c894b; background: #eaf8f0; }
+.marketplace-status.is-draft, .marketplace-status.is-withdrawn, .marketplace-status.is-rejected { color: #6b7280; background: #eff0f2; }
+
+@media (max-width: 1280px) {
+  .transaction-editor-layout, .transaction-quote-layout, .transaction-compare-layout { grid-template-columns: 1fr; }
+  .transaction-detail-layout { grid-template-columns: minmax(300px, .85fr) minmax(420px, 1.2fr); }
+  .transaction-detail-layout > aside { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, 1fr); }
+  .transaction-agreement-layout { grid-template-columns: 170px minmax(560px, 1fr); }
+  .transaction-agreement-layout > .transaction-side-stack { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, 1fr); }
+}
+
+@media (max-width: 900px) {
+  .transaction-steps, .transaction-agreement-steps { grid-template-columns: repeat(2, 1fr); row-gap: 14px; padding-inline: 12px; }
+  .transaction-detail-layout, .transaction-agreement-layout { grid-template-columns: 1fr; }
+  .transaction-detail-layout > aside, .transaction-agreement-layout > .transaction-side-stack { display: flex; grid-column: auto; }
+  .transaction-agreement-toc { position: static; }
+  .transaction-requirement-hero dl { grid-template-columns: repeat(2, 1fr); row-gap: 14px; }
+  .transaction-match-grid { grid-template-columns: 1fr; }
+  .transaction-sticky-action { left: 0; flex-wrap: wrap; gap: 8px; }
+}

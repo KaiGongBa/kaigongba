@@ -29,7 +29,7 @@ export type PlatformColumnProps = {
 };
 
 /**
- * Shared shell for a single 开放广场 column. It captures the parts that repeat
+ * Shared shell for a single 公司广场 column. It captures the parts that repeat
  * across all five modules (数字员工 / 知识库 / 技能 / SOP / 工具): the icon+title
  * header with a count, the filter chip row, the divider, the card list (or an
  * empty placeholder) and the "查看全部" footer button. Each module only supplies

@@ -275,3 +275,29 @@ def test_normalizer_stabilizes_repo_traceback_paths_and_lines() -> None:
         'Traceback:\n  File "<repo>/backend/app/core/agent_loop.py", '
         'line <line>, in handle_turn_stream\napp.llm.LLMError: failed\n'
     )
+
+
+def test_normalizer_removes_python_version_specific_traceback_source_lines() -> None:
+    normalizer = CanonicalNormalizer(
+        rules=[{"match": "**.error_traceback", "strategy": "traceback_normalized"}]
+    )
+
+    normalized = normalizer.normalize(
+        {
+            "error_traceback": (
+                'Traceback (most recent call last):\n'
+                '  File "/tmp/work/backend/app/core/router.py", line 42, in decide\n'
+                '    raw = client.generate_json(\n'
+                '        prompt, payload\n'
+                '    )\n'
+                '    ~~~~~~~~~~~~~~~~~~~~^\n'
+                'app.llm.client.LLMError: failed\n'
+            )
+        }
+    )
+
+    assert normalized["error_traceback"] == (
+        'Traceback (most recent call last):\n'
+        '  File "<repo>/backend/app/core/router.py", line <line>, in decide\n'
+        'app.llm.client.LLMError: failed\n'
+    )

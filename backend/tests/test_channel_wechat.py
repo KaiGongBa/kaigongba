@@ -2,9 +2,10 @@ import base64
 import json
 import threading
 import time
+from uuid import uuid4
 
 import httpx
-from sqlalchemy.pool import StaticPool
+from sqlalchemy.pool import QueuePool
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.channels.adapters.wechat import (
@@ -24,9 +25,9 @@ BASE_URL = "https://ilinkai.weixin.qq.com"
 
 def _test_engine():
     engine = create_engine(
-        "sqlite://",
+        f"sqlite:///file:wechat_{uuid4().hex}?mode=memory&cache=shared&uri=true",
         connect_args={"check_same_thread": False},
-        poolclass=StaticPool,
+        poolclass=QueuePool,
     )
     SQLModel.metadata.create_all(engine)
     return engine
@@ -636,28 +637,30 @@ def test_recovery_success_clears_state_and_resumes_polling() -> None:
     manager = WeChatPollManager(
         db_engine=engine, client_factory=lambda binding: client, recovery_cooldown_seconds=0.02
     )
-    manager.ensure_binding(binding_id)
+    try:
+        manager.ensure_binding(binding_id)
 
-    def recovered():
+        def recovered():
+            with Session(engine) as db:
+                binding = db.get(ChannelBinding, binding_id)
+                config = dict(binding.config_json or {})
+                return binding.connected and config.get("session_expired") is False
+
+        assert _wait_for(recovered, timeout=10.0)
         with Session(engine) as db:
             binding = db.get(ChannelBinding, binding_id)
             config = dict(binding.config_json or {})
-            return binding.connected and config.get("session_expired") is False
-
-    assert _wait_for(recovered)
-    with Session(engine) as db:
-        binding = db.get(ChannelBinding, binding_id)
-        config = dict(binding.config_json or {})
-        assert binding.status == "active"
-        assert binding.connected is True
-        assert config["session_expired"] is False
-        assert config["recovery_failures"] == 0
-        assert "next_recovery_at" not in config
-        # 恢复后正常轮询:游标照常被持久化推进
-        assert config["get_updates_buf"] == "cur2"
-    # 重试用的是原游标(cur),恢复成功后推进到 cur2
-    assert "cur" in client.cursors
-    manager.stop_binding(binding_id)
+            assert binding.status == "active"
+            assert binding.connected is True
+            assert config["session_expired"] is False
+            assert config["recovery_failures"] == 0
+            assert "next_recovery_at" not in config
+            # 恢复后正常轮询:游标照常被持久化推进
+            assert config["get_updates_buf"] == "cur2"
+        # 重试用的是原游标(cur),恢复成功后推进到 cur2
+        assert "cur" in client.cursors
+    finally:
+        assert manager.stop(timeout_seconds=5.0)
 
 
 def test_repeated_minus_14_marks_expired_at_cap() -> None:

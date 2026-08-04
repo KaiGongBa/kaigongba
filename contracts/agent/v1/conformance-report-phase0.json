@@ -98,7 +98,7 @@
     "legacy-skill-corpus.json": "sha256:2c499cfca742779cfce6407fe0ac2bbddbbfa478bf47e09e5a3ac173ecd568e6",
     "normalization-profiles.json": "sha256:8439f9fc9f269c0593d1768125ae9eaf71717260df676cc03d0ddf1c6e672c66",
     "relationship-requirements.json": "sha256:b3a46634a7fe472cf99462af4bd6dee53be71cb092abee11ed67ff6b57b5fc38",
-    "manifest_closure": "sha256:77ac568facc9580d0fff424a021aef3722d6f35b8865ebb54474f6098a059562"
+    "manifest_closure": "sha256:c9667896a222feeeb930b70701c175dc03d5e6da23d58aa43a38d7c58bd68e38"
   },
   "reviews": [
     {"role": "architecture", "status": "revision_required", "runtime_gate": "no_go"},

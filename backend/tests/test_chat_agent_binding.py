@@ -5,7 +5,9 @@ from fastapi import HTTPException
 from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel, create_engine, select
 
+from app.agents.branching import ensure_private_resource_binding
 from app.api import chat as chat_api
+from app.api.agents import list_agents, list_chat_agents
 from app.api.chat import (
     _bind_request_to_session_agent,
     _ensure_chat_agent_available,
@@ -13,11 +15,11 @@ from app.api.chat import (
     create_chat_session,
     list_chat_sessions,
 )
-from app.agents.branching import ensure_private_resource_binding
 from app.core.agent_loop import AgentLoop, AgentLoopPreconditionError
 from app.db.models import (
     AgentEvent,
     AgentProfile,
+    AgentResourceBinding,
     ChatSession,
     Message,
     ModelConfig,
@@ -28,6 +30,7 @@ from app.db.models import (
     User,
     utc_now,
 )
+from app.db.seed import KAI_XIAOHUA_AGENT_ID, _ensure_seed_agents
 from app.session.session_schema import ChatSessionCreateRequest, ChatTurnRequest
 from app.tools.tool_schema import ToolCall
 
@@ -96,6 +99,70 @@ def test_chat_agent_must_be_active_non_overall_agent() -> None:
         assert missing.value.status_code == 400
         assert overall.value.status_code == 404
         assert archived.value.status_code == 404
+
+
+def test_platform_assistant_is_chat_accessible_but_hidden_from_staffdeck() -> None:
+    with _test_session() as db:
+        db.add(Tenant(id="tenant_demo", name="Demo"))
+        current_user = User(
+            id="member_demo", tenant_id="tenant_demo", username="member", password_hash="x"
+        )
+        db.add(current_user)
+        db.add(
+            AgentProfile(
+                id=KAI_XIAOHUA_AGENT_ID,
+                tenant_id="tenant_demo",
+                name="开小花",
+                is_overall=False,
+                metadata_json={
+                    "hidden_from_staffdeck": True,
+                    "platform_assistant": True,
+                    "published_to_gallery": True,
+                },
+            )
+        )
+        db.commit()
+
+        rows = list_chat_agents("tenant_demo", current_user=current_user, db=db)
+
+        assert [row.id for row in rows] == [KAI_XIAOHUA_AGENT_ID]
+        assert list_agents("tenant_demo", current_user=current_user, db=db) == []
+        assert _ensure_chat_agent_available(
+            db, "tenant_demo", KAI_XIAOHUA_AGENT_ID, current_user
+        ).id == KAI_XIAOHUA_AGENT_ID
+
+
+def test_seeded_platform_assistant_has_no_private_resource_bindings() -> None:
+    with _test_session() as db:
+        db.add(Tenant(id="tenant_demo", name="Demo"))
+        _ensure_seed_agents(db)
+        db.flush()
+
+        assistant = db.get(AgentProfile, KAI_XIAOHUA_AGENT_ID)
+        bindings = db.exec(
+            select(AgentResourceBinding).where(
+                AgentResourceBinding.agent_id == KAI_XIAOHUA_AGENT_ID
+            )
+        ).all()
+
+        assert assistant is not None
+        assert assistant.metadata_json["platform_assistant"] is True
+        assert bindings == []
+
+
+def test_platform_assistant_session_uses_dedicated_agent_without_external_channel() -> None:
+    with _test_session() as db:
+        session = AgentLoop(db)._get_or_create_session(
+            ChatTurnRequest(
+                tenant_id="tenant_demo",
+                user_id="user_demo",
+                agent_id=KAI_XIAOHUA_AGENT_ID,
+                message="平台怎么使用？",
+            )
+        )
+
+        assert session.agent_id == KAI_XIAOHUA_AGENT_ID
+        assert session.channel is None
 
 
 def test_create_chat_session_always_creates_new_agent_session() -> None:

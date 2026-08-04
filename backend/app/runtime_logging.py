@@ -12,7 +12,6 @@ from pathlib import Path
 
 from app import paths
 
-
 LOG_FILE_NAME = "staffdeck.log"
 MAX_LOG_BYTES = 5 * 1024 * 1024
 LOG_BACKUP_COUNT = 5
@@ -28,6 +27,7 @@ _queue_handler: _DroppingQueueHandler | None = None
 _file_handler: _RuntimeFileHandler | None = None
 _listener: _RuntimeQueueListener | None = None
 _atexit_registered = False
+_logger_states: dict[str, tuple[int, bool, bool]] = {}
 
 
 class _RuntimeFileHandler(RotatingFileHandler):
@@ -106,12 +106,18 @@ def configure_runtime_logging() -> Path:
         )
         for logger_name in RUNTIME_LOGGER_NAMES:
             runtime_logger = logging.getLogger(logger_name)
+            _logger_states[logger_name] = (
+                runtime_logger.level,
+                runtime_logger.propagate,
+                runtime_logger.disabled,
+            )
             for existing in list(runtime_logger.handlers):
                 if isinstance(existing, _DroppingQueueHandler):
                     runtime_logger.removeHandler(existing)
             runtime_logger.addHandler(queue_handler)
             runtime_logger.setLevel(logging.INFO)
             runtime_logger.propagate = False
+            runtime_logger.disabled = False
 
         listener.start()
         _configured_path = resolved_path
@@ -157,6 +163,11 @@ def shutdown_runtime_logging() -> None:
         for logger_name in RUNTIME_LOGGER_NAMES:
             runtime_logger = logging.getLogger(logger_name)
             runtime_logger.removeHandler(queue_handler)
+            previous_state = _logger_states.pop(logger_name, None)
+            if previous_state is not None:
+                runtime_logger.setLevel(previous_state[0])
+                runtime_logger.propagate = previous_state[1]
+                runtime_logger.disabled = previous_state[2]
         queue_handler.close()
     if file_handler is not None:
         file_handler.close()

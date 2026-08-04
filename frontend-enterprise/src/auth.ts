@@ -4,6 +4,7 @@ export type EnterpriseAuthUser = {
   username: string;
   display_name?: string;
   role: 'admin' | 'member';
+  platform_role?: 'super_admin' | 'model_admin' | 'operations' | 'finance' | 'dispute_reviewer';
   avatar_url?: string;
 };
 
@@ -54,6 +55,10 @@ function readStoredSession(key: string): EnterpriseAuthSession | null {
 
 export function isEnterpriseAdmin(user?: EnterpriseAuthUser | null): boolean {
   return user?.role === 'admin';
+}
+
+export function canManagePlatformModels(user?: EnterpriseAuthUser | null): boolean {
+  return user?.platform_role === 'super_admin' || user?.platform_role === 'model_admin';
 }
 
 export function isGalleryEmployee(agent?: { metadata?: Record<string, unknown> } | null): boolean {

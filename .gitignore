@@ -27,6 +27,10 @@ node_modules/
 /official-site/
 /frontend-chat/
 /docs/
+/.artifacts/
+/design/**/*.png
+/design/**/*.jpg
+/design/**/*.jpeg
 # 打包产物（PyInstaller 输出、附带 python、下载缓存）—— 不进 git
 packaging/out/
 packaging/build/
@@ -39,6 +43,8 @@ sop_agent_loop.db
 skill_agent_loop.db
 backend/sop_agent_loop.db*
 backend/skill_agent_loop.db*
+backend/.data/
+*.db
 *.sqlite
 *.sqlite3
 *.db-shm
