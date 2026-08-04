@@ -269,11 +269,11 @@ def simulate_demo_payment(
     payment = db.get(TransactionPaymentOrder, payment_order_id)
     if not payment or payment.tenant_id != current_user.tenant_id:
         raise HTTPException(status_code=404, detail="支付单不存在")
-    _require_payment_party(db, current_user, payment, request.organization_id)
     if request.organization_id != payment.buyer_organization_id:
         raise HTTPException(status_code=403, detail="仅采购方可以发起支付")
-    _require_manager(db, current_user, request.organization_id)
     if not is_admin_user(current_user):
+        _require_payment_party(db, current_user, payment, request.organization_id)
+        _require_manager(db, current_user, request.organization_id)
         raise HTTPException(status_code=403, detail="演示支付需要平台管理员复核")
     if not request.acknowledged_demo:
         raise HTTPException(status_code=422, detail="请确认本次操作不会产生真实资金扣款")
