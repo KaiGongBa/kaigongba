@@ -60,6 +60,11 @@ import {
   visibleEmployeeAgents,
 } from '../employee';
 import { useClientPagination } from '../hooks/useClientPagination';
+import {
+  emitAgentScopeChange,
+  persistSharedAgentScope,
+  readSharedAgentScope,
+} from '../lib/agent-scope-storage';
 import { StatusBadge } from './scheduled-tasks/StatusBadge';
 import type {
   AgentProfileRead,
@@ -77,7 +82,6 @@ type ToolPageProps = {
   onLogout?: () => void;
 };
 
-const ENTERPRISE_AGENT_STORAGE_KEY = 'ultrarag_enterprise_agent_scope';
 const TOOL_PAGE_SIZE = 10;
 const TOOL_FORM_INITIAL_VALUES = {
   tool_type: 'http',
@@ -108,7 +112,7 @@ const TRANSPORT_OPTIONS: { value: MCPTransport; label: string; hint: string }[] 
 
 export default function ToolsPage({ currentUser, onLogout }: ToolPageProps = {}) {
   const [rows, setRows] = useState<ToolRead[]>([]);
-  const [agentId, setAgentId] = useState(() => window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '');
+  const [agentId, setAgentId] = useState(() => readSharedAgentScope());
   const [isOverallAgent, setIsOverallAgent] = useState(true);
   const [agentScopeLoaded, setAgentScopeLoaded] = useState(false);
   const [bucketFilter, setBucketFilter] = useState('__all__');
@@ -187,7 +191,7 @@ export default function ToolsPage({ currentUser, onLogout }: ToolPageProps = {})
 
   useEffect(() => {
     const onScopeChange = (event: Event) => {
-      const nextAgentId = (event as CustomEvent<{ agentId?: string }>).detail?.agentId || window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '';
+      const nextAgentId = (event as CustomEvent<{ agentId?: string }>).detail?.agentId || readSharedAgentScope();
       setAgentId(nextAgentId);
     };
     window.addEventListener('ultrarag-enterprise-agent-scope-change', onScopeChange);
@@ -395,8 +399,8 @@ export default function ToolsPage({ currentUser, onLogout }: ToolPageProps = {})
       notify.success(`已复制 ${importedCount} 个工具${missingCount ? `，${missingCount} 个未复制` : ''}`);
       setImportOpen(false);
       if (targetAgentId !== agentId) {
-        window.localStorage.setItem(ENTERPRISE_AGENT_STORAGE_KEY, targetAgentId);
-        window.dispatchEvent(new CustomEvent('ultrarag-enterprise-agent-scope-change', { detail: { agentId: targetAgentId } }));
+        persistSharedAgentScope(targetAgentId, currentUser?.id);
+        emitAgentScopeChange(targetAgentId);
         setAgentId(targetAgentId);
       } else {
         await load();
@@ -2066,7 +2070,7 @@ async function loadBucketOptions() {
 }
 
 function currentAgentQuery() {
-  const agentId = window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '';
+  const agentId = readSharedAgentScope();
   return agentId ? `&agent_id=${encodeURIComponent(agentId)}` : '';
 }
 

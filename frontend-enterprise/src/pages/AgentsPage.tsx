@@ -25,10 +25,13 @@ import {
   isDefaultEmployeeAgent,
   isEmployeeUsedByCurrentUser,
 } from '../employee';
-import { emitAgentScopeChange, persistSharedAgentScope } from '../lib/agent-scope-storage';
+import {
+  clearSharedAgentScope,
+  emitAgentScopeChange,
+  persistSharedAgentScope,
+  readSharedAgentScope,
+} from '../lib/agent-scope-storage';
 import type { AgentProfileRead } from '../types';
-
-const ENTERPRISE_AGENT_STORAGE_KEY = 'ultrarag_enterprise_agent_scope';
 
 export default function AgentsPage({
   currentUser,
@@ -51,7 +54,7 @@ export default function AgentsPage({
   const [searchTerm, setSearchTerm] = useState('');
   const [employeeFilter, setEmployeeFilter] = useState<'all' | 'online' | 'offline' | 'pending'>('all');
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(
-    () => window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY),
+    () => readSharedAgentScope() || null,
   );
   const navigate = useNavigate();
 
@@ -74,7 +77,7 @@ export default function AgentsPage({
   useEffect(() => {
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<{ agentId?: string }>).detail;
-      setSelectedAgentId(detail?.agentId ?? window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY));
+      setSelectedAgentId(detail?.agentId ?? (readSharedAgentScope() || null));
     };
     window.addEventListener('ultrarag-enterprise-agent-scope-change', handler);
     return () => window.removeEventListener('ultrarag-enterprise-agent-scope-change', handler);
@@ -182,15 +185,15 @@ export default function AgentsPage({
     setDeleting(true);
     try {
       await api.delete(`/api/enterprise/agents/${row.id}?tenant_id=${TENANT_ID}`);
-      if (window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) === row.id) {
+      if (readSharedAgentScope() === row.id) {
         const nextAgent = employees.find((item) => item.id !== row.id && item.status === 'active')
           || employees.find((item) => item.id !== row.id);
         if (nextAgent) {
-          window.localStorage.setItem(ENTERPRISE_AGENT_STORAGE_KEY, nextAgent.id);
-          window.dispatchEvent(new CustomEvent('ultrarag-enterprise-agent-scope-change', { detail: { agentId: nextAgent.id } }));
+          persistSharedAgentScope(nextAgent.id, currentUser?.id);
+          emitAgentScopeChange(nextAgent.id);
         } else {
-          window.localStorage.removeItem(ENTERPRISE_AGENT_STORAGE_KEY);
-          window.dispatchEvent(new CustomEvent('ultrarag-enterprise-agent-scope-change', { detail: { agentId: '' } }));
+          clearSharedAgentScope(currentUser?.id);
+          emitAgentScopeChange('');
         }
       }
       notify.success('员工已删除');

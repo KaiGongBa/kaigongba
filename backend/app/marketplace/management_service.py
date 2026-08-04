@@ -1399,10 +1399,17 @@ def _next_skill_version(db: Session, skill_id: str, fallback: str) -> str:
 def _next_version(existing: list[str], fallback: str) -> str:
     if fallback not in existing:
         return fallback
-    match = re.fullmatch(r"v?(\d+)\.(\d+)\.(\d+)", fallback)
-    if not match:
+    raw_version = fallback[1:] if fallback.startswith("v") else fallback
+    parts = raw_version.split(".")
+    if (
+        len(parts) != 3
+        or any(
+            not part or len(part) > 12 or not part.isascii() or not part.isdecimal()
+            for part in parts
+        )
+    ):
         return f"{fallback}-rev{len(existing) + 1}"
-    major, minor, patch = (int(part) for part in match.groups())
+    major, minor, patch = (int(part) for part in parts)
     candidate = f"v{major}.{minor}.{patch + 1}"
     while candidate in existing:
         patch += 1

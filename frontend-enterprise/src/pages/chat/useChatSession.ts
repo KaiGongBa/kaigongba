@@ -22,7 +22,13 @@ import {
   type StreamEvent,
 } from '@/api/client';
 import { clearEnterpriseAuthSession, getEnterpriseAuthSession } from '@/auth';
-import { emitAgentScopeChange, persistSharedAgentScope } from '@/lib/agent-scope-storage';
+import {
+  emitAgentScopeChange,
+  persistSessionFilter,
+  persistSharedAgentScope,
+  readSessionFilter,
+  readSharedAgentScope,
+} from '@/lib/agent-scope-storage';
 import { getClientTimeZone } from '@/lib/timezone';
 import {
   agentResourceCount,
@@ -58,7 +64,6 @@ import {
   CHAT_STREAM_HEARTBEAT_GRACE_MS,
   HIDDEN_GENERAL_SKILL_TRACE_PHASES,
   RUNNING_EVENT_RECOVERY_WINDOW_MS,
-  SELECTED_AGENT_STORAGE_KEY,
   STREAM_TERMINAL_EVENTS,
   attachTurnIdsToServerMessages,
   buildTurnAliasMap,
@@ -105,7 +110,6 @@ import {
   routerDecisionTraceLine,
   sameRoleTurn,
   scheduledDraftForMessage,
-  sessionFilterStorageKey,
   shouldKeepRealtimeMessage,
   stepResultTraceLine,
   streamErrorTraceLine,
@@ -326,10 +330,10 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
   const [sessionReadTimes, setSessionReadTimes] = useState<Record<string, string>>(() => loadSessionReadTimes(userId));
   const [agents, setAgents] = useState<AgentProfileRead[]>([]);
   const [agentsLoaded, setAgentsLoaded] = useState(false);
-  const [selectedAgentId, setSelectedAgentId] = useState(() => window.localStorage.getItem(SELECTED_AGENT_STORAGE_KEY) || '');
+  const [selectedAgentId, setSelectedAgentId] = useState(() => readSharedAgentScope());
   const [sessionAgentFilter, setSessionAgentFilter] = useState(() => (
-    window.localStorage.getItem(sessionFilterStorageKey(userId))
-    || window.localStorage.getItem(SELECTED_AGENT_STORAGE_KEY)
+    readSessionFilter(userId)
+    || readSharedAgentScope()
     || 'all'
   ));
   const [modelConfigs, setModelConfigs] = useState<ModelConfigRead[]>([]);
@@ -372,7 +376,7 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
   const persistChatSessionAgentFilter = useCallback((value: string) => {
     const next = value || 'all';
     setSessionAgentFilter(next);
-    window.localStorage.setItem(sessionFilterStorageKey(userId), next);
+    persistSessionFilter(userId, next);
   }, [userId]);
   const [activeCitation, setActiveCitation] = useState<KnowledgeCitation | null>(null);
   const [handoffs, setHandoffs] = useState<HumanHandoffRead[]>([]);
@@ -756,14 +760,14 @@ export function useChatSession(options: UseChatSessionOptions = {}) {
     const onScopeChange = (event: Event) => {
       const nextAgentId = (
         (event as CustomEvent<{ agentId?: string }>).detail?.agentId
-        || window.localStorage.getItem(SELECTED_AGENT_STORAGE_KEY)
+        || readSharedAgentScope()
         || ''
       );
       if (!nextAgentId) return;
       setSelectedAgentId(nextAgentId);
       setSessionAgentFilter((current) => {
         if (current === 'all') return current;
-        window.localStorage.setItem(sessionFilterStorageKey(userId), nextAgentId);
+        persistSessionFilter(userId, nextAgentId);
         return nextAgentId;
       });
     };

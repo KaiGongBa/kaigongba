@@ -74,6 +74,7 @@ import {
   visibleEmployeeAgents,
 } from '../employee';
 import { useClientPagination } from '../hooks/useClientPagination';
+import { readSharedAgentScope } from '../lib/agent-scope-storage';
 import { StatusBadge } from './scheduled-tasks/StatusBadge';
 import type { BadgeTone } from './scheduled-tasks/shared';
 import type { AgentProfileRead, GeneralSkillRead, GeneralSkillRunResponse, ModelConfigRead } from '../types';
@@ -174,7 +175,6 @@ function TraceDisclosureLabel() {
   );
 }
 
-const ENTERPRISE_AGENT_STORAGE_KEY = 'ultrarag_enterprise_agent_scope';
 const GENERAL_SKILL_RUN_TIMEOUT_MS = 120_000;
 const FOLDER_INPUT_PROPS = {
   webkitdirectory: '',
@@ -321,7 +321,7 @@ export default function GeneralSkillsPage({ embedded = false, currentUser, onLog
   const [loading, setLoading] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | GeneralSkillRead['status']>('all');
-  const [agentId, setAgentId] = useState(() => window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '');
+  const [agentId, setAgentId] = useState(() => readSharedAgentScope());
   const [isOverallAgent, setIsOverallAgent] = useState(true);
   const [agents, setAgents] = useState<AgentProfileRead[]>([]);
   const [clawhubModalOpen, setClawhubModalOpen] = useState(false);
@@ -394,7 +394,7 @@ export default function GeneralSkillsPage({ embedded = false, currentUser, onLog
   useEffect(() => {
     const onScopeChange = (event: Event) => {
       const detail = (event as CustomEvent<{ agentId?: string }>).detail;
-      setAgentId(detail?.agentId || window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '');
+      setAgentId(detail?.agentId || readSharedAgentScope());
     };
     window.addEventListener('ultrarag-enterprise-agent-scope-change', onScopeChange);
     return () => window.removeEventListener('ultrarag-enterprise-agent-scope-change', onScopeChange);
@@ -1201,7 +1201,7 @@ function GeneralSkillEditorPage({ mode, currentUser, onLogout }: { mode: 'new' |
   const [agentImportSourceAgentId, setAgentImportSourceAgentId] = useState('');
   const [agentImportSourceSkills, setAgentImportSourceSkills] = useState<GeneralSkillRead[]>([]);
   const [agentImportSelectedSkillIds, setAgentImportSelectedSkillIds] = useState<string[]>([]);
-  const [agentId, setAgentId] = useState(() => window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '');
+  const [agentId, setAgentId] = useState(() => readSharedAgentScope());
   const [isOverallAgent, setIsOverallAgent] = useState(true);
   const [agents, setAgents] = useState<AgentProfileRead[]>([]);
   const [deleteSkillTarget, setDeleteSkillTarget] = useState<GeneralSkillRead | null>(null);
@@ -1294,7 +1294,7 @@ function GeneralSkillEditorPage({ mode, currentUser, onLogout }: { mode: 'new' |
   useEffect(() => {
     const onScopeChange = (event: Event) => {
       const detail = (event as CustomEvent<{ agentId?: string }>).detail;
-      setAgentId(detail?.agentId || window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '');
+      setAgentId(detail?.agentId || readSharedAgentScope());
     };
     window.addEventListener('ultrarag-enterprise-agent-scope-change', onScopeChange);
     return () => window.removeEventListener('ultrarag-enterprise-agent-scope-change', onScopeChange);

@@ -21,6 +21,7 @@ from app.db.models import (
     User,
 )
 from app.marketplace.seed import seed_marketplace_development_data
+from app.marketplace.management_service import _next_version
 from app.security.auth import create_access_token
 
 
@@ -65,6 +66,13 @@ def management_app() -> tuple[TestClient, object, User, User]:
 
     app.dependency_overrides[get_session] = override_session
     return TestClient(app), engine, user, admin
+
+
+def test_next_version_parses_semver_without_unbounded_regular_expression() -> None:
+    assert _next_version(["v1.2.3"], "v1.2.3") == "v1.2.4"
+    assert _next_version(["1.2.3"], "1.2.3") == "v1.2.4"
+    long_numeric_version = f"1.{('9' * 100_000)}.3"
+    assert _next_version([long_numeric_version], long_numeric_version).endswith("-rev2")
 
 
 def test_organization_invitation_acceptance_and_member_scope_are_persisted(

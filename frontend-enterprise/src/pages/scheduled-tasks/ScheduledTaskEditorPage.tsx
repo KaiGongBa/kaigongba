@@ -20,12 +20,12 @@ import {
 import { cn } from '@/lib/utils';
 
 import { api, TENANT_ID } from '../../api/client';
+import { readSharedAgentScope } from '../../lib/agent-scope-storage';
 import IconArrowRight from '../../assets/icons/arrow-right.svg?react';
 import IconAlarm from '../../assets/icons/profile-alarm.svg?react';
 import type { EnterpriseAuthUser } from '../../auth';
 import type { ScheduledTaskRead } from '../../types';
 import {
-  ENTERPRISE_AGENT_STORAGE_KEY,
   INITIAL_VALUES,
   WEEKDAY_OPTIONS,
   buildSchedule,
@@ -64,7 +64,7 @@ function ScheduledTaskEditorPage({
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [agentId, setAgentId] = useState(
-    () => window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '',
+    () => readSharedAgentScope(),
   );
   const navigate = useNavigate();
   const { taskId } = useParams();
@@ -79,8 +79,7 @@ function ScheduledTaskEditorPage({
     const onScopeChange = (event: Event) => {
       const nextAgentId =
         (event as CustomEvent<{ agentId?: string }>).detail?.agentId ||
-        window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) ||
-        '';
+        readSharedAgentScope();
       setAgentId(nextAgentId);
     };
     window.addEventListener('ultrarag-enterprise-agent-scope-change', onScopeChange);

@@ -29,6 +29,11 @@ import {
   employeeProfile,
   resourceDisplayNameWithCreator,
 } from '../employee';
+import {
+  emitAgentScopeChange,
+  persistSharedAgentScope,
+  readSharedAgentScope,
+} from '../lib/agent-scope-storage';
 import type { AgentProfileRead, GeneralSkillRead, KnowledgeBaseRead, SkillRead, ToolRead } from '../types';
 
 import AppHeader from '@/components/AppHeader';
@@ -42,8 +47,6 @@ import {
   type PlatformResourceAccent,
   type PlatformStat,
 } from '@/components/openPlatform';
-
-const ENTERPRISE_AGENT_STORAGE_KEY = 'ultrarag_enterprise_agent_scope';
 
 type PlatformKind = 'agents' | 'knowledge' | 'general-skills' | 'skills' | 'tools';
 
@@ -189,14 +192,14 @@ export default function OpenPlatformPage({
   const [tools, setTools] = useState<ToolRead[]>([]);
   const [loading, setLoading] = useState(false);
   const [deletingItemKey, setDeletingItemKey] = useState('');
-  const [agentId, setAgentId] = useState(() => window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '');
+  const [agentId, setAgentId] = useState(() => readSharedAgentScope());
   const [detailItem, setDetailItem] = useState<{ kind: PlatformKind; item: PlatformItem } | null>(null);
   const [confirmTarget, setConfirmTarget] = useState<{ kind: PlatformKind; item: PlatformItem } | null>(null);
 
   useEffect(() => {
     const onScopeChange = (event: Event) => {
       const nextAgentId = (event as CustomEvent<{ agentId?: string }>).detail?.agentId
-        || window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY)
+        || readSharedAgentScope()
         || '';
       setAgentId(nextAgentId);
     };
@@ -315,8 +318,8 @@ export default function OpenPlatformPage({
       return false;
     }
     if (targetEmployee.id !== agentId) {
-      window.localStorage.setItem(ENTERPRISE_AGENT_STORAGE_KEY, targetEmployee.id);
-      window.dispatchEvent(new CustomEvent('ultrarag-enterprise-agent-scope-change', { detail: { agentId: targetEmployee.id } }));
+      persistSharedAgentScope(targetEmployee.id, currentUser?.id);
+      emitAgentScopeChange(targetEmployee.id);
       setAgentId(targetEmployee.id);
     }
     return true;
@@ -339,9 +342,9 @@ export default function OpenPlatformPage({
         }
         : item
     )));
-    window.localStorage.setItem(ENTERPRISE_AGENT_STORAGE_KEY, agent.id);
+    persistSharedAgentScope(agent.id, currentUser?.id);
     window.dispatchEvent(new Event('ultrarag-enterprise-agent-scope-refresh'));
-    window.dispatchEvent(new CustomEvent('ultrarag-enterprise-agent-scope-change', { detail: { agentId: agent.id } }));
+    emitAgentScopeChange(agent.id);
     setAgentId(agent.id);
   }
 

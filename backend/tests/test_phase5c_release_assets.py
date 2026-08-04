@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+import re
 import runpy
 
 
@@ -45,6 +46,7 @@ def test_phase5c_smoke_allows_no_business_mutation() -> None:
 
 def test_phase5c_ci_gate_runs_all_non_environment_checks() -> None:
     workflow = (PROJECT_DIR / ".github/workflows/production-gate.yml").read_text()
+    assert "permissions:\n  contents: read" in workflow
     for required in (
         "No newly skipped tests",
         "Backend lint",
@@ -59,6 +61,19 @@ def test_phase5c_ci_gate_runs_all_non_environment_checks() -> None:
         "phase5c-release-manifest",
     ):
         assert required in workflow
+
+
+def test_employee_scope_is_not_written_to_persistent_browser_storage() -> None:
+    frontend = PROJECT_DIR / "frontend-enterprise/src"
+    for path in frontend.rglob("*.ts*"):
+        source = path.read_text()
+        if "localStorage" not in source:
+            continue
+        assert not re.search(
+            r"localStorage\.(?:getItem|setItem|removeItem)\([^)]*"
+            r"(?:ENTERPRISE_AGENT_STORAGE_KEY|SELECTED_AGENT_STORAGE_KEY)",
+            source,
+        )
 
 
 def test_phase5c_skip_guard_uses_its_introduction_as_the_initial_pr_epoch() -> None:

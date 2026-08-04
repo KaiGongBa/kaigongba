@@ -85,8 +85,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { notify } from "@/components/ui/app-toast";
 import {
   emitAgentScopeChange,
-  ENTERPRISE_AGENT_STORAGE_KEY,
   persistSharedAgentScope,
+  readSharedAgentScope,
 } from "@/lib/agent-scope-storage";
 import { cn } from "@/lib/utils";
 import {
@@ -151,7 +151,7 @@ function Shell({
   const [agents, setAgents] = useState<AgentProfileRead[]>([]);
   const [agentsLoaded, setAgentsLoaded] = useState(false);
   const [selectedAgentId, setSelectedAgentId] = useState(
-    () => window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || "",
+    () => readSharedAgentScope(),
   );
   const [sidebarExpanded, setSidebarExpanded] = useState(() => {
     const stored = window.localStorage.getItem(ENTERPRISE_SIDEBAR_STORAGE_KEY);
@@ -307,8 +307,7 @@ function Shell({
     const onScopeChange = (event: Event) => {
       const nextAgentId =
         (event as CustomEvent<{ agentId?: string }>).detail?.agentId ||
-        window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) ||
-        "";
+        readSharedAgentScope();
       if (nextAgentId) {
         persistSharedAgentScope(nextAgentId, auth.user.id);
         const knownSelectableAgent = agents.some(

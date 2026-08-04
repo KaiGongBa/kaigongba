@@ -26,9 +26,8 @@ import IconSearch from '../../assets/icons/search.svg?react';
 import type { EnterpriseAuthUser } from '../../auth';
 import { canManageEmployeeAgent } from '../../employee';
 import { useClientPagination } from '../../hooks/useClientPagination';
+import { readSharedAgentScope } from '../../lib/agent-scope-storage';
 import type { AgentProfileRead, MemoryRead } from '../../types';
-
-const ENTERPRISE_AGENT_STORAGE_KEY = 'ultrarag_enterprise_agent_scope';
 const MEMORY_PAGE_SIZE = 10;
 const ALL_USERS_VALUE = '__all__';
 
@@ -62,7 +61,7 @@ export default function MemoriesTab({
   const [loading, setLoading] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [agentId, setAgentId] = useState(
-    () => window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '',
+    () => readSharedAgentScope(),
   );
   const [filter, setFilter] = useState<MemoryFilter>(EMPTY_FILTER);
 
@@ -88,8 +87,7 @@ export default function MemoriesTab({
     const onScopeChange = (event: Event) => {
       const nextAgentId =
         (event as CustomEvent<{ agentId?: string }>).detail?.agentId ||
-        window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) ||
-        '';
+        readSharedAgentScope();
       setAgentId(nextAgentId);
     };
     window.addEventListener('ultrarag-enterprise-agent-scope-change', onScopeChange);

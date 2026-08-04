@@ -23,6 +23,7 @@ import { api, TENANT_ID } from '../../api/client';
 import IconCalendar from '../../assets/icons/profile-calendar.svg?react';
 import { employeeDisplayNameWithCreator } from '../../employee';
 import { useClientPagination } from '../../hooks/useClientPagination';
+import { readSharedAgentScope } from '../../lib/agent-scope-storage';
 import { StatusBadge } from '../scheduled-tasks/StatusBadge';
 import type { BadgeTone } from '../scheduled-tasks/shared';
 import type {
@@ -38,7 +39,6 @@ import type {
   TurnTraceRead,
 } from '../../types';
 
-const ENTERPRISE_AGENT_STORAGE_KEY = 'ultrarag_enterprise_agent_scope';
 const FEEDBACK_PAGE_SIZE = 10;
 
 type LogFilter = 'all' | 'up' | 'down' | 'unrated' | 'ability' | 'tool' | 'knowledge' | 'sop';
@@ -73,7 +73,7 @@ const MOBILE_CARD_CLASS =
 export default function ConversationLogsTab() {
   const [searchParams] = useSearchParams();
   const [scopedAgentId, setScopedAgentId] = useState(
-    () => window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '',
+    () => readSharedAgentScope(),
   );
   const agentId = searchParams.get('agent_id') || scopedAgentId;
   const [sessions, setSessions] = useState<EnterpriseChatSessionRead[]>([]);
@@ -91,8 +91,7 @@ export default function ConversationLogsTab() {
     const onScopeChange = (event: Event) => {
       setScopedAgentId(
         (event as CustomEvent<{ agentId?: string }>).detail?.agentId ||
-          window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) ||
-          '',
+          readSharedAgentScope(),
       );
     };
     window.addEventListener('ultrarag-enterprise-agent-scope-change', onScopeChange);

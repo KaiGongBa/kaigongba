@@ -32,6 +32,11 @@ import {
   preferredEmployeeAgent,
   staffdeckDisplayText,
 } from '../../employee';
+import {
+  emitAgentScopeChange,
+  persistSharedAgentScope,
+  readSharedAgentScope,
+} from '../../lib/agent-scope-storage';
 import type {
   AgentProfileRead,
   AgentWorkRecordEventRead,
@@ -45,8 +50,6 @@ import type {
   SkillRead,
   ToolRead,
 } from '../../types';
-
-const ENTERPRISE_AGENT_STORAGE_KEY = 'ultrarag_enterprise_agent_scope';
 
 export default function DashboardPage({
   currentUser,
@@ -71,14 +74,14 @@ export default function DashboardPage({
   const [scheduledTasks, setScheduledTasks] = useState<ScheduledTaskRead[]>([]);
   const [replyStats, setReplyStats] = useState<ReplyStats>({ total: 0, today: 0, byDay: {} });
   const [activityEvents, setActivityEvents] = useState<AgentWorkRecordEventRead[]>([]);
-  const [agentId, setAgentId] = useState(() => window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '');
+  const [agentId, setAgentId] = useState(() => readSharedAgentScope());
   const [avatarEditorOpen, setAvatarEditorOpen] = useState(false);
   const [profileEditorOpen, setProfileEditorOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     const onScopeChange = (event: Event) => {
-      setAgentId((event as CustomEvent<{ agentId?: string }>).detail?.agentId || window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '');
+      setAgentId((event as CustomEvent<{ agentId?: string }>).detail?.agentId || readSharedAgentScope());
     };
     window.addEventListener('ultrarag-enterprise-agent-scope-change', onScopeChange);
     return () => window.removeEventListener('ultrarag-enterprise-agent-scope-change', onScopeChange);
@@ -117,8 +120,8 @@ export default function DashboardPage({
               || preferredEmployeeAgent(visibleAgents)?.id
               || '';
           if (next) {
-            window.localStorage.setItem(ENTERPRISE_AGENT_STORAGE_KEY, next);
-            window.dispatchEvent(new CustomEvent('ultrarag-enterprise-agent-scope-change', { detail: { agentId: next } }));
+            persistSharedAgentScope(next, currentUser?.id);
+            emitAgentScopeChange(next);
             setAgentId(next);
           }
         }

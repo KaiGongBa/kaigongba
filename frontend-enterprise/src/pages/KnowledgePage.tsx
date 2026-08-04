@@ -58,8 +58,8 @@ import { DIALOG_CANCEL_BUTTON_CLASS, DIALOG_FOOTER_CLASS, DIALOG_PRIMARY_BUTTON_
 import {
   clearSharedAgentScope,
   emitAgentScopeChange,
-  ENTERPRISE_AGENT_STORAGE_KEY,
   persistSharedAgentScope,
+  readSharedAgentScope,
 } from '@/lib/agent-scope-storage';
 import IconAdd from '../assets/icons/add.svg?react';
 import IconChevronDown from '../assets/icons/chevron-down.svg?react';
@@ -166,7 +166,7 @@ export default function KnowledgeManagePage({ currentUser, onLogout }: Knowledge
   const [selectedDocument, setSelectedDocument] = useState<KnowledgeDocumentRead | null>(null);
   const [buckets, setBuckets] = useState<KnowledgeBucketRead[]>([]);
   const [loading, setLoading] = useState(false);
-  const [agentId, setAgentId] = useState(() => window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '');
+  const [agentId, setAgentId] = useState(() => readSharedAgentScope());
   const [agentScopeLoaded, setAgentScopeLoaded] = useState(false);
   const [agents, setAgents] = useState<AgentProfileRead[]>([]);
   const [importOpen, setImportOpen] = useState(false);
@@ -330,7 +330,7 @@ export default function KnowledgeManagePage({ currentUser, onLogout }: Knowledge
 
   useEffect(() => {
     const onScopeChange = (event: Event) => {
-      setAgentId((event as CustomEvent<{ agentId?: string }>).detail?.agentId || window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '');
+      setAgentId((event as CustomEvent<{ agentId?: string }>).detail?.agentId || readSharedAgentScope());
     };
     window.addEventListener('ultrarag-enterprise-agent-scope-change', onScopeChange);
     return () => window.removeEventListener('ultrarag-enterprise-agent-scope-change', onScopeChange);
@@ -1605,7 +1605,7 @@ export function KnowledgeAddPage({ currentUser }: KnowledgePageProps = {}) {
   const navigate = useNavigate();
   const [knowledgeBases, setKnowledgeBases] = useState<KnowledgeBaseRead[]>([]);
   const [jobs, setJobs] = useState<Record<string, KnowledgeIngestJobRead>>({});
-  const [agentId, setAgentId] = useState(() => window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '');
+  const [agentId, setAgentId] = useState(() => readSharedAgentScope());
   const [agentScopeLoaded, setAgentScopeLoaded] = useState(false);
   const [checkedDiscoveryJobIds, setCheckedDiscoveryJobIds] = useState<string[]>([]);
   const [pendingDiscoveries, setPendingDiscoveries] = useState<KnowledgeDiscoveryRead[]>([]);
@@ -1661,7 +1661,7 @@ export function KnowledgeAddPage({ currentUser }: KnowledgePageProps = {}) {
 
   useEffect(() => {
     const onScopeChange = (event: Event) => {
-      setAgentId((event as CustomEvent<{ agentId?: string }>).detail?.agentId || window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '');
+      setAgentId((event as CustomEvent<{ agentId?: string }>).detail?.agentId || readSharedAgentScope());
     };
     window.addEventListener('ultrarag-enterprise-agent-scope-change', onScopeChange);
     return () => window.removeEventListener('ultrarag-enterprise-agent-scope-change', onScopeChange);

@@ -55,11 +55,11 @@ import {
   visibleEmployeeAgents,
 } from '../employee';
 import { useClientPagination } from '../hooks/useClientPagination';
+import { readSharedAgentScope } from '../lib/agent-scope-storage';
 import { StatusBadge } from './scheduled-tasks/StatusBadge';
 import type { BadgeTone } from './scheduled-tasks/shared';
 import type { AgentProfileRead, SkillRead, SkillVersionRead } from '../types';
 
-const ENTERPRISE_AGENT_STORAGE_KEY = 'ultrarag_enterprise_agent_scope';
 const SKILL_PAGE_SIZE = 10;
 const RANKING_PAGE_SIZE = 10;
 
@@ -110,9 +110,9 @@ export default function SkillsPage({
   const [negativeScope, setNegativeScope] = useState<RankingScope>('current');
   const [versionModalOpen, setVersionModalOpen] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [agentId, setAgentId] = useState(() => window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '');
+  const [agentId, setAgentId] = useState(() => readSharedAgentScope());
   const [isOverallAgent, setIsOverallAgent] = useState(() => {
-    const stored = window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '';
+    const stored = readSharedAgentScope();
     return !stored || stored.includes('overall');
   });
   const [searchText, setSearchText] = useState('');
@@ -174,7 +174,7 @@ export default function SkillsPage({
   useEffect(() => {
     const onScopeChange = (event: Event) => {
       const detail = (event as CustomEvent<{ agentId?: string }>).detail;
-      setAgentId(detail?.agentId || window.localStorage.getItem(ENTERPRISE_AGENT_STORAGE_KEY) || '');
+      setAgentId(detail?.agentId || readSharedAgentScope());
     };
     window.addEventListener('ultrarag-enterprise-agent-scope-change', onScopeChange);
     return () => window.removeEventListener('ultrarag-enterprise-agent-scope-change', onScopeChange);
