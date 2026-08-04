@@ -61,6 +61,14 @@ def test_phase5c_ci_gate_runs_all_non_environment_checks() -> None:
         assert required in workflow
 
 
+def test_phase5c_skip_guard_uses_its_introduction_as_the_initial_pr_epoch() -> None:
+    guard = (PROJECT_DIR / "scripts/phase5c_no_new_skips.sh").read_text()
+    assert 'guard_epoch="a7e9c5d7d69d1374d64224bb7fe8b5211b95bad9"' in guard
+    assert 'merge-base --is-ancestor "${base_ref}" "${guard_epoch}"' in guard
+    assert 'effective_base_ref="${guard_epoch}"' in guard
+    assert '"${effective_base_ref}...HEAD"' in guard
+
+
 def test_phase5c_manifest_preserves_dot_prefixed_paths() -> None:
     namespace = runpy.run_path(str(PROJECT_DIR / "scripts/phase5c_release_manifest.py"))
     assert namespace["_changed_paths"](" M .github/workflows/production-gate.yml\n") == [
