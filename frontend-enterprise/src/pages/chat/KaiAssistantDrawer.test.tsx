@@ -107,7 +107,9 @@ describe('Kai Xiaohua isolated assistant drawer', () => {
     fireEvent.click(await screen.findByRole('button', { name: /请补充真实订单材料/ }));
 
     await waitFor(() => expect(markNotificationsRead).toHaveBeenCalledWith(['notification_real']));
-    expect(screen.getByTestId('location').textContent).toBe('/enterprise/orders/order_real?tab=materials');
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe(
+      '/enterprise/orders/order_real?tab=materials',
+    ));
     expect(screen.getByRole('complementary', { name: '开小花平台总助' })).toBeTruthy();
   });
 

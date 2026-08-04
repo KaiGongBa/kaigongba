@@ -38,6 +38,7 @@ from app.agents.schema import (
     AgentWorkRecordRead,
     AgentWorkRecordReplyStatsRead,
 )
+from app.agents.organization_bindings import bind_agent_to_owner_organizations
 from app.db import get_session
 from app.db.models import (
     AgentKnowledgeBranch,
@@ -141,6 +142,7 @@ def create_agent(
     )
     db.add(row)
     db.flush()
+    bind_agent_to_owner_organizations(db, user, row)
     if not row.is_overall:
         copy_from_agent_id = request.copy_from_agent_id
         if request.source_mode == "blank":

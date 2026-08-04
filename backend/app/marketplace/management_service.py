@@ -10,6 +10,10 @@ from typing import Any
 from fastapi import HTTPException
 from sqlmodel import Session, select
 
+from app.agents.organization_bindings import (
+    bind_owned_agents_to_organization,
+    deactivate_owned_agent_bindings,
+)
 from app.db.models import (
     MarketplaceAIService,
     MarketplaceAIServiceVersion,
@@ -90,6 +94,7 @@ def create_organization(
             status="active",
         )
     )
+    bind_owned_agents_to_organization(db, current_user, organization.id)
     _audit(
         db,
         current_user,
@@ -315,6 +320,7 @@ def accept_invitation(
     invitation.updated_at = utc_now()
     db.add(membership)
     db.add(invitation)
+    bind_owned_agents_to_organization(db, current_user, invitation.organization_id)
     _audit(
         db,
         current_user,
@@ -375,6 +381,9 @@ def remove_member(
     member.status = "removed"
     member.updated_at = utc_now()
     db.add(member)
+    removed_user = db.get(User, member.user_id)
+    if removed_user:
+        deactivate_owned_agent_bindings(db, removed_user, organization_id)
     _audit(
         db,
         current_user,
