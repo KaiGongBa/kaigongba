@@ -27,7 +27,7 @@ def test_postgres_upgrade_downgrade_and_reupgrade() -> None:
 
     command.upgrade(config, "head")
     try:
-        assert _revision(engine) == "20260803_0017"
+        assert _revision(engine) == "20260804_0019"
         assert "transaction_dispute_cases" in inspect(engine).get_table_names()
         assert "transaction_hosted_skill_runs" in inspect(engine).get_table_names()
         assert "external_agent_enrollments" in inspect(engine).get_table_names()
@@ -50,10 +50,18 @@ def test_postgres_upgrade_downgrade_and_reupgrade() -> None:
         assert "ai_model_products" in inspect(engine).get_table_names()
         assert "ai_usage_events" in inspect(engine).get_table_names()
         assert "ai_quota_ledger" in inspect(engine).get_table_names()
+        assert "ai_model_capability_checks" in inspect(engine).get_table_names()
+        assert "platform_role" in {
+            column["name"] for column in inspect(engine).get_columns("users")
+        }
 
         command.downgrade(config, "20260801_0014")
         assert _revision(engine) == "20260801_0014"
         assert "external_agent_heartbeats" in inspect(engine).get_table_names()
+        assert "ai_model_capability_checks" not in inspect(engine).get_table_names()
+        assert "platform_role" not in {
+            column["name"] for column in inspect(engine).get_columns("users")
+        }
 
         command.downgrade(config, "20260801_0013")
         assert _revision(engine) == "20260801_0013"
@@ -85,7 +93,7 @@ def test_postgres_upgrade_downgrade_and_reupgrade() -> None:
         assert "transaction_hosted_skill_runs" not in inspect(engine).get_table_names()
 
         command.upgrade(config, "head")
-        assert _revision(engine) == "20260803_0017"
+        assert _revision(engine) == "20260804_0019"
         assert "transaction_dispute_cases" in inspect(engine).get_table_names()
         assert "transaction_hosted_skill_runs" in inspect(engine).get_table_names()
         assert "external_agent_enrollments" in inspect(engine).get_table_names()
@@ -99,6 +107,10 @@ def test_postgres_upgrade_downgrade_and_reupgrade() -> None:
         assert "ai_model_invocation_audits" in inspect(engine).get_table_names()
         assert "ai_model_products" in inspect(engine).get_table_names()
         assert "ai_usage_events" in inspect(engine).get_table_names()
+        assert "ai_model_capability_checks" in inspect(engine).get_table_names()
+        assert "platform_role" in {
+            column["name"] for column in inspect(engine).get_columns("users")
+        }
     finally:
         command.upgrade(config, "head")
         engine.dispose()
