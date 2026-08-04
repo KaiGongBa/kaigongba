@@ -3,12 +3,13 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Any
 
 from fastapi import HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from app.config import get_settings
@@ -27,6 +28,7 @@ from app.db.models import (
     TransactionClarification,
     TransactionDeliverable,
     TransactionDeliverableVersion,
+    TransactionDirectCheckout,
     TransactionMatchRecommendation,
     TransactionMaterialRequest,
     TransactionMaterialSubmission,
@@ -71,6 +73,7 @@ from app.transaction.schemas import (
     DeliverableRead,
     DeliverableVersionCreate,
     DeliverableVersionRead,
+    DirectServiceCheckoutCreate,
     DemoPaymentSimulate,
     MatchRecommendationRead,
     MatchRunRequest,
@@ -1839,6 +1842,334 @@ def list_requirement_quotes(
     return [_quote_read(db, current_user, item, organization_id) for item in rows]
 
 
+def create_direct_service_checkout(
+    db: Session,
+    current_user: User,
+    service_id: str,
+    request: DirectServiceCheckoutCreate,
+) -> AgreementRead:
+    """Create an agreement from an immutable published service snapshot.
+
+    Direct checkout deliberately converges on the existing requirement/quote
+    transaction spine.  This keeps agreement confirmation, demo payment,
+    order generation, milestones, delivery, acceptance and disputes identical
+    to the demand-and-quote path.
+    """
+
+    _require_manager(db, current_user, request.organization_id)
+    service = db.get(MarketplaceAIService, service_id)
+    if (
+        not service
+        or service.tenant_id != current_user.tenant_id
+        or service.status != "published"
+        or service.visibility != "public"
+    ):
+        raise HTTPException(status_code=404, detail="已上架服务不存在")
+    provider = db.get(MarketplaceProviderProfile, service.provider_id)
+    if not provider or provider.tenant_id != current_user.tenant_id or provider.status != "active":
+        raise HTTPException(status_code=409, detail="服务商当前不可接单")
+    provider_organization = db.get(Organization, provider.organization_id)
+    if not provider_organization or provider_organization.tenant_id != current_user.tenant_id:
+        raise HTTPException(status_code=409, detail="服务商企业数据不完整")
+    if request.organization_id == provider.organization_id or _membership(
+        db,
+        current_user,
+        provider.organization_id,
+    ):
+        raise HTTPException(status_code=403, detail="不能购买自己所属企业发布的服务")
+
+    service_version = db.get(
+        MarketplaceAIServiceVersion,
+        service.current_version_id or "",
+    )
+    if (
+        not service_version
+        or service_version.service_id != service.id
+        or service_version.status != "published"
+    ):
+        raise HTTPException(status_code=409, detail="服务缺少可成交的已发布版本")
+    if request.service_version and request.service_version != service_version.version:
+        raise HTTPException(status_code=409, detail="服务版本已更新，请刷新后重新确认")
+    unit_price = Decimal(service_version.price_amount).quantize(
+        Decimal("0.01"),
+        rounding=ROUND_HALF_UP,
+    )
+    if unit_price <= 0:
+        raise HTTPException(status_code=409, detail="免费服务请使用订阅，不进入交易结算")
+
+    estimated_days = max(1, min(365, (service_version.average_minutes + 1439) // 1440))
+    requested_delivery_at = request.desired_delivery_at
+    if requested_delivery_at and requested_delivery_at.tzinfo is not None:
+        requested_delivery_at = requested_delivery_at.astimezone(UTC).replace(tzinfo=None)
+    desired_delivery_at = requested_delivery_at or (utc_now() + timedelta(days=estimated_days))
+    if desired_delivery_at <= utc_now():
+        raise HTTPException(status_code=422, detail="期望完成时间必须晚于当前时间")
+    delivery_days = max(
+        estimated_days,
+        min(365, max(1, int((desired_delivery_at - utc_now()).total_seconds() // 86400))),
+    )
+    request_basis = {
+        "service_id": service.id,
+        "service_version_id": service_version.id,
+        "service_version": service_version.version,
+        "buyer_organization_id": request.organization_id,
+        "provider_organization_id": provider.organization_id,
+        "quantity": request.quantity,
+        "desired_delivery_at": (
+            requested_delivery_at.isoformat() if requested_delivery_at else None
+        ),
+        "buyer_note": request.buyer_note.strip(),
+    }
+    request_digest = _digest(request_basis)
+    existing = db.exec(
+        select(TransactionDirectCheckout).where(
+            TransactionDirectCheckout.tenant_id == current_user.tenant_id,
+            TransactionDirectCheckout.idempotency_key == request.idempotency_key,
+        )
+    ).first()
+    if existing:
+        if existing.request_digest != request_digest:
+            raise HTTPException(status_code=409, detail="下单幂等键已用于不同的购买配置")
+        agreement_id = existing.agreement_id
+        if not agreement_id:
+            requirement = db.get(TransactionRequirement, existing.requirement_id)
+            agreement_id = requirement.agreement_id if requirement else None
+        if not agreement_id:
+            raise HTTPException(status_code=409, detail="原下单请求尚未完成，请稍后重试")
+        if existing.agreement_id != agreement_id:
+            existing.agreement_id = agreement_id
+            existing.updated_at = utc_now()
+            db.add(existing)
+            db.commit()
+        return get_agreement(
+            db,
+            current_user,
+            agreement_id,
+            request.organization_id,
+        )
+
+    snapshot = dict(service_version.snapshot_json or {})
+    scope = [str(item).strip() for item in snapshot.get("service_scope") or [] if str(item).strip()]
+    if not scope:
+        scope = [service.description.strip() or service.name]
+    exclusions = [
+        str(item).strip() for item in snapshot.get("exclusions") or [] if str(item).strip()
+    ]
+    deliverables = [
+        dict(item) for item in snapshot.get("deliverables") or [] if isinstance(item, dict)
+    ]
+    if not deliverables:
+        deliverables = [
+            {
+                "name": f"{service.name}交付成果",
+                "format": service_version.delivery_format,
+                "required": True,
+            }
+        ]
+    deliverable_names = [
+        str(item.get("name") or f"{service.name}交付成果") for item in deliverables
+    ]
+    acceptance_criteria = [
+        str(item).strip() for item in snapshot.get("acceptance_criteria") or [] if str(item).strip()
+    ]
+    if not acceptance_criteria:
+        acceptance_criteria = ["交付内容符合已冻结服务范围与交付物约定"]
+    total_amount = (unit_price * request.quantity).quantize(
+        Decimal("0.01"),
+        rounding=ROUND_HALF_UP,
+    )
+    requirement_description = "\n".join(
+        [
+            f"直接购买已上架服务：{service.name}",
+            f"冻结版本：{service_version.version}",
+            f"购买数量：{request.quantity}{service_version.price_unit}",
+            *(
+                [f"采购补充说明：{request.buyer_note.strip()}"]
+                if request.buyer_note.strip()
+                else []
+            ),
+            "服务范围：" + "；".join(scope),
+        ]
+    )
+    requirement = TransactionRequirement(
+        tenant_id=current_user.tenant_id,
+        code=_next_code("XQ"),
+        buyer_organization_id=request.organization_id,
+        created_by_user_id=current_user.id,
+        title=f"购买{service.name}",
+        category=service.category,
+        category_name_snapshot=service.category,
+        status="quoting",
+        visibility="invited_providers",
+        confidentiality_level="standard",
+        budget_min_amount=total_amount,
+        budget_max_amount=total_amount,
+        currency="CNY",
+        desired_delivery_at=desired_delivery_at,
+        invite_limit=1,
+        published_at=utc_now(),
+    )
+    db.add(requirement)
+    db.flush()
+    requirement_version_payload = {
+        "description": requirement_description,
+        "deliverables": deliverables,
+        "acceptance_criteria": acceptance_criteria,
+        "attachments": [],
+        "source": "direct_service_checkout",
+        "service_version_id": service_version.id,
+    }
+    requirement_version = TransactionRequirementVersion(
+        tenant_id=current_user.tenant_id,
+        requirement_id=requirement.id,
+        version=1,
+        status="published",
+        confidentiality_level="standard",
+        description=requirement_description,
+        deliverables_json=deliverables,
+        acceptance_criteria_json=acceptance_criteria,
+        attachments_json=[],
+        change_summary="由已上架服务直接购买生成",
+        snapshot_digest=_digest(requirement_version_payload),
+        created_by_user_id=current_user.id,
+    )
+    db.add(requirement_version)
+    db.flush()
+    requirement.current_version_id = requirement_version.id
+    db.add(requirement)
+
+    now = utc_now()
+    quote = TransactionQuote(
+        tenant_id=current_user.tenant_id,
+        requirement_id=requirement.id,
+        provider_organization_id=provider.organization_id,
+        service_id=service.id,
+        status="sent",
+        created_by_user_id=current_user.id,
+        confirmed_at=now,
+        sent_at=now,
+    )
+    db.add(quote)
+    db.flush()
+    milestone = {
+        "name": f"完成{service.name}交付",
+        "description": service.description,
+        "input_materials": [],
+        "deliverables": deliverable_names,
+        "duration_days": delivery_days,
+        "acceptance_criteria": acceptance_criteria,
+        "amount": str(total_amount),
+    }
+    quote_version = TransactionQuoteVersion(
+        tenant_id=current_user.tenant_id,
+        quote_id=quote.id,
+        version=1,
+        status="sent",
+        total_amount=total_amount,
+        currency="CNY",
+        valid_until=now + timedelta(days=1),
+        delivery_days=delivery_days,
+        included_revisions=service_version.included_revisions,
+        service_scope_json=scope,
+        exclusions_json=exclusions,
+        milestones_json=[milestone],
+        acceptance_criteria_json=acceptance_criteria,
+        additional_terms="本报价直接引用服务商已发布并经平台审核的服务版本。",
+        generation_method="published_service_version",
+        generation_basis_json={
+            "source": "direct_service_checkout",
+            "service_version_id": service_version.id,
+            "service_version": service_version.version,
+            "quantity": request.quantity,
+            "unit_price": str(unit_price),
+        },
+        created_by_user_id=current_user.id,
+    )
+    db.add(quote_version)
+    db.flush()
+    quote.current_version_id = quote_version.id
+    db.add(quote)
+    checkout = TransactionDirectCheckout(
+        tenant_id=current_user.tenant_id,
+        idempotency_key=request.idempotency_key,
+        request_digest=request_digest,
+        service_id=service.id,
+        service_version_id=service_version.id,
+        buyer_organization_id=request.organization_id,
+        provider_organization_id=provider.organization_id,
+        quantity=request.quantity,
+        desired_delivery_at=desired_delivery_at,
+        buyer_note=request.buyer_note.strip(),
+        requirement_id=requirement.id,
+        quote_id=quote.id,
+        created_by_user_id=current_user.id,
+    )
+    db.add(checkout)
+    _record_event(
+        db,
+        current_user,
+        request.organization_id,
+        "service.direct_checkout.created",
+        "direct_checkout",
+        checkout.id,
+        {
+            "service_id": service.id,
+            "service_version_id": service_version.id,
+            "quantity": request.quantity,
+            "total_amount": str(total_amount),
+        },
+    )
+    try:
+        agreement = select_quote(
+            db,
+            current_user,
+            requirement.id,
+            QuoteSelectionRequest(
+                organization_id=request.organization_id,
+                quote_id=quote.id,
+                buyer_note=request.buyer_note.strip(),
+            ),
+        )
+    except IntegrityError:
+        # A concurrent replay may reach the unique idempotency constraint after
+        # both requests passed the initial lookup. Roll back only this losing
+        # transaction and return the already-committed agreement.
+        db.rollback()
+        replayed = db.exec(
+            select(TransactionDirectCheckout).where(
+                TransactionDirectCheckout.tenant_id == current_user.tenant_id,
+                TransactionDirectCheckout.idempotency_key == request.idempotency_key,
+            )
+        ).first()
+        if not replayed:
+            raise
+        if replayed.request_digest != request_digest:
+            raise HTTPException(status_code=409, detail="下单幂等键已用于不同的购买配置")
+        replayed_requirement = db.get(TransactionRequirement, replayed.requirement_id)
+        replayed_agreement_id = replayed.agreement_id or (
+            replayed_requirement.agreement_id if replayed_requirement else None
+        )
+        if not replayed_agreement_id:
+            raise HTTPException(status_code=409, detail="原下单请求尚未完成，请稍后重试")
+        return get_agreement(
+            db,
+            current_user,
+            replayed_agreement_id,
+            request.organization_id,
+        )
+    checkout.agreement_id = agreement.id
+    checkout.status = "agreement_pending"
+    checkout.updated_at = utc_now()
+    db.add(checkout)
+    db.commit()
+    return get_agreement(
+        db,
+        current_user,
+        agreement.id,
+        request.organization_id,
+    )
+
+
 def select_quote(
     db: Session,
     current_user: User,
@@ -1863,10 +2194,33 @@ def select_quote(
         raise HTTPException(status_code=409, detail="该报价已经过期")
     requirement_version = _requirement_version(db, requirement)
     service = db.get(MarketplaceAIService, quote.service_id)
-    service_version = (
-        db.get(MarketplaceAIServiceVersion, service.current_version_id or "") if service else None
+    frozen_service_version_id = (
+        quote_version.generation_basis_json.get("service_version_id")
+        if quote_version.generation_method == "published_service_version"
+        else None
     )
+    service_version = (
+        db.get(
+            MarketplaceAIServiceVersion,
+            frozen_service_version_id or service.current_version_id or "",
+        )
+        if service
+        else None
+    )
+    if frozen_service_version_id and (
+        not service_version or service_version.service_id != service.id
+    ):
+        raise HTTPException(status_code=409, detail="成交服务版本不存在，请重新下单")
     snapshot = {
+        "transaction": {
+            "mode": (
+                "direct_service_checkout"
+                if quote_version.generation_method == "published_service_version"
+                else "demand_quote"
+            ),
+            "quantity": quote_version.generation_basis_json.get("quantity", 1),
+            "unit_price": quote_version.generation_basis_json.get("unit_price"),
+        },
         "requirement": _requirement_snapshot(requirement, requirement_version),
         "quote": _quote_snapshot(quote, quote_version),
         "service": {
@@ -2082,7 +2436,7 @@ def _run_matching(
             continue
         score, reasons = _match_score(requirement, requirement_version, service)
         candidates.append((score, service, provider, reasons))
-    candidates.sort(key=lambda item: (item[0], item[1].rating), reverse=True)
+    candidates.sort(key=lambda item: (-item[0], item[1].id))
     ai_rankings = _ai_match_rankings(
         db,
         current_user,
@@ -2101,7 +2455,7 @@ def _run_matching(
             )
             for score, service, provider, reasons in candidates
         ]
-        candidates.sort(key=lambda item: (item[0], item[1].rating), reverse=True)
+        candidates.sort(key=lambda item: (-item[0], item[1].id))
     invited_provider_ids: set[str] = set()
     for score, service, provider, reasons in candidates:
         if len(invited_provider_ids) >= invite_limit:
@@ -2205,8 +2559,6 @@ def _ai_match_rankings(
                 "category": service.category,
                 "description": service.description,
                 "verified": service.verified,
-                "rating": str(service.rating),
-                "on_time_rate": service.on_time_rate,
                 "baseline_score": score,
                 "baseline_reasons": reasons,
             }
@@ -3522,9 +3874,6 @@ def _match_score(
     if service.verified:
         score += 8
         reasons.append("服务已通过平台审核")
-    if service.on_time_rate >= 95:
-        score += 7
-        reasons.append(f"历史准时率 {service.on_time_rate}%")
     if not reasons:
         reasons.append("服务能力覆盖需求描述中的核心交付")
     return min(score, 100), reasons

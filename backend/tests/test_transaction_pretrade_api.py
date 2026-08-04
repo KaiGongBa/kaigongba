@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from hashlib import sha256
 from io import BytesIO
 from zipfile import ZipFile
@@ -19,12 +20,15 @@ from app.api.transactions import router
 from app.config import get_settings
 from app.db import get_session
 from app.db.models import (
+    MarketplaceAIServiceVersion,
+    OrganizationMember,
     Tenant,
     TransactionAcceptanceDecision,
     TransactionActionItem,
     TransactionAgreement,
     TransactionAgreementConfirmation,
     TransactionDeliverableVersion,
+    TransactionDirectCheckout,
     TransactionDisputeDecision,
     TransactionDisputeEvidence,
     TransactionDisputeFundOperation,
@@ -106,6 +110,228 @@ def transaction_app(tmp_path) -> tuple[TestClient, object, User]:
     app.dependency_overrides[get_session] = override_session
     yield TestClient(app), engine, user
     settings.order_object_storage_dir = previous_storage_dir
+
+
+def test_direct_service_checkout_reuses_agreement_payment_and_order_spine(
+    transaction_app: tuple[TestClient, object, User],
+) -> None:
+    client, engine, provider_user = transaction_app
+    with Session(engine) as db:
+        buyer = User(
+            id="user_direct_buyer",
+            tenant_id="tenant_demo",
+            username="direct_buyer",
+            password_hash="test",
+        )
+        db.add(buyer)
+        db.add(
+            OrganizationMember(
+                id="orgmember_direct_buyer",
+                tenant_id="tenant_demo",
+                organization_id="org_demo_buyer",
+                user_id=buyer.id,
+                role="owner",
+                roles_json=["owner"],
+                data_scope_json={"mode": "all_orders"},
+                status="active",
+            )
+        )
+        db.commit()
+        db.refresh(buyer)
+        service_version = db.exec(
+            select(MarketplaceAIServiceVersion).where(
+                MarketplaceAIServiceVersion.service_id == "it-ops",
+                MarketplaceAIServiceVersion.status == "published",
+            )
+        ).first()
+        assert service_version is not None
+        version_name = service_version.version
+        unit_price = service_version.price_amount
+
+    buyer_headers = _auth(buyer)
+    payload = {
+        "organization_id": "org_demo_buyer",
+        "service_version": version_name,
+        "quantity": 2,
+        "desired_delivery_at": (datetime.now(UTC) + timedelta(days=7)).isoformat(),
+        "buyer_note": "请按现有账号权限清单完成两次独立审查并分别交付。",
+        "idempotency_key": "direct-checkout-success-0001",
+    }
+    checkout = client.post(
+        "/api/transactions/services/it-ops/direct-checkout",
+        json=payload,
+        headers=buyer_headers,
+    )
+    assert checkout.status_code == 200, checkout.text
+    agreement = checkout.json()
+    assert agreement["status"] == "pending_confirmations"
+    assert agreement["snapshot"]["transaction"] == {
+        "mode": "direct_service_checkout",
+        "quantity": 2,
+        "unit_price": str(unit_price.quantize(Decimal("0.01"))),
+    }
+    assert agreement["snapshot"]["service"]["id"] == "it-ops"
+    assert agreement["snapshot"]["service"]["version"] == version_name
+    assert Decimal(agreement["snapshot"]["quote"]["total_amount"]) == (unit_price * 2).quantize(
+        Decimal("0.01")
+    )
+    assert agreement["snapshot"]["quote"]["milestones"]
+
+    replay = client.post(
+        "/api/transactions/services/it-ops/direct-checkout",
+        json=payload,
+        headers=buyer_headers,
+    )
+    assert replay.status_code == 200, replay.text
+    assert replay.json()["id"] == agreement["id"]
+    with Session(engine) as db:
+        assert len(db.exec(select(TransactionDirectCheckout)).all()) == 1
+        assert (
+            len(
+                db.exec(
+                    select(TransactionAgreement).where(TransactionAgreement.id == agreement["id"])
+                ).all()
+            )
+            == 1
+        )
+
+    conflict_payload = {**payload, "quantity": 3}
+    conflict = client.post(
+        "/api/transactions/services/it-ops/direct-checkout",
+        json=conflict_payload,
+        headers=buyer_headers,
+    )
+    assert conflict.status_code == 409
+
+    default_delivery_payload = {
+        "organization_id": "org_demo_buyer",
+        "service_version": version_name,
+        "quantity": 1,
+        "buyer_note": "不指定日期时也必须支持网络重放。",
+        "idempotency_key": "direct-checkout-default-delivery-0001",
+    }
+    default_delivery = client.post(
+        "/api/transactions/services/it-ops/direct-checkout",
+        json=default_delivery_payload,
+        headers=buyer_headers,
+    )
+    default_delivery_replay = client.post(
+        "/api/transactions/services/it-ops/direct-checkout",
+        json=default_delivery_payload,
+        headers=buyer_headers,
+    )
+    assert default_delivery.status_code == 200, default_delivery.text
+    assert default_delivery_replay.status_code == 200, default_delivery_replay.text
+    assert default_delivery_replay.json()["id"] == default_delivery.json()["id"]
+
+    buyer_confirmation = client.post(
+        f"/api/transactions/agreements/{agreement['id']}/confirm",
+        json={
+            "organization_id": "org_demo_buyer",
+            "confirmation_statement": "采购方确认当前冻结服务范围、价格和验收标准。",
+        },
+        headers=buyer_headers,
+    )
+    assert buyer_confirmation.status_code == 200, buyer_confirmation.text
+    assert buyer_confirmation.json()["status"] == "partially_confirmed"
+
+    provider_confirmation = client.post(
+        f"/api/transactions/agreements/{agreement['id']}/confirm",
+        json={
+            "organization_id": "org_cloud_ops",
+            "confirmation_statement": "服务方确认按已发布版本完成本次服务交付。",
+        },
+        headers=_auth(provider_user),
+    )
+    assert provider_confirmation.status_code == 200, provider_confirmation.text
+    assert provider_confirmation.json()["status"] == "active"
+
+    payment = client.post(
+        f"/api/transactions/agreements/{agreement['id']}/payment-orders",
+        json={"organization_id": "org_demo_buyer"},
+        headers=buyer_headers,
+    )
+    assert payment.status_code == 200, payment.text
+    assert payment.json()["status"] == "pending"
+    with Session(engine) as db:
+        admin = db.get(User, "admin")
+        assert admin is not None
+    paid = client.post(
+        f"/api/transactions/payment-orders/{payment.json()['id']}/demo-simulate",
+        json={
+            "organization_id": "org_demo_buyer",
+            "result": "success",
+            "confirmation_code": "DEMO-PAY",
+            "callback_id": "direct-checkout-payment-0001",
+            "acknowledged_demo": True,
+        },
+        headers=_auth(admin),
+    )
+    assert paid.status_code == 200, paid.text
+    assert paid.json()["status"] == "succeeded"
+    assert paid.json()["orderId"]
+    with Session(engine) as db:
+        order = db.get(TransactionOrder, paid.json()["orderId"])
+        assert order is not None
+        assert order.service_id == "it-ops"
+        assert order.total_amount == (unit_price * 2).quantize(Decimal("0.01"))
+        milestones = db.exec(
+            select(TransactionOrderMilestone).where(TransactionOrderMilestone.order_id == order.id)
+        ).all()
+        assert len(milestones) == 1
+        assert milestones[0].amount == order.total_amount
+
+
+def test_direct_service_checkout_rejects_self_purchase_and_stale_version(
+    transaction_app: tuple[TestClient, object, User],
+) -> None:
+    client, engine, user = transaction_app
+    self_purchase = client.post(
+        "/api/transactions/services/it-ops/direct-checkout",
+        json={
+            "organization_id": "org_cloud_ops",
+            "quantity": 1,
+            "buyer_note": "尝试购买自己企业发布的服务。",
+            "idempotency_key": "direct-checkout-self-0001",
+        },
+        headers=_auth(user),
+    )
+    assert self_purchase.status_code == 403
+
+    with Session(engine) as db:
+        buyer = User(
+            id="user_stale_buyer",
+            tenant_id="tenant_demo",
+            username="stale_buyer",
+            password_hash="test",
+        )
+        db.add(buyer)
+        db.add(
+            OrganizationMember(
+                id="orgmember_stale_buyer",
+                tenant_id="tenant_demo",
+                organization_id="org_demo_buyer",
+                user_id=buyer.id,
+                role="owner",
+                roles_json=["owner"],
+                data_scope_json={"mode": "all_orders"},
+                status="active",
+            )
+        )
+        db.commit()
+        db.refresh(buyer)
+    stale = client.post(
+        "/api/transactions/services/it-ops/direct-checkout",
+        json={
+            "organization_id": "org_demo_buyer",
+            "service_version": "v0-stale",
+            "quantity": 1,
+            "buyer_note": "使用旧版本下单。",
+            "idempotency_key": "direct-checkout-stale-0001",
+        },
+        headers=_auth(buyer),
+    )
+    assert stale.status_code == 409
 
 
 def test_real_requirement_match_quote_selection_and_two_party_confirmation(
@@ -485,10 +711,7 @@ def test_requirement_confidentiality_persists_in_versions_and_has_safe_default(
     )
     assert updated.status_code == 200, updated.text
     assert updated.json()["confidentialityLevel"] == "highly_confidential"
-    assert (
-        updated.json()["currentVersion"]["confidentialityLevel"]
-        == "highly_confidential"
-    )
+    assert updated.json()["currentVersion"]["confidentialityLevel"] == "highly_confidential"
 
     listed = client.get(
         "/api/transactions/requirements",
@@ -1776,7 +1999,13 @@ def test_real_skill_package_upload_is_immutable_scanned_and_independently_review
             "permissions": "{}",
             "executionPolicy": "external",
         },
-        files={"file": ("changed.zip", _skill_zip({"SKILL.md": "# changed", "main.py": "print(2)"}), "application/zip")},
+        files={
+            "file": (
+                "changed.zip",
+                _skill_zip({"SKILL.md": "# changed", "main.py": "print(2)"}),
+                "application/zip",
+            )
+        },
         headers=_auth(publisher),
     )
     assert replaced.status_code == 409

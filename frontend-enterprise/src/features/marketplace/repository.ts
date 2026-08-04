@@ -594,6 +594,23 @@ export const marketplaceRepository = {
     );
   },
 
+  async createDirectServiceCheckout(
+    serviceId: string,
+    input: {
+      organization_id: string;
+      service_version?: string;
+      quantity: number;
+      desired_delivery_at?: string;
+      buyer_note: string;
+      idempotency_key: string;
+    },
+  ): Promise<Agreement> {
+    return api.post<Agreement>(
+      `/api/transactions/services/${encodeURIComponent(serviceId)}/direct-checkout`,
+      input,
+    );
+  },
+
   async getAgreement(agreementId: string, organizationId: string): Promise<Agreement> {
     return api.get<Agreement>(
       `/api/transactions/agreements/${encodeURIComponent(agreementId)}${queryString({ organizationId })}`,

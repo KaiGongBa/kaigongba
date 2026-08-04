@@ -72,7 +72,7 @@ export default function AiEmployeeMarketPage() {
       if (query.scope === 'mine' && !item.mine) return false;
       return true;
     });
-    if (sort === 'rating') items = [...items].sort((a, b) => b.rating - a.rating);
+    if (sort === 'rating') items = [...items].sort((a, b) => (b.rating || 0) - (a.rating || 0));
     if (sort === 'orders') items = [...items].sort((a, b) => b.completedOrders - a.completedOrders);
     if (sort === 'price-low') items = [...items].sort((a, b) => a.price - b.price);
     return items;
@@ -81,6 +81,7 @@ export default function AiEmployeeMarketPage() {
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const visibleItems = filtered.slice((Math.min(page, totalPages) - 1) * pageSize, Math.min(page, totalPages) * pageSize);
   const common = (resource.data?.items || []).filter((item) => item.subscribed).slice(0, 4);
+  const hasPerformanceMetrics = (resource.data?.items || []).some((item) => item.performanceMetricsAvailable);
 
   function resetFilters() {
     setCategory('all');
@@ -174,8 +175,10 @@ export default function AiEmployeeMarketPage() {
           onChange={setSort}
           options={[
             { value: 'recommended', label: '综合排序' },
-            { value: 'rating', label: '评分最高' },
-            { value: 'orders', label: '成交最多' },
+            ...(hasPerformanceMetrics ? [
+              { value: 'rating', label: '评分最高' },
+              { value: 'orders', label: '成交最多' },
+            ] : []),
             { value: 'price-low', label: '价格最低' },
           ]}
         />
@@ -218,14 +221,24 @@ export default function AiEmployeeMarketPage() {
                   </div>
                   <p>{service.description}</p>
                   <div className="ai-service-card__stats">
-                    <CompactStat value={service.rating.toFixed(1)} label="评分" />
-                    <CompactStat value={service.completedOrders.toLocaleString()} label="调用量" />
-                    <CompactStat value={`${service.onTimeRate}%`} label="好评率" />
+                    {service.performanceMetricsAvailable && service.rating !== null ? (
+                      <>
+                        <CompactStat value={service.rating.toFixed(1)} label="评分" />
+                        <CompactStat value={service.completedOrders.toLocaleString()} label="已完成订单" />
+                        <CompactStat value={`${service.onTimeRate}%`} label="按时交付" />
+                      </>
+                    ) : (
+                      <>
+                        <CompactStat value={service.deliveryFormat} label="交付形式" />
+                        <CompactStat value={`${service.averageMinutes}分钟`} label="预计交付" />
+                        <CompactStat value={`${service.includedRevisions}次`} label="包含修改" />
+                      </>
+                    )}
                   </div>
                   <div className="ai-service-card__footer">
                     <div className="marketplace-price">
                       <strong>¥{service.price}</strong><span>/{service.priceUnit}</span>
-                      <small>平均响应 {service.averageMinutes} 分钟</small>
+                      <small>预计交付 {service.averageMinutes} 分钟</small>
                     </div>
                     <div className="ai-service-card__actions">
                       <button type="button" className="marketplace-secondary-button" onClick={() => openService(service)}>查看详情</button>
@@ -258,16 +271,16 @@ export default function AiEmployeeMarketPage() {
                 <button type="button" key={service.id} onClick={() => openService(service)}>
                   <img src={service.avatar} alt="" />
                   <span><strong>{service.name}</strong><small>{service.provider}</small></span>
-                  <em>★ {service.rating.toFixed(1)}</em>
+                  <em>{service.performanceMetricsAvailable && service.rating !== null ? `★ ${service.rating.toFixed(1)}` : '暂无评价'}</em>
                   <i>调用</i>
                 </button>
               ))}
             </div>
           </div>
           <div className="marketplace-side-card">
-            <MarketSectionTitle title="开放市场规则" action={<button type="button">查看全部 <ArrowRight /></button>} />
+            <MarketSectionTitle title="开放市场规则" />
             <ul className="market-rules-list">
-              <li><ShieldCheck /><span><strong>服务质量保障</strong><small>平台提供交易担保与质量保障机制。</small></span></li>
+              <li><ShieldCheck /><span><strong>服务过程留痕</strong><small>报价、协议、交付、验收与争议处理均保留结构化记录。</small></span></li>
               <li><ShieldCheck /><span><strong>隐私与安全</strong><small>严格保护企业数据与隐私，AI 员工不得擅自访问敏感信息。</small></span></li>
               <li><CheckCircle2 /><span><strong>公平交易</strong><small>禁止虚假宣传与恶意竞争，违规行为将受到平台处罚。</small></span></li>
             </ul>

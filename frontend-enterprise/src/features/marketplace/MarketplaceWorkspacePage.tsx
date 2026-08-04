@@ -5,7 +5,6 @@ import { EnterpriseRoute } from '@/enums/routes';
 
 import AiEmployeeDetailPage from './AiEmployeeDetailPage';
 import AiEmployeeMarketPage from './AiEmployeeMarketPage';
-import MarketplaceComingSoonPage from './MarketplaceComingSoonPage';
 import PublishAIServicePage from './PublishAIServicePage';
 import PublishingPage from './PublishingPage';
 import PublishSkillPage from './PublishSkillPage';
@@ -16,6 +15,7 @@ const AgreementConfirmPage = lazy(() => import('./AgreementConfirmPage'));
 const ConfirmationCenterPage = lazy(() => import('./ConfirmationCenterPage'));
 const DemandCreatePage = lazy(() => import('./DemandCreatePage'));
 const DemoPaymentPage = lazy(() => import('./DemoPaymentPage'));
+const DirectServiceCheckoutPage = lazy(() => import('./DirectServiceCheckoutPage'));
 const DeliverableAcceptancePage = lazy(() => import('./DeliverableAcceptancePage'));
 const DisputeCasePage = lazy(() => import('./DisputeCasePage'));
 const MyRequirementsPage = lazy(() => import('./MyRequirementsPage'));
@@ -76,7 +76,7 @@ export default function MarketplaceWorkspacePage() {
           <Route path="/enterprise/market/skills/:skillId" element={<SkillDetailPage />} />
           <Route
             path="/enterprise/services/:serviceId/order"
-            element={<MarketplaceComingSoonPage title="服务下单配置" phase="阶段 3" />}
+            element={<Suspense fallback={<MarketplaceRouteLoading />}><DirectServiceCheckoutPage /></Suspense>}
           />
           <Route
             path="/enterprise/demands/new"

@@ -3,7 +3,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 from fastapi import HTTPException
-from sqlalchemy import or_
+from sqlalchemy import func, or_
 from sqlmodel import Session, select
 
 from app.db.models import (
@@ -17,6 +17,7 @@ from app.db.models import (
     MarketplaceSkillListingVersion,
     Organization,
     OrganizationMember,
+    TransactionOrder,
     TransactionOutboxEvent,
     User,
     utc_now,
@@ -450,6 +451,13 @@ def _ai_service_read(
             ).first()
             is not None
         )
+    completed_orders = db.exec(
+        select(func.count(TransactionOrder.id)).where(
+            TransactionOrder.tenant_id == service.tenant_id,
+            TransactionOrder.service_id == service.id,
+            TransactionOrder.status == "completed",
+        )
+    ).one()
     return AIServiceRead(
         id=service.id,
         name=service.name,
@@ -465,10 +473,12 @@ def _ai_service_read(
         price_unit=current.price_unit,
         average_minutes=current.average_minutes,
         included_revisions=current.included_revisions,
-        rating=_decimal_float(service.rating),
-        completed_orders=service.completed_orders,
-        on_time_rate=service.on_time_rate,
-        response_minutes=service.response_minutes,
+        rating=None,
+        completed_orders=completed_orders,
+        on_time_rate=0,
+        response_minutes=0,
+        review_count=0,
+        performance_metrics_available=False,
         subscribed=subscribed,
         mine=provider.organization_id in organization_ids,
         delivery_format=current.delivery_format,
@@ -540,8 +550,16 @@ def _skill_read(
         weight=skill.weight,
         price=_decimal_float(current.price_amount),
         price_unit=current.price_unit,
-        installs=skill.installs_count,
-        rating=_decimal_float(skill.rating) if skill.rating is not None else None,
+        installs=db.exec(
+            select(func.count(MarketplaceSkillInstallation.id)).where(
+                MarketplaceSkillInstallation.tenant_id == skill.tenant_id,
+                MarketplaceSkillInstallation.skill_id == skill.id,
+                MarketplaceSkillInstallation.status == "active",
+            )
+        ).one(),
+        rating=None,
+        review_count=0,
+        install_count_verified=True,
         icon=skill.icon,
         icon_tone=skill.icon_tone,
         permission_tags=list(snapshot.get("permission_tags") or []),

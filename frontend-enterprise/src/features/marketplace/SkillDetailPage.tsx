@@ -39,12 +39,12 @@ import { useMarketplaceResource } from './useMarketplaceResource';
 
 type SkillDetailTab = 'overview' | 'schema' | 'permissions' | 'versions' | 'reviews';
 
-const tabs: Array<{ value: SkillDetailTab; label: string }> = [
+const baseTabs: Array<{ value: SkillDetailTab; label: string }> = [
   { value: 'overview', label: '概览' },
   { value: 'schema', label: '输入输出' },
   { value: 'permissions', label: '权限与安全' },
   { value: 'versions', label: '版本记录' },
-  { value: 'reviews', label: '评价（128）' },
+  { value: 'reviews', label: '评价' },
 ];
 
 export default function SkillDetailPage() {
@@ -72,6 +72,12 @@ export default function SkillDetailPage() {
   const selectedVersion = version || skill?.version || '';
   const exampleInput = skill?.inputs[0];
   const trialResultSummary = skill?.outputs.map((field) => field.description).join('、') || '结构化结果';
+  const tabs = useMemo(
+    () => baseTabs.map((item) => (
+      item.value === 'reviews' ? { ...item, label: `评价（${skill?.reviewCount || 0}）` } : item
+    )),
+    [skill?.reviewCount],
+  );
   const permissionSummary = useMemo(
     () => ({
       allow: skill?.permissions.filter((item) => item.level === 'allow').length || 0,
@@ -152,8 +158,8 @@ export default function SkillDetailPage() {
                 </div>
                 <p>{skill.provider}<span>{skill.category}</span><span>{skill.version}</span></p>
                 <div className="skill-detail-hero__stats">
-                  {skill.rating !== null && <span><Star />{skill.rating.toFixed(1)}（128条评价）</span>}
-                  <span><Download />{skill.installs.toLocaleString()} 安装</span>
+                  {(skill.reviewCount || 0) > 0 && skill.rating !== null && <span><Star />{skill.rating.toFixed(1)}（{skill.reviewCount}条评价）</span>}
+                  {skill.installCountVerified && <span><Download />{skill.installs.toLocaleString()} 安装</span>}
                   <span>更新于 {skill.versions[0]?.releasedAt}</span>
                 </div>
                 <strong>{skill.description}</strong>
@@ -263,9 +269,10 @@ export default function SkillDetailPage() {
             {tab === 'reviews' && (
               <section className="marketplace-panel service-tab-panel">
                 <h2>已验证调用评价</h2>
-                <div className="review-list">
-                  <article><strong>结构化输出稳定，原文定位很方便。</strong><span>法务团队 · 已验证调用</span></article>
-                  <article><strong>权限边界清晰，适合接入合同审查流程。</strong><span>采购团队 · 已验证调用</span></article>
+                <div className="marketplace-review-empty" role="status">
+                  <Star />
+                  <strong>暂无已验证调用评价</strong>
+                  <span>完成真实调用并提交评价后，记录会显示在这里。</span>
                 </div>
               </section>
             )}
@@ -332,9 +339,8 @@ export default function SkillDetailPage() {
               <h2>发布方</h2>
               <div>
                 <ProviderMark name={skill.provider} />
-                <span><strong>{skill.provider}</strong><VerificationBadge state="verified-service" /><small>专注于{skill.category}场景的企业 AI 工具与服务。</small></span>
+                <span><strong>{skill.provider}</strong><small>发布方信息来源于当前 Skill 上架记录。</small></span>
               </div>
-              <button type="button">查看发布方主页 <ArrowRight /></button>
             </section>
           </aside>
         </div>

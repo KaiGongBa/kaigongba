@@ -1244,6 +1244,8 @@ def append_external_task_event(
     request: ExternalTaskEventRequest,
 ) -> ExternalTaskEventRead:
     principal.require_scope("events:write")
+    if request.event_type == "task.artifact_created":
+        principal.require_scope("artifacts:write")
     task = _get_task_for_agent(db, principal, task_id)
     existing = _task_event_by_idempotency(db, task.tenant_id, request.idempotency_key)
     if existing:
@@ -1295,6 +1297,8 @@ def submit_external_task_result(
     request: ExternalTaskResultRequest,
 ) -> ExternalTaskResultReceiptRead:
     principal.require_scope("events:write")
+    if request.artifact_refs:
+        principal.require_scope("artifacts:write")
     task = _get_task_for_agent(db, principal, task_id)
     receipt_event = _task_event_by_idempotency(db, task.tenant_id, request.idempotency_key)
     if receipt_event:

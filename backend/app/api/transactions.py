@@ -21,6 +21,7 @@ from app.transaction.schemas import (
     DeliverableCreate,
     DeliverableRead,
     DeliverableVersionCreate,
+    DirectServiceCheckoutCreate,
     DemoPaymentSimulate,
     MatchRunRequest,
     MaterialRequestCreate,
@@ -288,6 +289,24 @@ def select_quote(
     db: DatabaseSession,
 ) -> AgreementRead:
     return service.select_quote(db, current_user, requirement_id, request)
+
+
+@router.post(
+    "/services/{service_id}/direct-checkout",
+    response_model=AgreementRead,
+)
+def create_direct_service_checkout(
+    service_id: str,
+    request: DirectServiceCheckoutCreate,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+) -> AgreementRead:
+    return service.create_direct_service_checkout(
+        db,
+        current_user,
+        service_id,
+        request,
+    )
 
 
 @router.get("/agreements/{agreement_id}", response_model=AgreementRead)

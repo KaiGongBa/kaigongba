@@ -22,10 +22,12 @@ export type AiService = {
   priceUnit: string;
   averageMinutes: number;
   includedRevisions: number;
-  rating: number;
+  rating: number | null;
   completedOrders: number;
   onTimeRate: number;
   responseMinutes: number;
+  reviewCount?: number;
+  performanceMetricsAvailable?: boolean;
   subscribed?: boolean;
   mine?: boolean;
   deliveryFormat: '文档' | '表格' | '报告' | '工作流';
@@ -68,6 +70,8 @@ export type MarketplaceSkill = {
   priceUnit: string;
   installs: number;
   rating: number | null;
+  reviewCount?: number;
+  installCountVerified?: boolean;
   icon: 'document' | 'robot' | 'sheet' | 'search' | 'people' | 'tag';
   iconTone: 'violet' | 'blue' | 'green' | 'orange';
   permissionTags: string[];
@@ -572,6 +576,11 @@ export type Agreement = {
   title: string;
   status: string;
   snapshot: {
+    transaction?: {
+      mode?: 'demand_quote' | 'direct_service_checkout';
+      quantity?: number;
+      unit_price?: string;
+    };
     requirement: Record<string, unknown>;
     quote: Record<string, unknown>;
     service: Record<string, unknown>;

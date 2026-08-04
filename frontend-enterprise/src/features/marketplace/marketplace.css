@@ -1484,6 +1484,34 @@
   font-size: 11px;
 }
 
+.marketplace-review-empty {
+  display: flex;
+  min-height: 170px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px dashed #dfe3ea;
+  border-radius: 10px;
+  color: #8a91a0;
+  text-align: center;
+}
+
+.marketplace-review-empty svg {
+  width: 24px;
+  height: 24px;
+  color: #b3b9c4;
+}
+
+.marketplace-review-empty strong {
+  color: #444a57;
+  font-size: 14px;
+}
+
+.marketplace-review-empty span {
+  font-size: 12px;
+}
+
 .service-detail-aside,
 .skill-detail-aside {
   display: flex;

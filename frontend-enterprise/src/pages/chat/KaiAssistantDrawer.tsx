@@ -97,6 +97,12 @@ export default function KaiAssistantDrawer({
   const routeKeyRef = useRef('');
   const pageInstanceIdRef = useRef(createPageInstanceId());
   const contextVersionRef = useRef(1);
+  const answerAttemptsRef = useRef(new Map<string, {
+    fingerprint: string;
+    idempotencyKey: string;
+    answers: AnswerSubmission['answers'];
+  }>());
+  const submittingBlocksRef = useRef(new Set<string>());
   const user = getEnterpriseAuthSession()?.user;
 
   useEffect(() => {
@@ -294,10 +300,27 @@ export default function KaiAssistantDrawer({
   ) {
     const runId = message.runId || activeWorkflow?.runId;
     const sessionId = assistantSessionId || activeWorkflow?.sessionId;
-    if (!runId || !sessionId || sending) {
+    const submissionKey = runId
+      ? blockKey(runId, input.block_id, input.block_version)
+      : '';
+    if (!runId || !sessionId) {
       setChatError({ code: 'CONTEXT_STALE', message: '这组问题已失去工作流上下文，请恢复或重新发起。', retryable: true });
       return;
     }
+    if (sending || submittingBlocksRef.current.has(submissionKey)) {
+      return;
+    }
+    const fingerprint = answerFingerprint(input.answers);
+    const previousAttempt = answerAttemptsRef.current.get(submissionKey);
+    const attempt = previousAttempt?.fingerprint === fingerprint
+      ? previousAttempt
+      : {
+          fingerprint,
+          idempotencyKey: crypto.randomUUID(),
+          answers: input.answers,
+        };
+    answerAttemptsRef.current.set(submissionKey, attempt);
+    submittingBlocksRef.current.add(submissionKey);
     setSending(true);
     setChatError(null);
     try {
@@ -311,14 +334,16 @@ export default function KaiAssistantDrawer({
         run_id: runId,
         block_id: input.block_id,
         block_version: input.block_version,
-        idempotency_key: crypto.randomUUID(),
-        answers: input.answers,
+        idempotency_key: attempt.idempotencyKey,
+        answers: attempt.answers,
       });
       setCompletedBlocks((current) => new Set(current).add(blockKey(runId, input.block_id, input.block_version)));
+      answerAttemptsRef.current.delete(submissionKey);
       appendAssistantResult(result);
     } catch (error) {
       setChatError(parseAssistantError(error));
     } finally {
+      submittingBlocksRef.current.delete(submissionKey);
       setSending(false);
     }
   }
@@ -666,6 +691,13 @@ function notificationCategory(item: CollaborationNotification): Exclude<Notifica
 
 function blockKey(runId: string | null | undefined, blockId: string, blockVersion: number) {
   return `${runId || 'no-run'}:${blockId}:${blockVersion}`;
+}
+
+function answerFingerprint(answers: AnswerSubmission['answers']) {
+  return JSON.stringify(answers.map((answer) => ({
+    question_id: answer.question_id,
+    value: answer.value,
+  })));
 }
 
 function selectedOrganizationId() {

@@ -314,6 +314,30 @@ describe('Kai Xiaohua isolated assistant drawer', () => {
     expect(screen.getByRole('button', { name: '已提交' }).hasAttribute('disabled')).toBe(true);
   });
 
+  it('reuses the exact answer request after a lost response', async () => {
+    const service = mockAssistantService(structuredResult([questionGroupBlock()]));
+    vi.mocked(service.submitAnswers).mockRejectedValueOnce(new Error('网络连接中断'));
+    renderDrawer('/enterprise/demands/new', service);
+    fireEvent.click(await screen.findByRole('button', { name: /打开开小花/ }));
+    await screen.findByText('平台总助真实会话消息');
+
+    const composer = screen.getByRole('textbox', { name: '给开小花发送消息' });
+    fireEvent.change(composer, { target: { value: '我想做一个企业官网' } });
+    fireEvent.keyDown(composer, { key: 'Enter', shiftKey: false });
+    fireEvent.click(await screen.findByRole('radio', { name: /企业官网/ }));
+    fireEvent.click(screen.getByRole('button', { name: '统一发送' }));
+
+    expect(await screen.findByText('本次操作未完成')).toBeTruthy();
+    await waitFor(() => expect(screen.getByRole('button', { name: '统一发送' }).hasAttribute('disabled')).toBe(false));
+    fireEvent.click(screen.getByRole('button', { name: '统一发送' }));
+
+    await waitFor(() => expect(service.submitAnswers).toHaveBeenCalledTimes(2));
+    const first = vi.mocked(service.submitAnswers).mock.calls[0]?.[0];
+    const retry = vi.mocked(service.submitAnswers).mock.calls[1]?.[0];
+    expect(retry?.idempotency_key).toBe(first?.idempotency_key);
+    expect(retry?.answers).toEqual(first?.answers);
+  });
+
   it('renders all seven safe block types, opens only a registered deep link and degrades unknown blocks', async () => {
     const blocks = allBlockTypes();
     const service = mockAssistantService(structuredResult(blocks as StructuredBlock[]));

@@ -42,7 +42,7 @@ vi.mock('./AiEmployeeMarketPage', () => ({ default: () => <div data-testid="ai-e
 vi.mock('./AiEmployeeDetailPage', () => ({ default: () => <div data-testid="ai-employee-detail" /> }));
 vi.mock('./SkillMarketPage', () => ({ default: () => <div data-testid="skill-market" /> }));
 vi.mock('./SkillDetailPage', () => ({ default: () => <div data-testid="skill-detail" /> }));
-vi.mock('./MarketplaceComingSoonPage', () => ({ default: () => <div data-testid="service-order" /> }));
+vi.mock('./DirectServiceCheckoutPage', () => ({ default: () => <div data-testid="service-order" /> }));
 vi.mock('./DemandCreatePage', () => ({ default: () => <div data-testid="demand-create" /> }));
 vi.mock('./MyRequirementsPage', () => ({ default: () => <div data-testid="requirements" /> }));
 vi.mock('./RequirementDetailPage', () => ({ default: () => <div data-testid="requirement-detail" /> }));

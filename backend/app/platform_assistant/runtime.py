@@ -12,7 +12,10 @@ from app.platform_assistant.adaptive_interview import (
     AdaptiveInterviewTurn,
 )
 from app.platform_assistant.context import ResolvedPageContext
-from app.platform_assistant.orchestrator import RequirementWorkflowOrchestrator
+from app.platform_assistant.orchestrator import (
+    RequirementWorkflowOrchestrator,
+    RequirementWorkflowTurn,
+)
 from app.platform_assistant.protocol import validate_structured_block
 from app.platform_assistant.repository import (
     PlatformAssistantRepository,
@@ -124,6 +127,18 @@ class PlatformAssistantRuntime:
                 state="intent_pending",
                 current_step="intent_confirmation",
             )
+            if _can_start_adaptive_requirement_directly(
+                protocol_version=protocol_version,
+                turn=turn,
+            ):
+                return self._start_adaptive_requirement(
+                    current_user=current_user,
+                    scope=scope,
+                    run_id=run.id,
+                    message=text,
+                    client_request_id=client_request_id,
+                    authorized_organization_ids=allowed_organizations,
+                )
             self.runs.append_block(
                 scope,
                 run.id,
@@ -1084,6 +1099,32 @@ def _structured_intent_selection(message: str) -> str | None:
         if normalized.startswith(prefix):
             return aliases.get(normalized.removeprefix(prefix))
     return None
+
+
+def _can_start_adaptive_requirement_directly(
+    *,
+    protocol_version: str,
+    turn: RequirementWorkflowTurn,
+) -> bool:
+    """Skip the form-like intent gate only for a clear, safe v2 request.
+
+    Starting the adaptive interview creates a private draft only. It does not
+    publish, invite providers, place an order, or execute another consequential
+    action, so an explicit high-confidence service request can proceed directly
+    to the first useful follow-up question. Ambiguous, injected, and non-demand
+    turns retain the reviewed intent-confirmation block.
+    """
+
+    if (
+        protocol_version != "2.0"
+        or turn.degradation_code == "PROMPT_INJECTION_GUARD"
+    ):
+        return False
+    candidates = tuple(turn.intent.intent_candidates)
+    if not candidates:
+        return False
+    primary = candidates[0]
+    return primary.capability_id == "requirement.create" and primary.confidence >= 0.8
 
 
 def _unsupported_intent_notice(selection: str, seed: str) -> dict[str, Any]:

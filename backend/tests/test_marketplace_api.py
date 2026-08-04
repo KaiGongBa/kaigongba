@@ -134,8 +134,36 @@ def test_marketplace_reads_persisted_services_with_camel_case_contract(
     assert contract["serviceScope"]
     assert contract["acceptanceCriteria"]
     assert contract["versions"][0]["releasedAt"] == "2026-07-18"
+    assert contract["rating"] is None
+    assert contract["reviewCount"] == 0
+    assert contract["performanceMetricsAvailable"] is False
+    assert contract["completedOrders"] == 0
+    assert contract["onTimeRate"] == 0
+    assert contract["responseMinutes"] == 0
     assert mine.json()["total"] == 1
     assert subscribed.json()["total"] == 3
+
+
+def test_marketplace_skill_metrics_use_real_installations_and_no_seeded_reviews(
+    marketplace_app: tuple[TestClient, object, User],
+) -> None:
+    client, _engine, user = marketplace_app
+
+    response = client.get("/api/marketplace/skills", headers=_auth_headers(user))
+
+    assert response.status_code == 200
+    payload = response.json()
+    installed = next(
+        item for item in payload["items"] if item["id"] == "contract-structure-parser"
+    )
+    uninstalled = next(
+        item for item in payload["items"] if item["id"] == "ticket-classifier"
+    )
+    assert installed["installs"] == 1
+    assert installed["installCountVerified"] is True
+    assert installed["rating"] is None
+    assert installed["reviewCount"] == 0
+    assert uninstalled["installs"] == 0
 
 
 def test_skill_install_is_persisted_bound_and_audited(

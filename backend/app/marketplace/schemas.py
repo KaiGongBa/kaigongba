@@ -51,10 +51,12 @@ class AIServiceRead(MarketplaceReadModel):
     price_unit: str
     average_minutes: int
     included_revisions: int
-    rating: float
+    rating: float | None
     completed_orders: int
     on_time_rate: int
     response_minutes: int
+    review_count: int = 0
+    performance_metrics_available: bool = False
     subscribed: bool = False
     mine: bool = False
     delivery_format: Literal["文档", "表格", "报告", "工作流"]
@@ -102,6 +104,8 @@ class MarketplaceSkillRead(MarketplaceReadModel):
     price_unit: str
     installs: int
     rating: float | None
+    review_count: int = 0
+    install_count_verified: bool = True
     icon: Literal["document", "robot", "sheet", "search", "people", "tag"]
     icon_tone: Literal["violet", "blue", "green", "orange"]
     permission_tags: list[str]

@@ -91,6 +91,8 @@ export default function SkillMarketPage() {
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
   const visibleItems = filtered.slice((Math.min(page, totalPages) - 1) * pageSize, Math.min(page, totalPages) * pageSize);
+  const hasReviews = (resource.data?.items || []).some((item) => (item.reviewCount || 0) > 0);
+  const hasVerifiedInstallCounts = (resource.data?.items || []).some((item) => item.installCountVerified);
 
   async function install(skill: MarketplaceSkill) {
     if (skill.verification === 'pending') {
@@ -221,8 +223,8 @@ export default function SkillMarketPage() {
           onChange={setSort}
           options={[
             { value: 'recommended', label: '综合排序' },
-            { value: 'rating', label: '评分最高' },
-            { value: 'installs', label: '安装最多' },
+            ...(hasReviews ? [{ value: 'rating', label: '评分最高' }] : []),
+            ...(hasVerifiedInstallCounts ? [{ value: 'installs', label: '安装最多' }] : []),
             { value: 'price-low', label: '价格最低' },
           ]}
         />
@@ -232,7 +234,6 @@ export default function SkillMarketPage() {
         <div className="skill-security-banner">
           <ShieldCheck />
           <span>开放发布，分级运行；未验证 Skill 不可接触订单数据与生产密钥</span>
-          <button type="button" onClick={() => notify.info('安全规则详情将在平台审核阶段接入')}>查看安全规则</button>
           <button type="button" aria-label="关闭提示" onClick={() => setBannerOpen(false)}><X /></button>
         </div>
       )}
@@ -268,8 +269,8 @@ export default function SkillMarketPage() {
                 </div>
                 <div className="skill-card__numbers">
                   <span className="marketplace-price"><strong>{skill.price === 0 ? '免费' : `¥${skill.price}`}</strong>{skill.price > 0 && <i>/{skill.priceUnit}</i>}</span>
-                  <span><Download />{formatCompactCount(skill.installs)} 安装</span>
-                  {skill.rating !== null && <span><Star />{skill.rating.toFixed(1)}</span>}
+                  {skill.installCountVerified && <span><Download />{formatCompactCount(skill.installs)} 安装</span>}
+                  {(skill.reviewCount || 0) > 0 && skill.rating !== null && <span><Star />{skill.rating.toFixed(1)}</span>}
                 </div>
                 <div className="skill-card__permissions">
                   {skill.permissionTags.map((tag) => <span key={tag}>{tag}</span>)}

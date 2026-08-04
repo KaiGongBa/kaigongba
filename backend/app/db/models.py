@@ -684,6 +684,49 @@ class TransactionQuoteVersion(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utc_now)
 
 
+class TransactionDirectCheckout(SQLModel, table=True):
+    """A buyer-initiated checkout of a published service version.
+
+    The checkout record supplies a durable idempotency boundary before the
+    existing requirement, quote, agreement, payment and order state machines
+    take over.  It does not duplicate any downstream transaction state.
+    """
+
+    __tablename__ = "transaction_direct_checkouts"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "idempotency_key",
+            name="uq_transaction_direct_checkout_idempotency",
+        ),
+        Index(
+            "ix_transaction_direct_checkout_buyer_status_created",
+            "buyer_organization_id",
+            "status",
+            "created_at",
+        ),
+    )
+
+    id: str = Field(default_factory=lambda: new_id("checkout"), primary_key=True)
+    tenant_id: str = Field(index=True)
+    idempotency_key: str = Field(index=True)
+    request_digest: str = Field(index=True)
+    service_id: str = Field(index=True)
+    service_version_id: str = Field(index=True)
+    buyer_organization_id: str = Field(index=True)
+    provider_organization_id: str = Field(index=True)
+    quantity: int = 1
+    desired_delivery_at: datetime = Field(index=True)
+    buyer_note: str = ""
+    requirement_id: str = Field(index=True)
+    quote_id: str = Field(index=True)
+    agreement_id: Optional[str] = Field(default=None, index=True)
+    status: str = Field(default="agreement_pending", index=True)
+    created_by_user_id: str = Field(index=True)
+    created_at: datetime = Field(default_factory=utc_now)
+    updated_at: datetime = Field(default_factory=utc_now)
+
+
 class TransactionAgreement(SQLModel, table=True):
     __tablename__ = "transaction_agreements"
     __table_args__ = (

@@ -29,12 +29,12 @@ import { useMarketplaceResource } from './useMarketplaceResource';
 
 type ServiceTab = 'intro' | 'capability' | 'delivery' | 'versions' | 'reviews';
 
-const tabs: Array<{ value: ServiceTab; label: string }> = [
+const baseTabs: Array<{ value: ServiceTab; label: string }> = [
   { value: 'intro', label: '服务介绍' },
   { value: 'capability', label: '能力与SOP' },
   { value: 'delivery', label: '交付与验收' },
   { value: 'versions', label: '服务版本' },
-  { value: 'reviews', label: '评价（128）' },
+  { value: 'reviews', label: '评价' },
 ];
 
 export default function AiEmployeeDetailPage() {
@@ -51,6 +51,12 @@ export default function AiEmployeeDetailPage() {
 
   const service = resource.data;
   const total = useMemo(() => (service?.price || 0) * quantity, [quantity, service?.price]);
+  const tabs = useMemo(
+    () => baseTabs.map((item) => (
+      item.value === 'reviews' ? { ...item, label: `评价（${service?.reviewCount || 0}）` } : item
+    )),
+    [service?.reviewCount],
+  );
 
   function startOrder() {
     if (!service) return;
@@ -90,17 +96,26 @@ export default function AiEmployeeDetailPage() {
                   <h1>{service.name}</h1>
                   <span>{service.category}</span>
                   <i>在线</i>
-                  <VerificationBadge state="verified-service" />
+                  {service.verified && <VerificationBadge state="verified-service" />}
                 </div>
                 <div className="service-provider-line">
                   <span>发布者：{service.provider}</span>
-                  <button type="button" onClick={() => notify.info('服务商主页将在供给侧页面接入')}>查看主页 <ArrowRight /></button>
                 </div>
                 <p>{service.description}</p>
                 <div className="service-hero-card__stats">
-                  <CompactStat value={service.completedOrders.toLocaleString()} label="已完成订单" />
-                  <CompactStat value={<><Star />{service.rating.toFixed(1)}</>} label="评分" />
-                  <CompactStat value={`${service.onTimeRate}%`} label="按时交付" />
+                  {service.performanceMetricsAvailable && service.rating !== null ? (
+                    <>
+                      <CompactStat value={service.completedOrders.toLocaleString()} label="已完成订单" />
+                      <CompactStat value={<><Star />{service.rating.toFixed(1)}</>} label="评分" />
+                      <CompactStat value={`${service.onTimeRate}%`} label="按时交付" />
+                    </>
+                  ) : (
+                    <>
+                      <CompactStat value={service.deliveryFormat} label="交付形式" />
+                      <CompactStat value={`${service.averageMinutes}分钟`} label="预计交付" />
+                      <CompactStat value={`${service.includedRevisions}次`} label="包含修改" />
+                    </>
+                  )}
                 </div>
               </div>
             </article>
@@ -204,9 +219,10 @@ export default function AiEmployeeDetailPage() {
             {tab === 'reviews' && (
               <section className="marketplace-panel service-tab-panel">
                 <h2>真实订单评价</h2>
-                <div className="review-list">
-                  <article><strong>交付结构清晰，风险条款定位准确。</strong><span>北京星云科技有限公司 · 已验证订单</span></article>
-                  <article><strong>人工复核很有价值，修改建议可以直接使用。</strong><span>山海零售有限公司 · 已验证订单</span></article>
+                <div className="marketplace-review-empty" role="status">
+                  <Star />
+                  <strong>暂无已验证订单评价</strong>
+                  <span>完成真实订单并验收后，评价会显示在这里。</span>
                 </div>
               </section>
             )}
@@ -248,17 +264,16 @@ export default function AiEmployeeDetailPage() {
               <h2>发布者与信任</h2>
               <div>
                 <ProviderMark name={service.provider} />
-                <span><strong>{service.provider}</strong><VerificationBadge state="verified-service" /><small>综合评分 {service.rating}　服务完成率 {service.onTimeRate}%</small></span>
+                <span><strong>{service.provider}</strong>{service.providerVerified && <VerificationBadge state="verified-service" />}<small>{service.performanceMetricsAvailable && service.rating !== null ? `综合评分 ${service.rating.toFixed(1)}　按时交付率 ${service.onTimeRate}%` : '已通过服务上架审核 · 暂无真实订单评价'}</small></span>
               </div>
-              <button type="button">查看主页 <ArrowRight /></button>
             </section>
 
             <section className="marketplace-panel sla-card">
-              <h2>响应与交付 SLA</h2>
-              <p><span>平均首次响应</span><strong>{service.responseMinutes} 分钟</strong></p>
-              <p><span>平均交付时效</span><strong>{service.averageMinutes} 分钟</strong></p>
-              <p><span>按时交付率</span><strong>{service.onTimeRate}%</strong></p>
-              <p><span>退款保障</span><strong>不满意可申请退款</strong></p>
+              <h2>当前版本服务承诺</h2>
+              <p><span>预计交付时效</span><strong>{service.averageMinutes} 分钟</strong></p>
+              <p><span>包含修改次数</span><strong>{service.includedRevisions} 次</strong></p>
+              <p><span>验收标准</span><strong>{service.acceptanceCriteria.length} 项</strong></p>
+              <p><span>履约统计</span><strong>{service.performanceMetricsAvailable ? `按时交付率 ${service.onTimeRate}%` : '暂无真实订单数据'}</strong></p>
             </section>
           </aside>
         </div>

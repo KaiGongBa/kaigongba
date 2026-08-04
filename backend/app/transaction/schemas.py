@@ -251,6 +251,15 @@ class QuoteSelectionRequest(TransactionWriteModel):
     buyer_note: str = Field(default="", max_length=500)
 
 
+class DirectServiceCheckoutCreate(TransactionWriteModel):
+    organization_id: str
+    service_version: str | None = Field(default=None, max_length=80)
+    quantity: int = Field(default=1, ge=1, le=99)
+    desired_delivery_at: datetime | None = None
+    buyer_note: str = Field(default="", max_length=2000)
+    idempotency_key: str = Field(min_length=8, max_length=160)
+
+
 class AgreementConfirmationRequest(TransactionWriteModel):
     organization_id: str
     confirmation_statement: str = Field(min_length=6, max_length=500)
