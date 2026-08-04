@@ -18,6 +18,7 @@ from anthropic import Anthropic
 
 from app.config import get_settings
 from app.db.models import ModelConfig
+from app.llm.json_payload import dumps_model_payload
 from app.llm.model_protocols import ModelApiProtocol
 from app.llm.output_policy import operation_output_tokens
 from app.llm.protocol_drivers import (
@@ -1319,7 +1320,7 @@ def _prepare_user_input(
     if isinstance(user_payload.get(STAGE_PROTOCOL_KEY), dict):
         return _prepare_stage_user_input(user_payload)
     context_messages, projected_payload = _project_context_messages(user_payload)
-    return context_messages, json.dumps(projected_payload, ensure_ascii=False)
+    return context_messages, dumps_model_payload(projected_payload, ensure_ascii=False)
 
 
 def _prepare_stage_user_input(

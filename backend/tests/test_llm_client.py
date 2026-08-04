@@ -1,3 +1,8 @@
+import json
+from datetime import UTC, datetime
+from decimal import Decimal
+from uuid import UUID
+
 import pytest
 
 from app.llm.client import LLMClient, LLMError, _thinking_mode_for_model
@@ -150,6 +155,55 @@ def test_generate_text_uses_chat_completions_only():
         {"role": "user", "content": '{"hello": "world"}'},
     ]
     assert call["max_tokens"] == 256
+
+
+def test_generate_text_serializes_business_values_as_json():
+    client = object.__new__(LLMClient)
+    client.client = _FakeOpenAIClient()
+    client.model = "demo-model"
+    client.temperature = 0.2
+    client.max_output_tokens = 256
+
+    output = client.generate_text(
+        "system prompt",
+        {
+            "desired_delivery_at": datetime(2026, 8, 20, 9, 30, tzinfo=UTC),
+            "budget": Decimal("12000.50"),
+            "requirement_id": UUID("12345678-1234-5678-1234-567812345678"),
+        },
+    )
+
+    assert output == "ok"
+    payload = json.loads(client.client.chat.completions.calls[0]["messages"][-1]["content"])
+    assert payload == {
+        "desired_delivery_at": "2026-08-20T09:30:00Z",
+        "budget": "12000.50",
+        "requirement_id": "12345678-1234-5678-1234-567812345678",
+    }
+
+
+def test_generate_text_serializes_business_values_in_stage_payload():
+    client = object.__new__(LLMClient)
+    client.client = _FakeOpenAIClient()
+    client.model = "demo-model"
+    client.temperature = 0.2
+    client.max_output_tokens = 256
+    payload = stage_payload(
+        phase="StepAgent",
+        user_message="生成报价",
+        conversation_context=None,
+        memory_context=None,
+        instructions="返回报价",
+        stage_data={
+            "desired_delivery_at": datetime(2026, 8, 20, 9, 30, tzinfo=UTC),
+        },
+        output_contract={"total_price": Decimal("12000.50")},
+    )
+
+    assert client.generate_text("system prompt", payload) == "ok"
+    content = client.client.chat.completions.calls[0]["messages"][-1]["content"]
+    assert '"desired_delivery_at":"2026-08-20T09:30:00Z"' in content
+    assert '"total_price":"12000.50"' in content
 
 
 def test_chat_completions_driver_preserves_non_stream_and_stream_requests():
@@ -1194,4 +1248,3 @@ def test_generate_text_stream_preserves_budget_above_escalation_ceiling():
     assert len(calls) == 2
     assert calls[0]["max_tokens"] == 65536
     assert calls[1]["max_tokens"] == 65536
-
