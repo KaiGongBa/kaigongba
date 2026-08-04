@@ -20,7 +20,7 @@ import {
   employeeDisplayNameWithCreator,
   employeeProfile,
   isMyEmployeeAgent,
-  visibleEmployeeAgents,
+  visibleWorkspaceEmployeeAgents,
 } from '../employee';
 import {
   clearSharedAgentScope,
@@ -75,7 +75,7 @@ export default function EmployeeGalleryPage({
   // - 我的数字员工: employees the current user can manage/edit
   // - 数字员工广场: public employees not already listed as mine
   const availableAgents = useMemo(
-    () => visibleEmployeeAgents(agents, currentUser, { activeOnly: true }),
+    () => visibleWorkspaceEmployeeAgents(agents, currentUser, { activeOnly: true }),
     [agents, currentUser],
   );
   const myEmployees = useMemo(

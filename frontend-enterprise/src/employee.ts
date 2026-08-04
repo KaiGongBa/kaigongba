@@ -230,6 +230,24 @@ export function visibleEmployeeAgents(
   return rows.filter((agent) => canAccessEmployeeAgent(agent, user, options));
 }
 
+/**
+ * The conversational gallery is a personal workspace, not the tenant-wide
+ * employee administration screen.  Tenant administrators can still manage all
+ * employees in /enterprise/agents, but another account's unpublished generated
+ * default must never flood the workspace gallery.
+ */
+export function visibleWorkspaceEmployeeAgents(
+  rows: AgentProfileRead[],
+  user?: EnterpriseAuthUser | null,
+  options: EmployeeVisibilityOptions = {},
+): AgentProfileRead[] {
+  return visibleEmployeeAgents(rows, user, options).filter((agent) => (
+    !isDefaultEmployeeAgent(agent)
+    || isEmployeeOwnedBy(agent, user)
+    || isGalleryEmployee(agent)
+  ));
+}
+
 export function currentEmployeeAgents(
   rows: AgentProfileRead[],
   user?: EnterpriseAuthUser | null,
@@ -335,6 +353,12 @@ export function employeeCreatorName(agent?: AgentProfileRead | null): string {
 
 export function employeeDisplayNameWithCreator(agent?: AgentProfileRead | null): string {
   return displayNameWithCreator(employeeDisplayName(agent), employeeCreatorName(agent));
+}
+
+export function employeeCardDisplayName(agent?: AgentProfileRead | null): string {
+  if (!agent) return '数字员工';
+  if (agent.is_overall || isDefaultEmployeeAgent(agent)) return employeeDisplayName(agent);
+  return employeeDisplayNameWithCreator(agent);
 }
 
 export function resourceCreatorName(resource?: { metadata?: Record<string, unknown> } | null): string {

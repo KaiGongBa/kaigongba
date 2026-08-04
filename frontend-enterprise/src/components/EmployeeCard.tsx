@@ -17,7 +17,7 @@ import IconPause from '../assets/icons/pause.svg?react';
 import IconPlay from '../assets/icons/play.svg?react';
 import IconTrash from '../assets/icons/trash.svg?react';
 import { isGalleryEmployee } from '../auth';
-import { employeeDisplayNameWithCreator, employeeProfile, resourceCount } from '../employee';
+import { employeeCardDisplayName, employeeProfile, resourceCount } from '../employee';
 import type { AgentProfileRead } from '../types';
 import EmployeeAvatar from './EmployeeAvatar';
 
@@ -74,7 +74,7 @@ export default function EmployeeCard({
 
   // Show raw API values on the card (bypass the SD1 term relabeling in staffdeckDisplayText).
   const rawRoleName = (employee.metadata?.role_name as string | undefined) || profile.roleName;
-  const displayName = employee.is_overall ? '公司广场' : employeeDisplayNameWithCreator(employee);
+  const displayName = employeeCardDisplayName(employee);
   const displayDescription = employee.description || '暂无描述';
 
   const stats: Array<{ value: number; label: string }> = [
@@ -124,7 +124,7 @@ export default function EmployeeCard({
         </div>
 
         {/* Name / role / status */}
-        <div className="flex-1 flex flex-col gap-[2px]">
+        <div className="flex min-w-0 flex-1 flex-col gap-[2px]">
           <strong className="truncate text-[12px] font-bold text-[#18181A]">
             {employee.is_overall ? displayName : <span data-i18n-ignore>{displayName}</span>}
           </strong>

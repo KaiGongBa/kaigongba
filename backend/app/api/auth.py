@@ -11,6 +11,7 @@ from sqlmodel import Session, select
 from app.agents.default_employee import ensure_personal_default_employee
 from app.db import get_session
 from app.db.models import User, UserAvatar, utc_now
+from app.security.account_types import is_automated_acceptance_username
 from app.security.auth import create_access_token, get_current_user, hash_password, verify_password
 from app.security.permissions import MEMBER_ROLE, PLATFORM_ROLES, is_admin_user
 from app.security.tenant import ensure_tenant
@@ -204,6 +205,7 @@ def create_user(
         username=username,
         display_name=(request.display_name or username).strip()[:80],
         role=request.role,
+        source="acceptance" if is_automated_acceptance_username(username) else "web",
         password_hash=hash_password(request.password),
     )
     db.add(user)

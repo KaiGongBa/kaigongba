@@ -153,6 +153,33 @@ def test_personal_default_employee_is_idempotent_private_and_skips_channel_users
         assert len(defaults) == 2
 
 
+def test_acceptance_accounts_do_not_create_workspace_employees() -> None:
+    with _test_session() as db:
+        db.add(Tenant(id="tenant_demo", name="Demo"))
+        admin = User(
+            id="admin",
+            tenant_id="tenant_demo",
+            username="admin",
+            role="admin",
+            password_hash=hash_password("secret"),
+        )
+        db.add(admin)
+        db.commit()
+
+        created = create_user(
+            UserCreateRequest(
+                tenant_id="tenant_demo",
+                username="5e17858297016590_buyer",
+                password="secret",
+            ),
+            admin,
+            db,
+        )
+
+        assert created.source == "acceptance"
+        assert db.exec(select(AgentProfile)).all() == []
+
+
 def _test_session() -> Session:
     engine = create_engine(
         "sqlite://",

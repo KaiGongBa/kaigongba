@@ -27,7 +27,7 @@ def test_postgres_upgrade_downgrade_and_reupgrade() -> None:
 
     command.upgrade(config, "head")
     try:
-        assert _revision(engine) == "20260804_0019"
+        assert _revision(engine) == "20260804_0020"
         assert "transaction_dispute_cases" in inspect(engine).get_table_names()
         assert "transaction_hosted_skill_runs" in inspect(engine).get_table_names()
         assert "external_agent_enrollments" in inspect(engine).get_table_names()
@@ -93,7 +93,7 @@ def test_postgres_upgrade_downgrade_and_reupgrade() -> None:
         assert "transaction_hosted_skill_runs" not in inspect(engine).get_table_names()
 
         command.upgrade(config, "head")
-        assert _revision(engine) == "20260804_0019"
+        assert _revision(engine) == "20260804_0020"
         assert "transaction_dispute_cases" in inspect(engine).get_table_names()
         assert "transaction_hosted_skill_runs" in inspect(engine).get_table_names()
         assert "external_agent_enrollments" in inspect(engine).get_table_names()

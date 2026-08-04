@@ -69,7 +69,7 @@ def test_0015_backfills_web_accounts_without_cross_account_or_replay_duplicates(
         db.commit()
 
     command.upgrade(config, "head")
-    assert _revision(engine) == "20260804_0019"
+    assert _revision(engine) == "20260804_0020"
     defaults = _visible_defaults(engine)
     assert {row["owner_user_id"] for row in defaults} == {"user_new", "user_existing"}
     assert len([row for row in defaults if row["owner_user_id"] == "user_new"]) == 1
@@ -81,6 +81,63 @@ def test_0015_backfills_web_accounts_without_cross_account_or_replay_duplicates(
     command.downgrade(config, "20260801_0014")
     command.upgrade(config, "head")
     assert len(_visible_defaults(engine)) == 2
+    engine.dispose()
+
+
+def test_0020_hides_acceptance_defaults_without_deleting_evidence_accounts(
+    tmp_path: Path,
+) -> None:
+    database_path = tmp_path / "acceptance-default-employee-migration.db"
+    database_url = f"sqlite:///{database_path}"
+    config = _config(database_url)
+    command.upgrade(config, "20260804_0019")
+    engine = create_engine(database_url)
+
+    acceptance_user_id = "user_acceptance_buyer"
+    acceptance_agent_id = "agent_acceptance_buyer"
+    with Session(engine) as db:
+        db.add(Tenant(id="tenant_test", name="Test"))
+        db.add(
+            User(
+                id=acceptance_user_id,
+                tenant_id="tenant_test",
+                username="5e17858297016590_buyer",
+                source="web",
+                password_hash="hash",
+            )
+        )
+        db.add(
+            AgentProfile(
+                id=acceptance_agent_id,
+                tenant_id="tenant_test",
+                name="5e17858297016590_buyer的数字员工",
+                status="active",
+                metadata_json={
+                    "owner_user_id": acceptance_user_id,
+                    "owner_username": "5e17858297016590_buyer",
+                    "is_default_employee": True,
+                },
+            )
+        )
+        db.commit()
+
+    command.upgrade(config, "head")
+    assert _revision(engine) == "20260804_0020"
+    with Session(engine) as db:
+        user = db.get(User, acceptance_user_id)
+        agent = db.get(AgentProfile, acceptance_agent_id)
+        assert user is not None
+        assert user.source == "acceptance"
+        assert agent is not None
+        assert agent.status == "archived"
+        assert agent.metadata_json["hidden_from_staffdeck"] is True
+        assert agent.metadata_json["acceptance_test_artifact"] is True
+
+    command.downgrade(config, "20260804_0019")
+    command.upgrade(config, "head")
+    with Session(engine) as db:
+        assert db.get(User, acceptance_user_id) is not None
+        assert db.get(AgentProfile, acceptance_agent_id) is not None
     engine.dispose()
 
 
