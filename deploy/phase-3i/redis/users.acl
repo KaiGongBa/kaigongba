@@ -1,0 +1,2 @@
+user default on >kaigongba-dev-only ~* +@all
+user kaigongba-dev on >kaigongba-dev-only ~* +@all

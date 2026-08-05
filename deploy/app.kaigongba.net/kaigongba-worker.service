@@ -1,5 +1,5 @@
 [Unit]
-Description=Kai Gong Ba application API
+Description=Kai Gong Ba isolated background worker
 After=network-online.target postgresql.service redis.service
 Wants=network-online.target
 Requires=postgresql.service redis.service
@@ -12,12 +12,13 @@ WorkingDirectory=/opt/kaigongba-app/current/backend
 EnvironmentFile=/opt/kaigongba-app/shared/app.env
 Environment=HOME=/opt/kaigongba-app/shared
 Environment=PYTHONUNBUFFERED=1
-Environment=BACKGROUND_JOBS_ROLE=api
-ExecStart=/opt/kaigongba-app/venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8020 --workers 1 --proxy-headers --forwarded-allow-ips=127.0.0.1
+Environment=BACKGROUND_JOBS_ROLE=worker
+ExecStart=/opt/kaigongba-app/venv/bin/python -m app.worker_main --scheduled-poll-seconds 5 --outbox-poll-seconds 2
 Restart=on-failure
 RestartSec=5
 TimeoutStartSec=90
-TimeoutStopSec=30
+TimeoutStopSec=90
+KillSignal=SIGTERM
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full

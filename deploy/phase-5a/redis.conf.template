@@ -1,0 +1,31 @@
+# Redis 6.2 compatible local single-host baseline for app.kaigongba.net.
+# Remote/shared Redis must instead expose TLS and use rediss:// URLs.
+bind 127.0.0.1 ::1
+protected-mode yes
+port 6379
+tcp-backlog 511
+timeout 0
+tcp-keepalive 60
+supervised systemd
+
+aclfile /etc/redis/kaigongba-users.acl
+
+dir /var/lib/redis
+dbfilename dump.rdb
+appendonly yes
+appendfilename "appendonly.aof"
+appendfsync everysec
+no-appendfsync-on-rewrite yes
+save 900 1
+save 300 10
+save 60 10000
+stop-writes-on-bgsave-error yes
+
+# Locks and rate-limit counters must never be evicted silently. Adjust the
+# concrete limit after measuring the server memory budget.
+maxmemory 128mb
+maxmemory-policy noeviction
+
+rename-command FLUSHALL ""
+rename-command FLUSHDB ""
+rename-command CONFIG ""

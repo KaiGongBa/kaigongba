@@ -1,0 +1,28 @@
+[Unit]
+Description=Kai Gong Ba transaction Outbox worker
+After=network-online.target kaigongba-staffdeck.service
+Wants=network-online.target kaigongba-staffdeck.service
+
+[Service]
+Type=simple
+User=kgbapp
+Group=kgbapp
+WorkingDirectory=/opt/kaigongba-app/current/backend
+EnvironmentFile=/opt/kaigongba-app/shared/transaction.env
+Environment=HOME=/opt/kaigongba-app/shared
+Environment=PYTHONUNBUFFERED=1
+Environment=TRANSACTION_ROLE=worker
+ExecStart=/opt/kaigongba-app/venv/bin/python -m app.transaction.outbox_worker --poll-seconds 2
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=90
+TimeoutStopSec=90
+KillSignal=SIGTERM
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/kaigongba-app/shared
+
+[Install]
+WantedBy=multi-user.target

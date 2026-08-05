@@ -16,6 +16,10 @@ from app.db.database import (
     _normalize_database_url,
 )
 
+PRODUCTION_REDIS_URL = (
+    "rediss://kaigongba-test:redis-production-secret@redis.internal:6379/0"
+)
+
 
 def test_relative_sqlite_url_resolves_under_backend_dir() -> None:
     backend_dir = Path(__file__).resolve().parents[1]
@@ -52,7 +56,7 @@ def test_production_rejects_legacy_schema_and_automatic_seed() -> None:
             marketplace_seed_enabled=False,
             app_secret="production-secret",
             internal_service_secret="production-internal-service-secret",
-            redis_url="redis://redis:6379/0",
+            redis_url=PRODUCTION_REDIS_URL,
         )
 
     with pytest.raises(ValidationError, match="禁止自动写入"):
@@ -64,7 +68,7 @@ def test_production_rejects_legacy_schema_and_automatic_seed() -> None:
             marketplace_seed_enabled=False,
             app_secret="production-secret",
             internal_service_secret="production-internal-service-secret",
-            redis_url="redis://redis:6379/0",
+            redis_url=PRODUCTION_REDIS_URL,
         )
 
 
@@ -77,7 +81,7 @@ def test_production_accepts_explicit_migration_validation_without_seed() -> None
         marketplace_seed_enabled=False,
         app_secret="production-secret",
         internal_service_secret="production-internal-service-secret",
-        redis_url="redis://redis:6379/0",
+        redis_url=PRODUCTION_REDIS_URL,
         database_url="postgresql://app:secret@postgres/kaigongba",
     )
 
@@ -95,7 +99,7 @@ def test_production_requires_dedicated_internal_service_secret() -> None:
             marketplace_seed_enabled=False,
             app_secret="production-secret",
             internal_service_secret="",
-            redis_url="redis://redis:6379/0",
+            redis_url=PRODUCTION_REDIS_URL,
         )
 
 

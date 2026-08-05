@@ -23,15 +23,33 @@ MinIO/Redis 集成、双服务边界验收、配置审计、只读压力测试�
 
 - `kaigongba-transaction.service`：交易核心，监听 `127.0.0.1:8022`。
 - `kaigongba-staffdeck.service`：StaffDeck 运行时，监听 `127.0.0.1:8021`。
+- `kaigongba-transaction-worker.service`：发布交易 Outbox 并分发外接 Agent Webhook。
+- `kaigongba-staffdeck-worker.service`：执行 StaffDeck 定时任务。
 - `app.kaigongba.net.split.conf`：按 API 所有权分流，并拒绝公网访问内部服务接口。
 
 部署时把 `deploy/phase-3i/transaction.env.example` 和
 `deploy/phase-3i/staffdeck.env.example` 分别复制到 shared 目录，替换全部占位符并设置
-`0600` 权限。两个进程暂时各使用一个 worker；横向扩容前还需把 StaffDeck 定时任务
-拆成独立 worker，避免每个 API 副本都启动调度器。
+`0600` 权限。两个 API 进程不再内嵌调度器或 Outbox 轮询；对应 worker
+使用同一份服务环境文件，systemd 单元分别覆盖 `STAFFDECK_ROLE=worker`
+或 `TRANSACTION_ROLE=worker`。API 与 worker 不能交叉使用彼此的角色。
+Split 单元只将 `network-online.target` 作为 systemd 顺序依赖；PostgreSQL、Redis
+和对象存储均视为外部基础设施，由 `/api/ready` 及 worker 启动校验 fail closed，
+不得在应用主机上伪造本地 `redis.service` 依赖。
 
-切换前顺序：备份 → 两库迁移 → 启动双服务 → 分别检查 `/api/ready` → `nginx -t`
+切换前顺序：备份 → 两库迁移 → 启动双 API 服务 → 分别检查 `/api/ready`
+→ 启动两个 worker → `nginx -t`
 → 切换配置 → 冒烟验收。不要直接覆盖现有单体服务配置。
+
+### Redis 生产基线
+
+- 阿里云 Linux 3 单机过渡使用 `redis.conf.template` 和
+  `redis-users.acl.template`：仅绑定 loopback、关闭 default 用户、每个服务独立 ACL
+  用户与 Key 前缀、开启 AOF，并使用 `noeviction`。当前 1.8 GiB ECS 的
+  `maxmemory` 设为 `128mb`；配置与 ACL 文件权限为 `root:redis 0640`。
+- 单机可使用带 ACL 认证的 `redis://...@127.0.0.1/...`；非 loopback 的预发/生产
+  Redis 强制使用 `rediss://`，不允许关闭证书或主机名校验。
+- 应用启动前会执行 PING、短 TTL 读写和 Lua 释放锁检查；任一失败都拒绝
+  启动。`/api/ready` 使用同一检查，不再只验证 PING。
 
 ## 备份
 

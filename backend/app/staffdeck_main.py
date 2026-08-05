@@ -31,23 +31,22 @@ from app.async_jobs import shutdown_async_jobs
 from app.channels import start_channel_services, stop_channel_services
 from app.config import get_settings
 from app.db.startup import prepare_database
-from app.scheduled_tasks.worker import start_background_worker, stop_background_worker
-from app.service_runtime import validate_staffdeck_runtime
+from app.service_runtime import validate_redis_runtime, validate_staffdeck_runtime
 from app.platform_assistant import api as platform_assistant_api
 from app.platform_assistant import requirement_api as platform_assistant_requirement_api
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    validate_staffdeck_runtime(get_settings())
+    settings = get_settings()
+    validate_staffdeck_runtime(settings)
+    validate_redis_runtime(settings)
     prepare_database()
-    start_background_worker()
     start_channel_services()
     try:
         yield
     finally:
         stop_channel_services()
-        stop_background_worker()
         shutdown_async_jobs()
 
 

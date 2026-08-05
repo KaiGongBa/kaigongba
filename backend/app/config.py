@@ -1,6 +1,8 @@
 import os as _os
+import ipaddress
 from functools import lru_cache
 from typing import Literal, Self
+from urllib.parse import parse_qs, unquote, urlsplit
 
 from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -63,14 +65,19 @@ class Settings(BaseSettings):
     general_skill_pip_timeout_seconds: int = 180
     general_skill_network_install: bool = False
     channel_secret: str = ""
-    # all: 本地兼容单体；api: HTTP/API 与定时任务；connector: 外部渠道长连接。
-    staffdeck_role: Literal["all", "api", "connector"] = "all"
+    # embedded: 单体 API 兼容内嵌任务；api/worker: 单库过渡期的进程隔离。
+    background_jobs_role: Literal["embedded", "api", "worker"] = "embedded"
+    # all: 本地兼容单体；api: HTTP/API；worker: 定时任务；connector: 外部渠道长连接。
+    staffdeck_role: Literal["all", "api", "worker", "connector"] = "all"
     staffdeck_internal_base_url: str = ""
     staffdeck_internal_timeout_seconds: float = 5.0
+    # all 仅用于本地兼容单体；正式拆分部署必须明确为 api 或 worker。
+    transaction_role: Literal["all", "api", "worker"] = "all"
     transaction_outbox_poll_seconds: float = 2.0
     redis_url: str = ""
     redis_key_prefix: str = "kaigongba"
     redis_socket_timeout_seconds: float = 2.0
+    redis_max_connections: int = 50
     wechat_ilink_base_url: str = "https://ilinkai.weixin.qq.com"
     channel_delivery_poll_seconds: float = 1.0
     channel_delivery_max_attempts: int = 8
@@ -113,6 +120,12 @@ class Settings(BaseSettings):
                 raise ValueError("托管 Skill 内存限制必须在 64～4096 MB 之间")
             if not 0.1 <= self.hosted_skill_cpu_limit <= 4:
                 raise ValueError("托管 Skill CPU 限制必须在 0.1～4 核之间")
+        if not 0.1 <= self.redis_socket_timeout_seconds <= 10:
+            raise ValueError("Redis 连接与读写超时必须在 0.1～10 秒之间")
+        if not 5 <= self.redis_max_connections <= 500:
+            raise ValueError("Redis 连接池上限必须在 5～500 之间")
+        if self.redis_key_prefix and not _safe_redis_key_prefix(self.redis_key_prefix):
+            raise ValueError("REDIS_KEY_PREFIX 只能包含字母、数字、冒号、下划线和短横线")
         if self.runtime_environment in {"staging", "production"}:
             if self.database_startup_mode == "legacy":
                 raise ValueError("预发和生产环境禁止使用 create_all 启动模式")
@@ -124,6 +137,9 @@ class Settings(BaseSettings):
                 raise ValueError("预发和生产环境必须配置至少 24 位 INTERNAL_SERVICE_SECRET")
             if not self.redis_url.startswith(("redis://", "rediss://")):
                 raise ValueError("预发和生产环境必须配置 REDIS_URL")
+            _validate_production_redis_url(self.redis_url)
+            if not self.redis_key_prefix.strip(":"):
+                raise ValueError("预发和生产环境必须配置 REDIS_KEY_PREFIX")
             if self.hosted_skill_execution_enabled:
                 images = (self.hosted_skill_python_image, self.hosted_skill_node_image)
                 if any("@sha256:" not in image for image in images):
@@ -150,3 +166,56 @@ class Settings(BaseSettings):
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
+
+
+def _safe_redis_key_prefix(value: str) -> bool:
+    return bool(value.strip(":")) and all(
+        character.isascii()
+        and (character.isalnum() or character in {":", "_", "-"})
+        for character in value
+    )
+
+
+def _validate_production_redis_url(value: str) -> None:
+    parsed = urlsplit(value)
+    if parsed.scheme not in {"redis", "rediss"} or not parsed.hostname:
+        raise ValueError("REDIS_URL 必须是有效的 redis:// 或 rediss:// 地址")
+    try:
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("REDIS_URL 端口无效") from exc
+    if port is None or not 1 <= port <= 65535:
+        raise ValueError("预发和生产 REDIS_URL 必须显式指定有效端口")
+    if parsed.fragment:
+        raise ValueError("REDIS_URL 不能包含 fragment")
+    username = unquote(parsed.username or "")
+    password = unquote(parsed.password or "")
+    if not username or username.lower() == "default" or not password:
+        raise ValueError("预发和生产 Redis 必须使用独立 ACL 用户和密码")
+    lowered_password = password.lower()
+    weak_markers = ("change-me", "dev-only", "password", "__redis", "placeholder")
+    if len(password) < 16 or any(marker in lowered_password for marker in weak_markers):
+        raise ValueError("预发和生产 Redis 密码必须至少 16 位且不能使用占位或弱密码")
+    if not parsed.path or parsed.path == "/" or not parsed.path[1:].isdigit():
+        raise ValueError("预发和生产 REDIS_URL 必须显式指定数据库编号")
+    query = {key.lower(): values for key, values in parse_qs(parsed.query).items()}
+    insecure_tls_values = {
+        item.lower()
+        for key in ("ssl_cert_reqs", "ssl_check_hostname")
+        for item in query.get(key, [])
+    }
+    if insecure_tls_values.intersection(
+        {"none", "cert_none", "false", "0", "no"}
+    ):
+        raise ValueError("预发和生产 Redis 禁止关闭 TLS 证书或主机名校验")
+    if parsed.scheme == "redis" and not _is_loopback_host(parsed.hostname):
+        raise ValueError("非本机 Redis 在预发和生产环境必须使用 rediss:// TLS")
+
+
+def _is_loopback_host(hostname: str) -> bool:
+    if hostname.lower() == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(hostname).is_loopback
+    except ValueError:
+        return False

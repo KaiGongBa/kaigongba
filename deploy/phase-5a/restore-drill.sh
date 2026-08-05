@@ -15,6 +15,7 @@ case "${RESTORE_STAFFDECK_DATABASE_URL}" in
 esac
 
 test -f "${KGB_RESTORE_SET}/SHA256SUMS"
+test ! -f "${KGB_RESTORE_SET}/FAILED"
 if command -v sha256sum >/dev/null 2>&1; then
     (cd "${KGB_RESTORE_SET}" && sha256sum --check SHA256SUMS)
 else
@@ -27,6 +28,16 @@ pg_restore --clean --if-exists --no-owner --no-acl \
 pg_restore --clean --if-exists --no-owner --no-acl \
     --dbname="${RESTORE_STAFFDECK_DATABASE_URL}" \
     "${KGB_RESTORE_SET}/postgres/staffdeck.dump"
+
+for restore_url in "${RESTORE_TRANSACTION_DATABASE_URL}" "${RESTORE_STAFFDECK_DATABASE_URL}"; do
+    revision="$(psql "${restore_url}" -Atc 'SELECT version_num FROM alembic_version')"
+    table_count="$(psql "${restore_url}" -Atc "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public'")"
+    if [[ -z "${revision}" ]] || ! [[ "${table_count}" =~ ^[0-9]+$ ]] || (( table_count < 1 )); then
+        printf 'Restored database failed schema verification. revision=%s tables=%s\n' \
+            "${revision:-missing}" "${table_count:-missing}" >&2
+        exit 1
+    fi
+done
 
 if command -v redis-check-rdb >/dev/null 2>&1; then
     redis-check-rdb "${KGB_RESTORE_SET}/redis/dump.rdb"

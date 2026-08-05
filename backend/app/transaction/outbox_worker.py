@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import argparse
 import logging
+import signal
 import threading
 
+from redis.exceptions import RedisError
 from sqlmodel import Session, select
 
 from app.config import get_settings
 from app.db import engine
+from app.db.startup import prepare_database
 from app.db.models import (
     ExternalAgentConnection,
     ExternalAgentImportDraft,
@@ -19,6 +23,7 @@ from app.integrations.staffdeck.schemas import (
     MarketplaceInstallationBindingRequest,
 )
 from app.redis_runtime import distributed_lock
+from app.service_runtime import validate_redis_runtime, validate_transaction_worker_runtime
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +85,8 @@ def start_transaction_outbox_worker() -> None:
         return
     _stop_event.clear()
     _worker_thread = threading.Thread(
-        target=_run,
+        target=run_worker,
+        kwargs={"prepare": False},
         name="kaigongba-transaction-outbox",
         daemon=True,
     )
@@ -88,23 +94,70 @@ def start_transaction_outbox_worker() -> None:
 
 
 def stop_transaction_outbox_worker(timeout_seconds: float = 5.0) -> bool:
+    global _worker_thread
     _stop_event.set()
     thread = _worker_thread
     if thread and thread.is_alive():
         thread.join(timeout=max(0.0, timeout_seconds))
-    return not (thread and thread.is_alive())
+    stopped = not (thread and thread.is_alive())
+    if stopped:
+        _worker_thread = None
+    return stopped
 
 
-def _run() -> None:
-    poll_seconds = max(0.2, get_settings().transaction_outbox_poll_seconds)
-    while not _stop_event.is_set():
-        with (
-            Session(engine) as db,
-            distributed_lock("transaction-outbox", ttl_seconds=30) as acquired,
-        ):
-            if acquired:
-                publish_staffdeck_outbox_once(db)
-                from app.external_agents.task_delivery import dispatch_webhook_deliveries_once
+def run_worker(
+    *,
+    once: bool = False,
+    poll_seconds: float | None = None,
+    stop_event: threading.Event | None = None,
+    prepare: bool = True,
+) -> None:
+    event = stop_event or _stop_event
+    if prepare:
+        prepare_database()
+    interval = max(
+        0.2,
+        poll_seconds
+        if poll_seconds is not None
+        else get_settings().transaction_outbox_poll_seconds,
+    )
+    while not event.is_set():
+        try:
+            with (
+                Session(engine) as db,
+                distributed_lock("transaction-outbox", ttl_seconds=30) as acquired,
+            ):
+                if acquired:
+                    publish_staffdeck_outbox_once(db)
+                    from app.external_agents.task_delivery import dispatch_webhook_deliveries_once
 
-                dispatch_webhook_deliveries_once(db)
-        _stop_event.wait(poll_seconds)
+                    dispatch_webhook_deliveries_once(db)
+        except RedisError:
+            # Fail closed for this cycle, but keep the worker alive so a transient
+            # Redis outage does not require a process restart to resume delivery.
+            logger.exception("Redis 锁不可用，Outbox 本轮暂停")
+        if once:
+            return
+        event.wait(interval)
+
+
+def _handle_stop(_signum: int, _frame: object) -> None:
+    _stop_event.set()
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Run Kai Gong Ba transaction Outbox worker")
+    parser.add_argument("--once", action="store_true", help="publish pending events once, then exit")
+    parser.add_argument("--poll-seconds", type=float, default=None)
+    args = parser.parse_args()
+    settings = get_settings()
+    validate_transaction_worker_runtime(settings)
+    validate_redis_runtime(settings)
+    signal.signal(signal.SIGTERM, _handle_stop)
+    signal.signal(signal.SIGINT, _handle_stop)
+    _stop_event.clear()
+    run_worker(once=args.once, poll_seconds=args.poll_seconds)
+
+
+if __name__ == "__main__":
+    main()

@@ -7,6 +7,7 @@ Requires=postgresql.service
 Type=oneshot
 User=kgbapp
 Group=kgbapp
+EnvironmentFile=-/opt/kaigongba-app/shared/backup.env
 ExecStart=/opt/kaigongba-app/bin/backup.sh
 Nice=10
 IOSchedulingClass=best-effort

@@ -52,16 +52,17 @@ services:
       - redis-server
       - --appendonly
       - "yes"
-      - --requirepass
-      - ${KGB_REDIS_PASSWORD:-kaigongba-dev-only}
+      - --aclfile
+      - /config/users.acl
     environment:
       REDISCLI_AUTH: ${KGB_REDIS_PASSWORD:-kaigongba-dev-only}
     ports:
       - "${KGB_REDIS_PORT:-56379}:6379"
     volumes:
       - phase3i_redis_data:/data
+      - ./redis/users.acl:/config/users.acl:ro
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "--user", "kaigongba-dev", "ping"]
       interval: 3s
       timeout: 3s
       retries: 20

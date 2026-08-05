@@ -1,0 +1,5 @@
+user default off
+user kaigongba-app on >__APP_REDIS_PASSWORD__ ~kaigongba:app:* +ping +select +get +set +del +incr +expire +eval +client|setname
+user kaigongba-backup on >__BACKUP_REDIS_PASSWORD__ ~* +ping +sync +psync +replconf
+user kaigongba-transaction on >__TRANSACTION_REDIS_PASSWORD__ ~kaigongba:transaction:* +ping +select +get +set +del +incr +expire +eval +client|setname
+user kaigongba-staffdeck on >__STAFFDECK_REDIS_PASSWORD__ ~kaigongba:staffdeck:* +ping +select +get +set +del +incr +expire +eval +client|setname

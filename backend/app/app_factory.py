@@ -16,7 +16,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import get_settings
 from app.db.database import engine
-from app.redis_runtime import redis_ping
+from app.redis_runtime import redis_readiness_probe
 
 Lifespan = Callable[[FastAPI], AbstractAsyncContextManager[None]]
 ReadinessCheck = Callable[[], bool]
@@ -98,7 +98,9 @@ def create_api_app(
             ready = False
         if settings.redis_url:
             try:
-                dependencies["redis"] = "ok" if redis_ping() else "unavailable"
+                dependencies["redis"] = (
+                    "ok" if redis_readiness_probe() else "unavailable"
+                )
             except RedisError:
                 dependencies["redis"] = "unavailable"
             ready = ready and dependencies["redis"] == "ok"

@@ -21,23 +21,17 @@ from app.api import (
 from app.app_factory import create_api_app
 from app.config import get_settings
 from app.db.startup import prepare_database
-from app.service_runtime import validate_transaction_runtime
+from app.service_runtime import validate_redis_runtime, validate_transaction_runtime
 from app.transaction.object_storage import get_order_object_store
-from app.transaction.outbox_worker import (
-    start_transaction_outbox_worker,
-    stop_transaction_outbox_worker,
-)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    validate_transaction_runtime(get_settings())
+    settings = get_settings()
+    validate_transaction_runtime(settings)
+    validate_redis_runtime(settings)
     prepare_database()
-    start_transaction_outbox_worker()
-    try:
-        yield
-    finally:
-        stop_transaction_outbox_worker()
+    yield
 
 
 app = create_api_app(

@@ -20,7 +20,9 @@ def test_phase3i_seed_requires_confirmation_and_rejects_production() -> None:
         marketplace_seed_enabled=False,
         app_secret="production-secret",
         internal_service_secret="production-internal-service-secret",
-        redis_url="redis://redis:6379/0",
+        redis_url=(
+            "rediss://kaigongba-test:redis-production-secret@redis.internal:6379/0"
+        ),
     )
     with pytest.raises(RuntimeError, match="生产环境禁止"):
         ensure_phase3i_seed_allowed(production, PHASE3I_SEED_CONFIRMATION)

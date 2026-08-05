@@ -13,14 +13,18 @@ project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
         app/api/external_agents.py \
         app/app_factory.py \
         app/redis_runtime.py \
+        app/scheduled_tasks/worker.py \
+        app/worker_main.py \
         app/transaction/outbox_worker.py
     .venv/bin/pytest -q \
         tests/test_external_agent_enrollment_api.py \
         tests/test_staffdeck_internal_api.py \
         tests/test_transaction_outbox_worker.py \
+        tests/test_worker_entrypoints.py \
         tests/test_service_runtime.py \
         tests/test_service_entrypoints.py \
         tests/test_database_config.py \
+        tests/test_redis_production_safety.py \
         tests/test_app_readiness.py
 )
 

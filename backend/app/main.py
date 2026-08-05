@@ -44,6 +44,8 @@ from app.async_jobs import shutdown_async_jobs
 from app.channels import start_channel_services, stop_channel_services
 from app.db.startup import prepare_database
 from app.scheduled_tasks.worker import start_background_worker, stop_background_worker
+from app.config import get_settings
+from app.service_runtime import all_in_one_embeds_workers, validate_redis_runtime
 from app.transaction.outbox_worker import (
     start_transaction_outbox_worker,
     stop_transaction_outbox_worker,
@@ -52,16 +54,21 @@ from app.transaction.outbox_worker import (
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    settings = get_settings()
+    embedded_workers = all_in_one_embeds_workers(settings)
+    validate_redis_runtime(settings)
     prepare_database()
-    start_background_worker()
-    start_transaction_outbox_worker()
+    if embedded_workers:
+        start_background_worker()
+        start_transaction_outbox_worker()
     start_channel_services()
     try:
         yield
     finally:
         stop_channel_services()
-        stop_transaction_outbox_worker()
-        stop_background_worker()
+        if embedded_workers:
+            stop_transaction_outbox_worker()
+            stop_background_worker()
         shutdown_async_jobs()
 
 

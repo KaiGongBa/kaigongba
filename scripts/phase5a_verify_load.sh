@@ -33,7 +33,7 @@ trap cleanup EXIT
         DEMO_SEED_ENABLED=false \
         MARKETPLACE_SEED_ENABLED=false \
         STAFFDECK_INTERNAL_BASE_URL=http://127.0.0.1:18001 \
-        REDIS_URL="redis://:${redis_password}@127.0.0.1:${redis_port}/0" \
+        REDIS_URL="redis://kaigongba-dev:${redis_password}@127.0.0.1:${redis_port}/0" \
         ORDER_OBJECT_STORAGE_PROVIDER=s3 \
         ORDER_OBJECT_STORAGE_ENDPOINT_URL=http://127.0.0.1:59000 \
         ORDER_OBJECT_STORAGE_ACCESS_KEY=kaigongba \
@@ -58,6 +58,7 @@ fi
 "${project_dir}/scripts/phase5a_load_test.py" \
     --base-url "${service_url}" \
     --path /api/ready \
+    --warmup "${KGB_PHASE5A_LOAD_WARMUP:-10}" \
     --requests "${KGB_PHASE5A_LOAD_REQUESTS:-500}" \
     --concurrency "${KGB_PHASE5A_LOAD_CONCURRENCY:-20}" \
     --p95-ms "${KGB_PHASE5A_LOAD_P95_MS:-800}"

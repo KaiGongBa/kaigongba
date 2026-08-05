@@ -31,13 +31,19 @@ def redis_client() -> Redis | None:
     settings = get_settings()
     if not settings.redis_url:
         return None
-    return Redis.from_url(
-        settings.redis_url,
-        decode_responses=True,
-        socket_connect_timeout=settings.redis_socket_timeout_seconds,
-        socket_timeout=settings.redis_socket_timeout_seconds,
-        health_check_interval=30,
-    )
+    options = {
+        "decode_responses": True,
+        "socket_connect_timeout": settings.redis_socket_timeout_seconds,
+        "socket_timeout": settings.redis_socket_timeout_seconds,
+        "socket_keepalive": True,
+        "health_check_interval": 15,
+        "max_connections": settings.redis_max_connections,
+        "client_name": f"kaigongba-{settings.redis_key_prefix.replace(':', '-')}",
+    }
+    if settings.redis_url.startswith("rediss://"):
+        options["ssl_cert_reqs"] = "required"
+        options["ssl_check_hostname"] = True
+    return Redis.from_url(settings.redis_url, **options)
 
 
 def redis_key(*parts: str) -> str:
@@ -48,6 +54,28 @@ def redis_key(*parts: str) -> str:
 def redis_ping() -> bool:
     client = redis_client()
     return bool(client and client.ping())
+
+
+def redis_readiness_probe() -> bool:
+    """Verify the exact Redis primitives required by rate limits and locks."""
+    client = redis_client()
+    if not client or not client.ping():
+        return False
+    key = redis_key("health", "readiness", secrets.token_hex(8))
+    token = secrets.token_urlsafe(24)
+    acquired = bool(client.set(key, token, nx=True, ex=10))
+    if not acquired:
+        return False
+    try:
+        readable = client.get(key) == token
+        released = int(client.eval(RELEASE_LOCK_SCRIPT, 1, key, token)) == 1
+        return readable and released
+    finally:
+        try:
+            client.delete(key)
+        except RedisError:
+            # The short TTL prevents a readiness probe key from becoming durable.
+            pass
 
 
 def fixed_window_increment(key: str, *, ttl_seconds: int) -> int | None:
