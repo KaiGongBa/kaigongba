@@ -6,6 +6,7 @@ retention_days="${KGB_BACKUP_RETENTION_DAYS:-14}"
 backup_stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 backup_dir="${backup_root}/sets/${backup_stamp}"
 completed=0
+python_runtime="${KGB_PYTHON_RUNTIME:-python3}"
 
 case "${backup_root}" in
     /|/Users|/home|/root|"${HOME}")
@@ -54,7 +55,7 @@ if command -v redis-check-rdb >/dev/null 2>&1; then
     redis-check-rdb "${backup_dir}/redis/dump.rdb" >/dev/null
 fi
 
-python3 - "${backup_dir}" "${backup_stamp}" "${KGB_OBJECT_STORAGE_BUCKET}" <<'PY'
+"${python_runtime}" - "${backup_dir}" "${backup_stamp}" "${KGB_OBJECT_STORAGE_BUCKET}" <<'PY'
 import json
 import os
 import sys

@@ -8,6 +8,7 @@ project_dir="${KGB_PROJECT_DIR:-/opt/kaigongba-app/current}"
 max_backup_age_hours="${KGB_MAX_BACKUP_AGE_HOURS:-30}"
 disk_warning_percent="${KGB_DISK_WARNING_PERCENT:-75}"
 log_since="${KGB_LOG_SINCE:-24 hours ago}"
+python_runtime="${KGB_PYTHON_RUNTIME:-python3}"
 
 case "${profile}" in
     compatibility)
@@ -35,7 +36,7 @@ for unit in "${units[@]}"; do
 done
 
 nginx -t >/dev/null
-python3 "${project_dir}/scripts/ops_preflight.py" \
+"${python_runtime}" "${project_dir}/scripts/ops_preflight.py" \
     --base-url "${public_url}" --profile "${profile}" >/dev/null
 
 latest="$(readlink -f "${backup_root}/latest" 2>/dev/null || true)"
@@ -47,7 +48,7 @@ backup_verify_args=("${latest}" --max-age-hours "${max_backup_age_hours}")
 if [[ "${profile}" != compatibility ]]; then
     backup_verify_args+=(--require-redis)
 fi
-python3 "${project_dir}/scripts/ops_backup_verify.py" "${backup_verify_args[@]}" >/dev/null
+"${python_runtime}" "${project_dir}/scripts/ops_backup_verify.py" "${backup_verify_args[@]}" >/dev/null
 
 disk_use="$(df -P "${backup_root}" | awk 'NR == 2 {gsub(/%/, "", $5); print $5}')"
 if ! [[ "${disk_use}" =~ ^[0-9]+$ ]] || (( disk_use >= disk_warning_percent )); then

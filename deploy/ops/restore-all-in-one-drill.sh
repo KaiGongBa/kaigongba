@@ -8,6 +8,7 @@ set -euo pipefail
 project_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 verify_script="${KGB_BACKUP_VERIFY_SCRIPT:-${project_dir}/scripts/ops_backup_verify.py}"
 max_age_hours="${KGB_RESTORE_MAX_BACKUP_AGE_HOURS:-720}"
+python_runtime="${KGB_PYTHON_RUNTIME:-python3}"
 
 case "${RESTORE_DATABASE_URL}" in
     */*_restore_test|*/*_restore_test\?*) ;;
@@ -22,7 +23,7 @@ if [[ -e "${RESTORE_FILES_DIR}" ]] && [[ -n "$(find "${RESTORE_FILES_DIR}" -mind
     exit 2
 fi
 
-python3 "${verify_script}" "${KGB_RESTORE_SET}" --max-age-hours "${max_age_hours}" >/dev/null
+"${python_runtime}" "${verify_script}" "${KGB_RESTORE_SET}" --max-age-hours "${max_age_hours}" >/dev/null
 
 database_dump="${KGB_RESTORE_SET}/postgres/kgbapp.dump"
 files_archive="${KGB_RESTORE_SET}/files/order-objects.tar.gz"

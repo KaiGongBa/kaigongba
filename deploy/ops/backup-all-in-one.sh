@@ -5,6 +5,7 @@ backup_root="${KGB_BACKUP_ROOT:-/opt/kaigongba-app/backups}"
 retention_days="${KGB_BACKUP_RETENTION_DAYS:-14}"
 database_target="${KGB_DATABASE_TARGET:-kgbapp}"
 objects_dir="${KGB_ORDER_OBJECTS_DIR:-/opt/kaigongba-app/shared/order-objects}"
+python_runtime="${KGB_PYTHON_RUNTIME:-python3}"
 backup_stamp="$(date -u +%Y%m%dT%H%M%SZ)"
 staging_dir="${backup_root}/sets/.${backup_stamp}.partial.$$"
 backup_dir="${backup_root}/sets/${backup_stamp}"
@@ -29,7 +30,7 @@ if [[ -e "${backup_dir}" ]]; then
     exit 2
 fi
 
-for command_name in pg_dump pg_restore tar python3; do
+for command_name in pg_dump pg_restore tar "${python_runtime}"; do
     if ! command -v "${command_name}" >/dev/null 2>&1; then
         printf 'Required backup command is missing: %s\n' "${command_name}" >&2
         exit 2
@@ -72,7 +73,7 @@ if [[ -n "${REDIS_BACKUP_URL:-}" ]]; then
     redis_enabled=true
 fi
 
-python3 - "${staging_dir}" "${backup_stamp}" "${redis_enabled}" <<'PY'
+"${python_runtime}" - "${staging_dir}" "${backup_stamp}" "${redis_enabled}" <<'PY'
 import json
 import os
 import sys

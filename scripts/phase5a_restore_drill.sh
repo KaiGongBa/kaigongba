@@ -13,6 +13,7 @@ staffdeck_source="postgresql://kaigongba:${postgres_password}@127.0.0.1:${postgr
 transaction_restore="postgresql://kaigongba:${postgres_password}@127.0.0.1:${postgres_port}/kaigongba_transaction_restore_test"
 staffdeck_restore="postgresql://kaigongba:${postgres_password}@127.0.0.1:${postgres_port}/kaigongba_staffdeck_restore_test"
 restore_bucket="kaigongba-order-files-restore-test"
+python_runtime="${KGB_PYTHON_RUNTIME:-${project_dir}/backend/.venv/bin/python}"
 
 install -d -m 0750 \
     "${backup_dir}/postgres" \
@@ -41,7 +42,7 @@ docker exec "${redis_container}" redis-cli --rdb /data/phase5a-restore-drill.rdb
 docker cp "${redis_container}:/data/phase5a-restore-drill.rdb" \
     "${backup_dir}/redis/dump.rdb" >/dev/null
 
-python3 - "${backup_dir}" "${drill_stamp}" <<'PY'
+"${python_runtime}" - "${backup_dir}" "${drill_stamp}" <<'PY'
 import json
 import sys
 from datetime import UTC, datetime
@@ -72,7 +73,7 @@ PY
     fi
 )
 
-python3 "${project_dir}/scripts/ops_backup_verify.py" \
+"${python_runtime}" "${project_dir}/scripts/ops_backup_verify.py" \
     "${backup_dir}" --max-age-hours 1 >/dev/null
 
 for database_name in kaigongba_transaction_restore_test kaigongba_staffdeck_restore_test; do
