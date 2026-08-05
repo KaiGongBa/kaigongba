@@ -33,6 +33,22 @@ Each release is stored under `/opt/kaigongba-app/releases/<release-id>`. The
 `current` symlink selects the active release. Pre-deployment configuration
 backups are stored in `/opt/kaigongba-app/backups`.
 
+Release directories must be traversable by the Nginx worker while their source
+files remain owned by `kgbapp`. After extracting a release, set the release
+directory itself to mode `0711`, keep frontend directories at least `0755` and
+frontend files at least `0644`, then verify the entrypoint as the Nginx user
+before switching `current`:
+
+```sh
+chmod 0711 /opt/kaigongba-app/releases/<release-id>
+find /opt/kaigongba-app/releases/<release-id>/frontend -type d -exec chmod 0755 {} +
+find /opt/kaigongba-app/releases/<release-id>/frontend -type f -exec chmod 0644 {} +
+runuser -u nginx -- test -r /opt/kaigongba-app/releases/<release-id>/frontend/index.html
+```
+
+`deploy/ops/host-audit.sh` repeats this access check so a release with an
+unreadable SPA entrypoint cannot pass the production gate.
+
 ## Health and logs
 
 ```sh

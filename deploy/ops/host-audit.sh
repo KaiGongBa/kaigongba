@@ -9,6 +9,8 @@ max_backup_age_hours="${KGB_MAX_BACKUP_AGE_HOURS:-30}"
 disk_warning_percent="${KGB_DISK_WARNING_PERCENT:-75}"
 log_since="${KGB_LOG_SINCE:-24 hours ago}"
 python_runtime="${KGB_PYTHON_RUNTIME:-python3}"
+frontend_root="${KGB_FRONTEND_ROOT:-${project_dir}/frontend}"
+web_user="${KGB_WEB_USER:-nginx}"
 
 case "${profile}" in
     compatibility)
@@ -36,6 +38,15 @@ for unit in "${units[@]}"; do
 done
 
 nginx -t >/dev/null
+if [[ ! -f "${frontend_root}/index.html" ]]; then
+    printf 'Frontend entrypoint is missing: %s/index.html\n' "${frontend_root}" >&2
+    exit 1
+fi
+if ! runuser -u "${web_user}" -- test -r "${frontend_root}/index.html"; then
+    printf 'Frontend entrypoint is not readable by %s: %s/index.html\n' \
+        "${web_user}" "${frontend_root}" >&2
+    exit 1
+fi
 "${python_runtime}" "${project_dir}/scripts/ops_preflight.py" \
     --base-url "${public_url}" --profile "${profile}" >/dev/null
 
