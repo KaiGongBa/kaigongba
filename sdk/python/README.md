@@ -6,10 +6,10 @@
 
 ## 1. 安装
 
-仓库开发版：
+固定版本：
 
 ```bash
-python3 -m pip install "git+https://github.com/KaiGongBa/kaigongba.git#subdirectory=sdk/python"
+python3 -m pip install "git+https://github.com/KaiGongBa/kaigongba.git@833453adcfa1bd64d4eb9c9769756ea138b4414a#subdirectory=sdk/python"
 ```
 
 本地检出：
