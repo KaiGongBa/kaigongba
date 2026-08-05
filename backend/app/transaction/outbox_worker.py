@@ -4,6 +4,7 @@ import argparse
 import logging
 import signal
 import threading
+from datetime import UTC, datetime, timedelta
 
 from redis.exceptions import RedisError
 from sqlmodel import Session, select
@@ -15,6 +16,8 @@ from app.db.models import (
     ExternalAgentConnection,
     ExternalAgentImportDraft,
     TransactionOutboxEvent,
+    TransactionQuote,
+    User,
     utc_now,
 )
 from app.integrations.staffdeck import get_staffdeck_gateway
@@ -24,6 +27,7 @@ from app.integrations.staffdeck.schemas import (
 )
 from app.redis_runtime import distributed_lock
 from app.service_runtime import validate_redis_runtime, validate_transaction_worker_runtime
+from app.transaction import service as transaction_service
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +35,102 @@ STAFFDECK_BIND_EVENT = "staffdeck.marketplace_installation.bind.requested"
 STAFFDECK_EXTERNAL_AGENT_PROVISION_EVENT = "staffdeck.external_agent.provision.requested"
 _stop_event = threading.Event()
 _worker_thread: threading.Thread | None = None
+
+
+def publish_quote_draft_outbox_once(db: Session, *, limit: int = 50) -> int:
+    rows = db.exec(
+        select(TransactionOutboxEvent)
+        .where(
+            TransactionOutboxEvent.status.in_(["pending", "processing"]),
+            TransactionOutboxEvent.event_type
+            == transaction_service.QUOTE_DRAFT_REQUESTED_EVENT,
+        )
+        .order_by(TransactionOutboxEvent.created_at)
+        .limit(limit)
+    ).all()
+    published = 0
+    now = utc_now()
+    for row in rows:
+        if not _quote_retry_due(row, now) or not _claim_quote_event(db, row, now):
+            continue
+        try:
+            transaction_service.process_quote_draft_outbox_event(db, row)
+            published += 1
+        except Exception as exc:
+            db.rollback()
+            _mark_quote_draft_failed(db, row.id, exc)
+            logger.exception("报价草案 Outbox 处理失败，将按退避时间重试: %s", row.id)
+    return published
+
+
+def _claim_quote_event(
+    db: Session,
+    event: TransactionOutboxEvent,
+    now: datetime,
+) -> bool:
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=UTC)
+    payload = dict(event.payload_json or {})
+    if event.status == "processing":
+        value = str(payload.get("processing_started_at") or "").strip()
+        try:
+            started_at = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            started_at = now - timedelta(minutes=16)
+        if started_at.tzinfo is None:
+            started_at = started_at.replace(tzinfo=UTC)
+        if started_at > now - timedelta(minutes=15):
+            return False
+    event.status = "processing"
+    event.payload_json = {**payload, "processing_started_at": now.isoformat()}
+    db.add(event)
+    db.commit()
+    return True
+
+
+def _quote_retry_due(event: TransactionOutboxEvent, now: datetime) -> bool:
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=UTC)
+    value = str((event.payload_json or {}).get("next_retry_at") or "").strip()
+    if not value:
+        return True
+    try:
+        retry_at = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    if retry_at.tzinfo is None:
+        retry_at = retry_at.replace(tzinfo=UTC)
+    return retry_at <= now
+
+
+def _mark_quote_draft_failed(db: Session, event_id: str, exc: Exception) -> None:
+    event = db.get(TransactionOutboxEvent, event_id)
+    if not event:
+        return
+    payload = dict(event.payload_json or {})
+    attempts = int(payload.get("attempts") or 0) + 1
+    delay_seconds = min(900, 5 * (2 ** min(attempts - 1, 8)))
+    quote = db.get(TransactionQuote, str(payload.get("quote_id") or ""))
+    if quote and quote.status not in {
+        "sent",
+        "selected",
+        "rejected",
+        "withdrawn",
+        "cancelled",
+    }:
+        quote.status = "failed"
+        quote.updated_at = utc_now()
+        db.add(quote)
+    event.status = "pending"
+    event.payload_json = {
+        **payload,
+        "attempts": attempts,
+        "last_error": str(exc)[:200],
+        "last_failed_at": utc_now().isoformat(),
+        "next_retry_at": (utc_now() + timedelta(seconds=delay_seconds)).isoformat(),
+    }
+    db.add(event)
+    db.commit()
 
 
 def publish_staffdeck_outbox_once(db: Session, *, limit: int = 50) -> int:
@@ -64,8 +164,19 @@ def publish_staffdeck_outbox_once(db: Session, *, limit: int = 50) -> int:
                 draft.confirmed_at = draft.confirmed_at or utc_now()
                 draft.updated_at = utc_now()
                 connection.agent_profile_id = result.agent_profile_id
-                connection.status = "pending_connection_test"
+                connection.status = (
+                    "manual_ready"
+                    if connection.transport == "manual"
+                    else "pending_connection_test"
+                )
                 connection.updated_at = utc_now()
+                actor = db.get(User, draft.created_by_user_id)
+                if actor:
+                    from app.marketplace.management_service import (
+                        ensure_external_agent_service_draft,
+                    )
+
+                    ensure_external_agent_service_draft(db, actor, draft, connection)
                 db.add(draft)
                 db.add(connection)
             row.status = "published"
@@ -128,6 +239,7 @@ def run_worker(
                 distributed_lock("transaction-outbox", ttl_seconds=30) as acquired,
             ):
                 if acquired:
+                    publish_quote_draft_outbox_once(db)
                     publish_staffdeck_outbox_once(db)
                     from app.external_agents.task_delivery import dispatch_webhook_deliveries_once
 

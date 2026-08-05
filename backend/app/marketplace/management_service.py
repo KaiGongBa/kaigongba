@@ -15,6 +15,11 @@ from app.agents.organization_bindings import (
     deactivate_owned_agent_bindings,
 )
 from app.db.models import (
+    ExternalAgentConnection,
+    ExternalAgentDiscoveredAsset,
+    ExternalAgentImportDraft,
+    ExternalAgentManifest,
+    ExternalAgentNetworkPolicy,
     MarketplaceAIService,
     MarketplaceAIServiceVersion,
     MarketplaceAuditLog,
@@ -607,6 +612,213 @@ def create_ai_service_draft(
     )
 
 
+def ensure_external_agent_service_draft(
+    db: Session,
+    current_user: User,
+    draft: ExternalAgentImportDraft,
+    connection: ExternalAgentConnection,
+) -> PublicationDraftRead | None:
+    """Create a replay-safe unpublished service version from a confirmed external Agent."""
+
+    _require_organization_manager(db, current_user, draft.organization_id)
+    if (
+        draft.tenant_id != current_user.tenant_id
+        or connection.tenant_id != current_user.tenant_id
+        or connection.organization_id != draft.organization_id
+        or connection.id != draft.connection_id
+    ):
+        raise HTTPException(status_code=404, detail="外接员工或连接不存在")
+    if draft.status != "confirmed" or not draft.agent_profile_id:
+        raise HTTPException(status_code=409, detail="请先确认并创建外接员工")
+    if connection.agent_profile_id != draft.agent_profile_id:
+        raise HTTPException(status_code=409, detail="外接员工与连接绑定不一致")
+    provider = db.exec(
+        select(MarketplaceProviderProfile).where(
+            MarketplaceProviderProfile.tenant_id == current_user.tenant_id,
+            MarketplaceProviderProfile.organization_id == draft.organization_id,
+            MarketplaceProviderProfile.status == "active",
+        )
+    ).first()
+    if not provider:
+        return None
+    agent = _require_organization_agent(
+        db, current_user, draft.organization_id, draft.agent_profile_id
+    )
+    manifest = db.get(ExternalAgentManifest, draft.manifest_id)
+    if (
+        not manifest
+        or manifest.tenant_id != draft.tenant_id
+        or manifest.organization_id != draft.organization_id
+        or manifest.connection_id != connection.id
+        or manifest.status != "approved"
+    ):
+        raise HTTPException(status_code=409, detail="外接 Agent 能力清单尚未确认")
+    selected_ids = set(draft.selected_asset_ids_json or [])
+    assets = db.exec(
+        select(ExternalAgentDiscoveredAsset).where(
+            ExternalAgentDiscoveredAsset.tenant_id == draft.tenant_id,
+            ExternalAgentDiscoveredAsset.manifest_id == manifest.id,
+            ExternalAgentDiscoveredAsset.selected.is_(True),
+        )
+    ).all()
+    selected_assets = [asset for asset in assets if asset.id in selected_ids]
+    if not selected_assets or len(selected_assets) != len(selected_ids):
+        raise HTTPException(status_code=409, detail="外接员工能力快照已变化，请重新确认")
+
+    service_id = f"aisvc_external_{connection.id}"
+    version_id = f"aisvcver_external_{manifest.id}"
+    existing_version = db.get(MarketplaceAIServiceVersion, version_id)
+    if existing_version:
+        service = db.get(MarketplaceAIService, existing_version.service_id)
+        if (
+            not service
+            or service.id != service_id
+            or service.tenant_id != current_user.tenant_id
+            or service.provider_id != provider.id
+            or service.agent_profile_id != draft.agent_profile_id
+        ):
+            raise HTTPException(status_code=409, detail="外接 Agent 服务草稿幂等键冲突")
+        return PublicationDraftRead(
+            id=service.id,
+            item_type="ai_service",
+            status=existing_version.status,
+            version_id=existing_version.id,
+            version=existing_version.version,
+        )
+
+    service = db.get(MarketplaceAIService, service_id)
+    if service and (
+        service.tenant_id != current_user.tenant_id
+        or service.provider_id != provider.id
+        or service.agent_profile_id != draft.agent_profile_id
+    ):
+        raise HTTPException(status_code=409, detail="外接 Agent 服务绑定冲突")
+    if not service:
+        service = MarketplaceAIService(
+            id=service_id,
+            tenant_id=current_user.tenant_id,
+            provider_id=provider.id,
+            agent_profile_id=draft.agent_profile_id,
+            slug=_available_publication_slug(
+                db, MarketplaceAIService, f"{draft.agent_name}-external", "service"
+            ),
+            name=draft.agent_name.strip(),
+            category="AI 员工服务",
+            description=draft.job_description.strip(),
+            avatar_key=agent.avatar_key,
+            visibility="public",
+            status="draft",
+            verified=False,
+            online=False,
+        )
+        db.add(service)
+        db.flush()
+
+    data_permissions = sorted(
+        {
+            permission
+            for asset in selected_assets
+            for permission in (asset.permissions_json or [])
+            if permission
+        }
+    )
+    request = AIServiceDraftWrite(
+        organization_id=draft.organization_id,
+        agent_profile_id=draft.agent_profile_id,
+        name=draft.agent_name.strip(),
+        category=service.category,
+        description=draft.job_description.strip(),
+        version=_next_service_version(db, service.id, "v1.0.0"),
+        visibility=service.visibility,
+        price=0,
+        price_unit="次",
+        average_minutes=60,
+        included_revisions=1,
+        delivery_format="工作流",
+        service_scope=list(draft.service_scope_json or []),
+        exclusions=list(draft.restrictions_json or []),
+        deliverables=[
+            {"name": asset.name, "format": _external_asset_delivery_format(asset)}
+            for asset in selected_assets
+            if asset.callable
+        ],
+        acceptance_criteria=[
+            "交付结果符合已确认的外接 Agent 能力与输出 Schema",
+            "执行过程保留任务事件、版本和结果回执",
+        ],
+        cases=[],
+        sop_version=None,
+        data_permissions=data_permissions,
+        change_summary="由已确认的外接 Agent 能力清单生成，需服务方完善后提交审核",
+    )
+    version = _new_service_version(current_user, service, request)
+    version.id = version_id
+    version.snapshot_json = {
+        **(version.snapshot_json or {}),
+        "external_agent_bridge": _external_agent_bridge_snapshot(
+            draft, connection, manifest, selected_assets
+        ),
+    }
+    db.add(version)
+    service.updated_at = utc_now()
+    db.add(service)
+    _audit(
+        db,
+        current_user,
+        draft.organization_id,
+        "marketplace.ai_service.external_agent_draft_created",
+        "ai_service",
+        service.id,
+        {
+            "version_id": version.id,
+            "external_agent_connection_id": connection.id,
+            "manifest_id": manifest.id,
+            "manifest_digest": manifest.source_digest,
+        },
+    )
+    db.flush()
+    return PublicationDraftRead(
+        id=service.id,
+        item_type="ai_service",
+        status=version.status,
+        version_id=version.id,
+        version=version.version,
+    )
+
+
+def _bridge_confirmed_external_agents_after_provider_approval(
+    db: Session,
+    reviewer: User,
+    organization: Organization,
+) -> None:
+    owner = db.get(User, organization.owner_user_id)
+    if not owner or owner.tenant_id != organization.tenant_id:
+        return
+    drafts = db.exec(
+        select(ExternalAgentImportDraft).where(
+            ExternalAgentImportDraft.tenant_id == organization.tenant_id,
+            ExternalAgentImportDraft.organization_id == organization.id,
+            ExternalAgentImportDraft.status == "confirmed",
+        )
+    ).all()
+    for draft in drafts:
+        connection = db.get(ExternalAgentConnection, draft.connection_id)
+        if not connection:
+            continue
+        try:
+            ensure_external_agent_service_draft(db, owner, draft, connection)
+        except HTTPException as exc:
+            _audit(
+                db,
+                reviewer,
+                organization.id,
+                "marketplace.ai_service.external_agent_bridge_deferred",
+                "external_agent_import_draft",
+                draft.id,
+                {"status_code": exc.status_code, "reason": str(exc.detail)[:300]},
+            )
+
+
 def update_ai_service_draft(
     db: Session,
     current_user: User,
@@ -624,6 +836,10 @@ def update_ai_service_draft(
         request.agent_profile_id,
     )
     version = _editable_service_version(db, service)
+    source_version = version or _latest_service_version(db, service.id)
+    external_bridge = _external_agent_bridge(source_version)
+    if external_bridge and request.agent_profile_id != service.agent_profile_id:
+        raise HTTPException(status_code=409, detail="外接 Agent 服务不能改绑到其他数字员工")
     service.agent_profile_id = agent.id
     service.name = request.name.strip()
     service.category = request.category
@@ -637,6 +853,11 @@ def update_ai_service_draft(
             request,
             version=_next_service_version(db, service.id, request.version),
         )
+        if external_bridge:
+            version.snapshot_json = {
+                **(version.snapshot_json or {}),
+                "external_agent_bridge": external_bridge,
+            }
     else:
         _apply_service_version(version, request)
     db.add(service)
@@ -720,6 +941,7 @@ def submit_ai_service_review(
     if not version or version.status not in PUBLICATION_EDITABLE_STATES:
         raise HTTPException(status_code=409, detail="当前服务版本不能提交审核")
     _validate_service_snapshot(version.snapshot_json)
+    _validate_external_agent_publishable(db, service, version)
     version.status = "pending_review"
     version.updated_at = utc_now()
     if not service.current_version_id:
@@ -1082,6 +1304,10 @@ def _apply_provider_decision(
         organization.updated_at = utc_now()
         db.add(provider)
         db.add(organization)
+        db.flush()
+        _bridge_confirmed_external_agents_after_provider_approval(
+            db, current_user, organization
+        )
     elif action == "disable":
         provider = db.exec(
             select(MarketplaceProviderProfile).where(
@@ -1106,6 +1332,7 @@ def _apply_service_decision(
     if not service or not version:
         raise HTTPException(status_code=409, detail="服务审核数据不完整")
     if action == "approve":
+        _validate_external_agent_publishable(db, service, version)
         version.status = "published"
         service.status = "published"
         service.current_version_id = version.id
@@ -1256,6 +1483,7 @@ def _apply_service_version(
     version: MarketplaceAIServiceVersion,
     request: AIServiceDraftWrite,
 ) -> None:
+    external_bridge = _external_agent_bridge(version)
     version.status = "draft"
     version.price_amount = Decimal(str(request.price))
     version.price_unit = request.price_unit
@@ -1271,8 +1499,107 @@ def _apply_service_version(
         "sop_version": request.sop_version,
         "data_permissions": request.data_permissions,
     }
+    if external_bridge:
+        version.snapshot_json["external_agent_bridge"] = external_bridge
     version.change_summary = request.change_summary
     version.updated_at = utc_now()
+
+
+def _external_asset_delivery_format(asset: ExternalAgentDiscoveredAsset) -> str:
+    output = asset.output_schema_json or {}
+    properties = output.get("properties") if isinstance(output, dict) else None
+    keys = {str(key).lower() for key in properties} if isinstance(properties, dict) else set()
+    if any("file" in key or "url" in key for key in keys):
+        return "文件或链接"
+    return "结构化结果"
+
+
+def _external_agent_bridge_snapshot(
+    draft: ExternalAgentImportDraft,
+    connection: ExternalAgentConnection,
+    manifest: ExternalAgentManifest,
+    assets: list[ExternalAgentDiscoveredAsset],
+) -> dict[str, Any]:
+    return {
+        "schema_version": "1.0",
+        "import_draft_id": draft.id,
+        "agent_profile_id": draft.agent_profile_id,
+        "connection_id": connection.id,
+        "external_agent_ref": connection.external_agent_ref,
+        "provider": connection.provider,
+        "runtime_type": connection.runtime_type,
+        "transport": connection.transport,
+        "protocol_version": connection.protocol_version,
+        "manifest_id": manifest.id,
+        "manifest_digest": manifest.source_digest,
+        "manifest_protocol_version": manifest.protocol_version,
+        "capabilities": [
+            {
+                "asset_id": asset.id,
+                "external_id": asset.external_id,
+                "kind": asset.kind,
+                "name": asset.name,
+                "version": asset.version,
+                "source_hash": asset.source_hash,
+                "risk_level": asset.risk_level,
+                "permissions": list(asset.permissions_json or []),
+                "input_schema": dict(asset.input_schema_json or {}),
+                "output_schema": dict(asset.output_schema_json or {}),
+            }
+            for asset in assets
+        ],
+        "frozen_at": utc_now().isoformat(),
+    }
+
+
+def _external_agent_bridge(
+    version: MarketplaceAIServiceVersion | None,
+) -> dict[str, Any] | None:
+    if not version:
+        return None
+    value = (version.snapshot_json or {}).get("external_agent_bridge")
+    return dict(value) if isinstance(value, dict) else None
+
+
+def _validate_external_agent_publishable(
+    db: Session,
+    service: MarketplaceAIService,
+    version: MarketplaceAIServiceVersion,
+) -> None:
+    bridge = _external_agent_bridge(version)
+    if not bridge:
+        return
+    connection = db.get(ExternalAgentConnection, str(bridge.get("connection_id") or ""))
+    if (
+        not connection
+        or connection.tenant_id != service.tenant_id
+        or connection.agent_profile_id != service.agent_profile_id
+        or connection.id != bridge.get("connection_id")
+    ):
+        raise HTTPException(status_code=409, detail="外接 Agent 服务绑定已失效，不能发布")
+    if connection.transport == "manual":
+        raise HTTPException(status_code=409, detail="临时手动执行的 Agent 不能发布为在线服务")
+    if connection.status != "available" or connection.health_status != "online":
+        raise HTTPException(status_code=409, detail="外接 Agent 连接尚未通过测试或当前不健康")
+    policy = db.exec(
+        select(ExternalAgentNetworkPolicy).where(
+            ExternalAgentNetworkPolicy.connection_id == connection.id
+        )
+    ).first()
+    heartbeat_interval = policy.heartbeat_interval_seconds if policy else 60
+    if (
+        not connection.last_heartbeat_at
+        or utc_now() - connection.last_heartbeat_at > timedelta(seconds=heartbeat_interval * 3)
+    ):
+        raise HTTPException(status_code=409, detail="外接 Agent 心跳已超时，不能发布")
+    manifest = db.get(ExternalAgentManifest, str(bridge.get("manifest_id") or ""))
+    if (
+        not manifest
+        or manifest.connection_id != connection.id
+        or manifest.status != "approved"
+        or manifest.source_digest != bridge.get("manifest_digest")
+    ):
+        raise HTTPException(status_code=409, detail="外接 Agent Manifest 快照校验失败")
 
 
 def _new_skill_version(

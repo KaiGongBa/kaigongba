@@ -33,6 +33,7 @@ export default function ProviderQuotePage() {
   );
   const quote = resource.data?.quote;
   const requirement = resource.data?.requirement;
+  const currentVersion = quote?.currentVersion;
   const [totalAmount, setTotalAmount] = useState('');
   const [validUntil, setValidUntil] = useState('');
   const [deliveryDays, setDeliveryDays] = useState(1);
@@ -46,7 +47,7 @@ export default function ProviderQuotePage() {
   const [working, setWorking] = useState(false);
 
   useEffect(() => {
-    if (!quote) return;
+    if (!quote?.currentVersion) return;
     const version = quote.currentVersion;
     setTotalAmount(version.totalAmount);
     setValidUntil(toLocalInput(version.validUntil));
@@ -68,23 +69,14 @@ export default function ProviderQuotePage() {
     criteria: Boolean(criteria.trim()),
   };
   const ready = Object.values(validation).every(Boolean);
-  const statusText = quote
-    ? {
-        ai_draft: `草稿 v${quote.currentVersion.version}`,
-        pending_provider_confirmation: `待确认 v${quote.currentVersion.version}`,
-        sent: '已发送',
-        selected: '已中选',
-        rejected: '未中选',
-        withdrawn: '已撤回',
-      }[quote.status] || quote.status
-    : '';
+  const statusText = quote ? quoteStatusText(quote) : '';
   const confirmedQuote = quote && ['sent', 'selected', 'rejected'].includes(quote.status);
   const bannerText = quote?.status === 'selected'
-    ? `报价 v${quote.currentVersion.version} 已由服务方确认并被采购方选中；合作协议已按冻结快照生成`
+    ? `报价 v${currentVersion?.version || '-'} 已由服务方确认并被采购方选中；合作协议已按冻结快照生成`
     : confirmedQuote
-      ? `报价 v${quote.currentVersion.version} 已由服务方管理员确认并发送，当前版本不可直接修改`
+      ? `报价 v${currentVersion?.version || '-'} 已由服务方管理员确认并发送，当前版本不可直接修改`
       : quote
-        ? `AI 已根据需求版本 v${quote.requirementVersion} 和服务版本生成草案；发送前必须由服务方管理员确认`
+        ? quoteGenerationBanner(quote.status, quote.requirementVersion)
         : '';
 
   function payload() {
@@ -115,7 +107,7 @@ export default function ProviderQuotePage() {
     setWorking(true);
     try {
       const updated = await marketplaceRepository.updateQuote(quote.id, input);
-      notify.success(`报价 v${updated.currentVersion.version} 已保存，等待服务方确认`);
+      notify.success(`报价 v${updated.currentVersion?.version || '-'} 已保存，等待服务方确认`);
       resource.reload();
       return updated;
     } catch (error) {
@@ -141,7 +133,7 @@ export default function ProviderQuotePage() {
         current = await marketplaceRepository.updateQuote(quote.id, input);
       }
       const sent = await marketplaceRepository.confirmAndSendQuote(current.id, organization.selected.id);
-      notify.success(`报价 v${sent.currentVersion.version} 已确认并发送`);
+      notify.success(`报价 v${sent.currentVersion?.version || '-'} 已确认并发送`);
       resource.reload();
     } catch (error) {
       notify.error(error instanceof Error ? error.message : '发送报价失败');
@@ -152,6 +144,7 @@ export default function ProviderQuotePage() {
 
   function formChanged(current: Quote) {
     const version = current.currentVersion;
+    if (!version) return false;
     return totalAmount !== version.totalAmount
       || deliveryDays !== version.deliveryDays
       || revisions !== version.includedRevisions
@@ -169,7 +162,18 @@ export default function ProviderQuotePage() {
         onOrganizationChange={organization.selectOrganization}
       />
       <MarketplaceState loading={resource.loading} error={resource.error} onRetry={resource.reload} />
-      {quote && requirement && (
+      {quote && requirement && !currentVersion && (
+        <section className="marketplace-management-card provider-queue-card">
+          <div className="transaction-ai-banner"><Sparkles /><span>{bannerText}</span></div>
+          <div className="marketplace-inline-empty compact">
+            <Clock3 />
+            <strong>{statusText}</strong>
+            <span>{quote.status === 'needs_clarification' ? '请先查看需求与澄清材料，补齐信息后系统会重新排队。' : quote.status === 'failed' ? '生成任务已记录失败原因并将自动重试，不会向采购方发送。' : '报价草案仅对当前服务方可见，生成后需负责人人工确认。'}</span>
+            <button type="button" className="marketplace-link-button" onClick={() => navigate(`/enterprise/demands/${quote.requirementId}`)}><FileText />查看需求与澄清</button>
+          </div>
+        </section>
+      )}
+      {quote && requirement && currentVersion && (
         <>
           <div className="transaction-ai-banner"><Sparkles /><span>{bannerText}</span><button type="button" disabled={working} onClick={() => navigate(`/enterprise/demands/${quote.requirementId}`)}><FileText />查看生成依据</button></div>
           <div className="transaction-quote-layout">
@@ -194,7 +198,7 @@ export default function ProviderQuotePage() {
             <aside className="transaction-side-stack">
               <section className="transaction-card"><h2>需求快照 <span className="marketplace-status is-published">需求 v{requirement.currentVersion.version}</span></h2><dl className="transaction-definition-list"><div><dt>预算范围</dt><dd>¥{money(requirement.budgetMinAmount)}–¥{money(requirement.budgetMaxAmount)}</dd></div><div><dt>期望完成</dt><dd>{requirement.desiredDeliveryAt ? formatDateTime(requirement.desiredDeliveryAt) : '-'}</dd></div><div><dt>交付物</dt><dd>{requirement.currentVersion.deliverables.map((item) => String(item.name || '')).join('、')}</dd></div></dl><button type="button" className="marketplace-link-button" onClick={() => navigate(`/enterprise/demands/${requirement.id}`)}>查看全部需求与澄清</button></section>
               <section className="transaction-card"><h2>报价校验</h2><div className="transaction-validation-list">{Object.entries({ '必填字段已完成': ready, '报价金额在预算范围内': Number(totalAmount) >= Number(requirement.budgetMinAmount) && Number(totalAmount) <= Number(requirement.budgetMaxAmount), '里程碑合计与总报价一致': validation.milestones, '验收标准已填写': validation.criteria }).map(([label, valid]) => <p className={valid ? 'is-valid' : 'is-invalid'} key={label}>{valid ? <CheckCircle2 /> : <Clock3 />}{label}</p>)}</div></section>
-              <section className="transaction-card"><h2>报价版本</h2>{quote.versions.map((version) => <div className="transaction-version-row" key={version.id}><RefreshCw /><div><strong>报价 v{version.version}{version.id === quote.currentVersion.id ? '（当前）' : ''}</strong><small>{version.generationMethod === 'provider_revision' ? '服务方修订' : 'AI 生成草案'} · {formatDateTime(version.createdAt)}</small></div></div>)}</section>
+              <section className="transaction-card"><h2>报价版本</h2>{quote.versions.map((version) => <div className="transaction-version-row" key={version.id}><RefreshCw /><div><strong>报价 v{version.version}{version.id === currentVersion.id ? '（当前）' : ''}</strong><small>{version.generationMethod === 'provider_revision' ? '服务方修订' : 'AI 生成草案'} · {formatDateTime(version.createdAt)}</small></div></div>)}</section>
               {quote.canConfirm && <section className="transaction-card transaction-confirm-card"><label><input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} />我已核对范围、价格、工期和验收标准，并代表服务方确认。</label><button type="button" className="marketplace-submit-button" disabled={working || !ready || !acknowledged} onClick={() => void confirmSend()}><Send />确认并发送报价</button><button type="button" className="marketplace-secondary-button" disabled={working || !ready} onClick={() => void saveDraft()}>保存新版本</button></section>}
               {confirmedQuote && <section className="transaction-card"><span className="transaction-success"><CheckCircle2 />报价已由 {quote.confirmedBy} 于 {quote.confirmedAt ? formatDateTime(quote.confirmedAt) : '-'} 确认并发送{quote.status === 'selected' ? '，并已被采购方选中' : ''}</span></section>}
             </aside>
@@ -209,3 +213,25 @@ function lines(value: string) { return value.split('\n').map((item) => item.trim
 function toLocalInput(value: string) { const date = new Date(value); const offset = date.getTimezoneOffset() * 60000; return new Date(date.getTime() - offset).toISOString().slice(0, 16); }
 function money(value: string) { return Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 2 }); }
 function formatDateTime(value: string) { return new Intl.DateTimeFormat('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(value)); }
+function quoteStatusText(quote: Quote) {
+  const version = quote.currentVersion?.version;
+  return {
+    queued: '报价草案已排队',
+    generating: 'AI 正在生成报价草案',
+    ai_draft: `草稿 v${version || '-'}`,
+    pending_provider_confirmation: `待确认 v${version || '-'}`,
+    needs_clarification: '需要补充需求信息',
+    failed: '生成失败，系统将重试',
+    sent: '已发送',
+    selected: '已中选',
+    rejected: '未中选',
+    withdrawn: '已撤回',
+  }[quote.status] || quote.status;
+}
+function quoteGenerationBanner(status: string, requirementVersion: number) {
+  if (status === 'needs_clarification') return '需求信息尚不足以生成可确认的报价草案。';
+  if (status === 'failed') return 'AI 报价草案生成失败，任务将按退避策略重试。';
+  if (status === 'generating') return `AI 正在根据需求版本 v${requirementVersion} 生成报价草案。`;
+  if (status === 'queued') return `需求版本 v${requirementVersion} 的报价草案已进入生成队列。`;
+  return `AI 已根据需求版本 v${requirementVersion} 和服务版本生成草案；发送前必须由服务方管理员确认。`;
+}

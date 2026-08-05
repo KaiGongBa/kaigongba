@@ -552,6 +552,298 @@ class RecordingGateway:
         return {"intent_candidates": []}
 
 
+class AdaptiveRoundGateway:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+    def generate_json(self, system_prompt: str, payload: dict[str, Any]) -> dict[str, Any]:
+        self.calls.append((system_prompt, payload))
+        if "意图分类器" in system_prompt:
+            return {
+                "intent_candidates": [
+                    {
+                        "capability_id": "requirement.create",
+                        "confidence": 0.98,
+                        "reason_code": "EXPLICIT_SERVICE_REQUIREMENT",
+                    }
+                ]
+            }
+        message = str(
+            payload.get("latest_user_message")
+            or payload.get("untrusted_user_message")
+            or payload.get("untrusted_user_text")
+            or ""
+        )
+        facts = (
+            [
+                {
+                    "field": "target_audience",
+                    "value": "公司管理层和潜在投资人",
+                    "confidence": 0.99,
+                    "evidence_quote": "公司管理层和潜在投资人",
+                    "inferred": False,
+                }
+            ]
+            if "公司管理层和潜在投资人" in message
+            else [
+                {
+                    "field": "goal",
+                    "value": "制作融资路演PPT",
+                    "confidence": 0.99,
+                    "evidence_quote": "融资路演PPT",
+                    "inferred": False,
+                }
+            ]
+        )
+        classification = {
+            "category_id": "presentation-design",
+            "confidence": 0.94,
+            "reason_code": "ai_category_match",
+            "alternative_category_ids": [],
+        }
+        questions = [
+            {
+                "field_key": "deliverables",
+                "question": "最终希望收到哪些交付文件？",
+                "help_text": "例如可编辑 PPTX 和 PDF。",
+                "input_type": "long_text",
+                "options": [],
+                "allow_custom": True,
+                "allow_uncertain": False,
+                "reason_code": "HIGHEST_INFORMATION_GAIN",
+            }
+        ]
+        if "需求信息提取器" in system_prompt:
+            return {"facts": facts}
+        if "服务分类匹配器" in system_prompt:
+            return classification
+        if "问题规划器" in system_prompt:
+            return {"questions": questions}
+        if "需求访谈规划器" in system_prompt:
+            return {
+                "facts": facts,
+                "classification": classification,
+                "questions": questions,
+            }
+        raise AssertionError(f"unexpected model prompt: {system_prompt[:80]}")
+
+
+def test_adaptive_initial_round_uses_at_most_two_model_calls(
+    db: Session, user: User, scope: RunScope
+) -> None:
+    db.add(
+        ServiceCategoryCatalog(
+            id="presentation-design",
+            name="演示文稿设计",
+            description="融资路演、工作汇报和产品发布演示文稿设计",
+            aliases_json=["PPT设计", "融资路演PPT"],
+            example_tasks_json=["制作融资路演PPT"],
+            required_facets_json=["page_count"],
+            sort_order=10,
+        )
+    )
+    db.commit()
+    gateway = AdaptiveRoundGateway()
+    result = PlatformAssistantRuntime(
+        db,
+        orchestrator=RequirementWorkflowOrchestrator(gateway),
+    ).handle_message(
+        current_user=user,
+        scope=scope,
+        resolved_context=context(),
+        message="帮我制作融资路演PPT",
+        client_request_id="runtime-v2-call-budget-001",
+        authorized_organization_ids={"org_buyer"},
+        protocol_version="2.0",
+    )
+
+    assert result.snapshot.run.state == "collecting"
+    assert len(gateway.calls) <= 2
+
+
+def test_explicit_requirement_entrypoint_starts_adaptive_interview_without_intent_gate(
+    db: Session, user: User, scope: RunScope
+) -> None:
+    db.add(
+        ServiceCategoryCatalog(
+            id="presentation-design-entrypoint",
+            name="演示文稿设计",
+            description="融资路演和工作汇报演示文稿设计",
+            aliases_json=["PPT设计", "融资路演PPT"],
+            example_tasks_json=["制作融资路演PPT"],
+            required_facets_json=["page_count"],
+            sort_order=11,
+        )
+    )
+    db.commit()
+    gateway = AdaptiveRoundGateway()
+
+    result = PlatformAssistantRuntime(
+        db,
+        orchestrator=RequirementWorkflowOrchestrator(gateway),
+    ).handle_message(
+        current_user=user,
+        scope=scope,
+        resolved_context=context(),
+        message="两周后要做一份面向投资人的融资路演 PPT",
+        client_request_id="runtime-v2-entrypoint-001",
+        authorized_organization_ids={"org_buyer"},
+        protocol_version="2.0",
+        entrypoint="requirement.create",
+    )
+
+    assert result.snapshot.run.state == "collecting"
+    assert result.draft is not None
+    assert all(block.block_type != "intent_confirmation" for block in result.snapshot.blocks)
+
+
+def test_adaptive_followup_uses_compact_context_and_merges_latest_message(
+    db: Session, user: User, scope: RunScope
+) -> None:
+    db.add(
+        ServiceCategoryCatalog(
+            id="presentation-design",
+            name="演示文稿设计",
+            description="融资路演和工作汇报演示文稿设计",
+            aliases_json=["PPT设计", "融资路演PPT"],
+            example_tasks_json=["制作融资路演PPT"],
+            required_facets_json=["page_count"],
+            sort_order=10,
+        )
+    )
+    db.commit()
+    gateway = AdaptiveRoundGateway()
+    runtime = PlatformAssistantRuntime(
+        db,
+        orchestrator=RequirementWorkflowOrchestrator(gateway),
+    )
+    initial = runtime.handle_message(
+        current_user=user,
+        scope=scope,
+        resolved_context=context(),
+        message="帮我制作融资路演PPT",
+        client_request_id="runtime-v2-context-initial",
+        authorized_organization_ids={"org_buyer"},
+        protocol_version="2.0",
+    )
+    gateway.calls.clear()
+
+    followup = runtime.handle_message(
+        current_user=user,
+        scope=scope,
+        resolved_context=context(),
+        message="主要面向公司管理层和潜在投资人",
+        client_request_id="runtime-v2-context-followup",
+        authorized_organization_ids={"org_buyer"},
+        protocol_version="2.0",
+    )
+
+    assert followup.snapshot.run.id == initial.snapshot.run.id
+    assert len(gateway.calls) == 1
+    prompt, payload = gateway.calls[0]
+    assert "需求访谈规划器" in prompt
+    assert payload["latest_user_message"] == "主要面向公司管理层和潜在投资人"
+    assert set(payload) == {
+        "latest_user_message",
+        "confirmed_facts",
+        "current_missing_information",
+        "classification_candidates",
+        "allowed_fields",
+        "trusted_options",
+        "context_summary",
+    }
+    assert "帮我制作融资路演PPT" not in str(payload)
+    fact = db.exec(
+        select(AssistantRequirementFact).where(
+            AssistantRequirementFact.workflow_run_id == initial.snapshot.run.id,
+            AssistantRequirementFact.field == "target_audience",
+            AssistantRequirementFact.status == "confirmed",
+        )
+    ).first()
+    assert fact is not None
+    assert fact.value_json == "公司管理层和潜在投资人"
+
+
+def test_v2_message_does_not_implicitly_convert_an_active_v1_workflow(
+    db: Session, user: User, scope: RunScope
+) -> None:
+    legacy_runtime = PlatformAssistantRuntime(db)
+    run_id = start_requirement(legacy_runtime, user, scope)
+    gateway = AdaptiveRoundGateway()
+    runtime = PlatformAssistantRuntime(
+        db,
+        orchestrator=RequirementWorkflowOrchestrator(gateway),
+    )
+
+    result = runtime.handle_message(
+        current_user=user,
+        scope=scope,
+        resolved_context=context(),
+        message="另外帮我新做一个融资路演PPT",
+        client_request_id="runtime-v2-legacy-boundary",
+        authorized_organization_ids={"org_buyer"},
+        protocol_version="2.0",
+    )
+
+    assert result.snapshot.run.id == run_id
+    assert all(item.schema_version == "1.0" for item in result.snapshot.blocks)
+    assert "历史需求流程" in result.assistant_text
+    assert "不会自动改写旧流程" in result.assistant_text
+    assert gateway.calls == []
+
+
+def test_completed_v2_run_does_not_block_a_new_natural_requirement(
+    db: Session, user: User, scope: RunScope
+) -> None:
+    db.add(
+        ServiceCategoryCatalog(
+            id="presentation-design",
+            name="演示文稿设计",
+            description="融资路演和工作汇报演示文稿设计",
+            aliases_json=["PPT设计", "融资路演PPT"],
+            example_tasks_json=["制作融资路演PPT"],
+            required_facets_json=[],
+            sort_order=10,
+        )
+    )
+    db.commit()
+    gateway = AdaptiveRoundGateway()
+    runtime = PlatformAssistantRuntime(
+        db,
+        orchestrator=RequirementWorkflowOrchestrator(gateway),
+    )
+    completed = runtime.handle_message(
+        current_user=user,
+        scope=scope,
+        resolved_context=context(),
+        message="帮我制作融资路演PPT",
+        client_request_id="runtime-v2-completed-first",
+        authorized_organization_ids={"org_buyer"},
+        protocol_version="2.0",
+    )
+    PlatformAssistantRepository(db).advance_run(
+        scope,
+        completed.snapshot.run.id,
+        state="completed",
+        current_step="completed",
+    )
+    gateway.calls.clear()
+
+    fresh = runtime.handle_message(
+        current_user=user,
+        scope=scope,
+        resolved_context=context(),
+        message="再帮我制作一份融资路演PPT",
+        client_request_id="runtime-v2-completed-fresh",
+        authorized_organization_ids={"org_buyer"},
+        protocol_version="2.0",
+    )
+
+    assert fresh.snapshot.run.id != completed.snapshot.run.id
+    assert fresh.snapshot.run.state == "collecting"
+    assert len(gateway.calls) <= 2
+
+
 def test_prompt_injection_never_reaches_injected_gateway(
     db: Session, user: User, scope: RunScope
 ) -> None:

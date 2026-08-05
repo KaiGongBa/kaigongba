@@ -97,6 +97,7 @@ class PlatformAssistantRuntime:
         authorized_organization_ids: Iterable[str],
         initial_user_message: str | None = None,
         protocol_version: str = "1.0",
+        entrypoint: str | None = None,
     ) -> RuntimeResult:
         """Start or continue intent selection for one assistant session."""
 
@@ -115,8 +116,12 @@ class PlatformAssistantRuntime:
         if protocol_version not in {"1.0", "2.0"}:
             raise ValueError("unsupported platform assistant protocol version")
 
+        if entrypoint not in {None, self.capability_id}:
+            raise ValueError("unsupported assistant entrypoint")
+        if entrypoint is not None and protocol_version != "2.0":
+            raise ValueError("assistant entrypoint requires protocol 2.0")
+
         if active is None:
-            turn = self.orchestrator.handle_message(text)
             context_snapshot = _context_contract(resolved_context)
             run = self.runs.create_run(
                 scope,
@@ -127,6 +132,16 @@ class PlatformAssistantRuntime:
                 state="intent_pending",
                 current_step="intent_confirmation",
             )
+            if entrypoint == self.capability_id:
+                return self._start_adaptive_requirement(
+                    current_user=current_user,
+                    scope=scope,
+                    run_id=run.id,
+                    message=text,
+                    client_request_id=client_request_id,
+                    authorized_organization_ids=allowed_organizations,
+                )
+            turn = self.orchestrator.handle_message(text)
             if _can_start_adaptive_requirement_directly(
                 protocol_version=protocol_version,
                 turn=turn,
@@ -157,6 +172,17 @@ class PlatformAssistantRuntime:
 
         if active.state != "intent_pending":
             if protocol_version == "2.0" and active.state == "collecting":
+                active_snapshot = self.runs.get_run_snapshot(scope, active.id)
+                if not _is_adaptive_snapshot(active_snapshot):
+                    return RuntimeResult(
+                        snapshot=active_snapshot,
+                        draft=self._get_run_draft(scope, active.id),
+                        assistant_text=(
+                            "检测到未完成的历史需求流程。请先继续原结构化问题，"
+                            "或取消后明确发起新的自适应需求访谈；系统不会自动改写旧流程。"
+                        ),
+                        ai_request_ids=self.orchestrator.request_ids,
+                    )
                 return self._continue_adaptive_message(
                     current_user=current_user,
                     scope=scope,
@@ -753,6 +779,7 @@ class PlatformAssistantRuntime:
             organization_id=organization_id,
             authorized_organization_ids=authorized_organization_ids,
             block_seed=f"{block_seed}-expanded",
+            use_model_planning=False,
         )
 
     def _append_adaptive_blocks(
@@ -1125,6 +1152,10 @@ def _can_start_adaptive_requirement_directly(
         return False
     primary = candidates[0]
     return primary.capability_id == "requirement.create" and primary.confidence >= 0.8
+
+
+def _is_adaptive_snapshot(snapshot: RunSnapshot) -> bool:
+    return any(item.schema_version == "2.0" for item in snapshot.blocks)
 
 
 def _unsupported_intent_notice(selection: str, seed: str) -> dict[str, Any]:

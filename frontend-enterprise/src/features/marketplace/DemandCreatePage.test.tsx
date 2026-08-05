@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AssistantRequirementDraftResponse } from './types';
+import { OPEN_KAI_ASSISTANT_EVENT } from '@/features/kai-assistant/assistantEvents';
 
 const mocks = vi.hoisted(() => ({
   listCategories: vi.fn(),
@@ -91,6 +92,58 @@ describe('demand create assistant handoff', () => {
     expect(input('预算上限').value).toBe('');
     expect(screen.queryByText('风险清单（含风险等级与建议）')).toBeNull();
     expect(mocks.getDraft).not.toHaveBeenCalled();
+  });
+
+  it('starts adaptive requirement analysis from a natural-language brief', async () => {
+    const user = userEvent.setup();
+    const openRequest = vi.fn();
+    window.addEventListener(OPEN_KAI_ASSISTANT_EVENT, openRequest);
+    renderPage('/enterprise/demands/new');
+
+    await user.type(screen.getByLabelText('自然语言描述需求'), '两周后做一份融资路演PPT，我已经有商业计划书');
+    await user.click(screen.getByRole('button', { name: /让开小花分析/ }));
+
+    expect(openRequest).toHaveBeenCalledTimes(1);
+    const event = openRequest.mock.calls[0]?.[0] as CustomEvent<{ prompt: string; autoSend: boolean; startNewWorkflow: boolean }>;
+    expect(event.detail.prompt).toContain('融资路演PPT');
+    expect(event.detail.prompt).toContain('只追问最关键的 1 到 3 个问题');
+    expect(event.detail.autoSend).toBe(true);
+    expect(event.detail.startNewWorkflow).toBe(true);
+    window.removeEventListener(OPEN_KAI_ASSISTANT_EVENT, openRequest);
+  });
+
+  it('saves an incomplete transaction draft without weakening publish validation', async () => {
+    const user = userEvent.setup();
+    renderPage('/enterprise/demands/new');
+
+    await user.type(input('需求标题 *'), '融资路演PPT');
+    await user.type(input('详细描述 *'), '先保存当前想法，后续由开小花继续访谈和完善。');
+    await user.click(screen.getByRole('button', { name: '保存草稿' }));
+
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({
+      title: '融资路演PPT',
+      budget_min_amount: '0.00',
+      budget_max_amount: '0.00',
+      desired_delivery_at: null,
+      deliverables: [],
+      acceptance_criteria: [],
+    })));
+    expect(mocks.publish).not.toHaveBeenCalled();
+  });
+
+  it('lists and locates every missing publish field instead of showing a generic error', async () => {
+    const user = userEvent.setup();
+    renderPage('/enterprise/demands/new');
+
+    await user.type(input('需求标题 *'), '融资路演PPT');
+    await user.click(screen.getByRole('button', { name: '预览并发布' }));
+
+    expect(mocks.create).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert').textContent).toContain('业务分类');
+    expect(screen.getByRole('alert').textContent).toContain('详细描述');
+    expect(screen.getByRole('alert').textContent).toContain('预算上限');
+    expect(screen.getByRole('alert').textContent).toContain('期望交付物');
+    expect(mocks.notifyError).toHaveBeenCalledWith(expect.stringContaining('项发布信息需要补充'));
   });
 
   it('loads non-empty form seed values and displays version, missing fields and warnings', async () => {

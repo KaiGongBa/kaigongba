@@ -17,7 +17,7 @@ const statusLabels: Record<string, string> = {
   contracted: '已签约',
 };
 
-const lifecycleSteps = ['已发布', '澄清/匹配', '接收报价', '选择服务方'];
+const lifecycleSteps = ['草稿/发布', '澄清/匹配', '接收报价', '选择服务方'];
 
 function lifecyclePosition(status: string) {
   return ({ draft: 0, matching: 1, quoting: 2, agreement_pending: 3, contracted: 4 } as Record<string, number>)[status] ?? 0;
@@ -147,7 +147,7 @@ export default function RequirementDetailPage() {
       {detail && (
         <>
           <section className="transaction-requirement-hero">
-            <div><span className={`marketplace-status is-${detail.status}`}>{statusLabels[detail.status] || detail.status}</span><h1>{detail.title}</h1><p>{detail.code} · 当前需求版本 v{detail.currentVersion.version}</p></div>
+            <div><span className={`marketplace-status is-${detail.status}`}>{statusLabels[detail.status] || detail.status}</span><h1>{detail.title || '未命名需求'}</h1><p>{detail.code} · 当前需求版本 v{detail.currentVersion.version}</p></div>
             <dl><div><dt>预算范围</dt><dd>¥{money(detail.budgetMinAmount)}–¥{money(detail.budgetMaxAmount)}</dd></div><div><dt>期望完成</dt><dd>{detail.desiredDeliveryAt ? formatDateTime(detail.desiredDeliveryAt) : '-'}</dd></div><div><dt>邀请服务方</dt><dd>{detail.invitationCount}</dd></div><div><dt>有效报价</dt><dd>{detail.quoteCount}</dd></div></dl>
             <div className="transaction-lifecycle" aria-label="需求交易进度">
               {lifecycleSteps.map((label, index) => {

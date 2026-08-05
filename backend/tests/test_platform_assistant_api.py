@@ -378,10 +378,40 @@ def test_turn_endpoint_protocol_v2_returns_interview_state_then_dynamic_question
 
     restored = client.get(
         f"/api/platform-assistant/runs/{payload['run_id']}",
-        params={"session_id": payload["session_id"]},
+        params={
+            "session_id": payload["session_id"],
+            "protocol_version": "2.0",
+        },
     )
     assert restored.status_code == 200
+    assert restored.json()["protocol_version"] == "2.0"
     assert [item["type"] for item in restored.json()["ui_blocks"][-2:]] == [
+        "interview_state",
+        "question_group",
+    ]
+    assert [item["schema_version"] for item in restored.json()["ui_blocks"][-2:]] == [
+        "2.0",
+        "2.0",
+    ]
+
+    reopened = client.get(
+        "/api/platform-assistant/runs/latest",
+        params={"session_id": payload["session_id"], "protocol_version": "2.0"},
+    )
+    assert reopened.status_code == 200, reopened.text
+    assert reopened.json()["protocol_version"] == "2.0"
+    assert [item["type"] for item in reopened.json()["ui_blocks"][-2:]] == [
+        "interview_state",
+        "question_group",
+    ]
+
+    resumed = client.post(
+        f"/api/platform-assistant/runs/{payload['run_id']}/resume",
+        json={"protocol_version": "2.0", "session_id": payload["session_id"]},
+    )
+    assert resumed.status_code == 200, resumed.text
+    assert resumed.json()["protocol_version"] == "2.0"
+    assert [item["type"] for item in resumed.json()["ui_blocks"][-2:]] == [
         "interview_state",
         "question_group",
     ]
@@ -401,6 +431,7 @@ def test_turn_endpoint_protocol_v2_returns_interview_state_then_dynamic_question
         json=answer_payload,
     )
     assert first_answer.status_code == 200, first_answer.text
+    assert first_answer.json()["protocol_version"] == "2.0"
     with Session(engine) as db:
         version_count = db.exec(
             select(func.count(AssistantRequirementDraftVersion.id))
@@ -416,6 +447,33 @@ def test_turn_endpoint_protocol_v2_returns_interview_state_then_dynamic_question
         ).one()
     assert replay_version_count == version_count
     assert replay.json()["ui_blocks"] == first_answer.json()["ui_blocks"]
+
+    cancelled = client.post(
+        f"/api/platform-assistant/runs/{payload['run_id']}/cancel",
+        json={"protocol_version": "2.0", "session_id": payload["session_id"]},
+    )
+    assert cancelled.status_code == 200, cancelled.text
+    assert cancelled.json()["protocol_version"] == "2.0"
+    assert cancelled.json()["run"]["state"] == "cancelled"
+
+
+def test_v1_run_snapshot_remains_the_default_for_historical_clients(client_bundle) -> None:
+    client, engine, user = client_bundle
+    run_id = _create_run(client)
+    with Session(engine) as db:
+        PlatformAssistantRepository(db).append_block(
+            RunScope(user.tenant_id, user.id, "session_kai"),
+            run_id,
+            _question_block(),
+        )
+
+    restored = client.get(
+        f"/api/platform-assistant/runs/{run_id}",
+        params={"session_id": "session_kai"},
+    )
+    assert restored.status_code == 200
+    assert restored.json()["protocol_version"] == "1.0"
+    assert restored.json()["ui_blocks"][0]["schema_version"] == "1.0"
 
 
 def test_guidance_turn_is_read_only_and_does_not_replace_active_requirement_run(
@@ -458,6 +516,26 @@ def test_guidance_turn_is_read_only_and_does_not_replace_active_requirement_run(
     )
     assert latest.status_code == 200
     assert latest.json()["run"]["run_id"] == active_run_id
+
+
+def test_requirement_entrypoint_is_rejected_outside_the_requirement_create_route(
+    client_bundle,
+) -> None:
+    client, _engine, _user = client_bundle
+    response = client.post(
+        "/api/platform-assistant/turns",
+        json={
+            "protocol_version": "2.0",
+            "client_request_id": "turn_entrypoint_forbidden_001",
+            "session_id": "session_kai",
+            "message": "帮我做一份融资路演 PPT",
+            "entrypoint": "requirement.create",
+            "page_context": _page(),
+        },
+    )
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "UNAUTHORIZED_CONTEXT"
 
 
 def test_read_only_stage_allows_guidance_but_not_requirement_draft(client_bundle) -> None:

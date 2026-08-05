@@ -33,7 +33,7 @@ export default function QuoteComparePage() {
   const recommended = useMemo(() => [...quotes].sort((a, b) => {
     const matchA = requirement?.matches.find((item) => item.providerOrganizationId === a.providerOrganizationId)?.score || 0;
     const matchB = requirement?.matches.find((item) => item.providerOrganizationId === b.providerOrganizationId)?.score || 0;
-    return matchB - matchA || Number(a.currentVersion.totalAmount) - Number(b.currentVersion.totalAmount);
+    return matchB - matchA || Number(a.currentVersion!.totalAmount) - Number(b.currentVersion!.totalAmount);
   })[0], [quotes, requirement?.matches]);
 
   useEffect(() => {
@@ -80,15 +80,15 @@ export default function QuoteComparePage() {
                   {quotes.map((quote) => (
                     <label className={`transaction-comparison-column ${selectedId === quote.id ? 'is-selected' : ''}`} key={quote.id}>
                       <header><div><strong>{quote.serviceName}{quote.status === 'selected' && <em className="marketplace-status is-published">已中选</em>}</strong><small>{quote.providerName} <ShieldCheck /></small></div><input type="radio" name="quote" checked={selectedId === quote.id} disabled={alreadySelected} onChange={() => setSelectedId(quote.id)} /></header>
-                      <span className="is-price">¥{money(quote.currentVersion.totalAmount)}</span>
-                      <span>{formatDateTime(quote.currentVersion.validUntil)}</span>
-                      <span>{quote.currentVersion.deliveryDays} 个工作日</span>
-                      <span>{quote.currentVersion.serviceScope.map((item) => <i key={item}><Check />{item}</i>)}</span>
-                      <span>{quote.currentVersion.exclusions.map((item) => <i className="is-exclusion" key={item}><CircleMinus />{item}</i>)}</span>
-                      <span>{quote.currentVersion.milestones.map((item) => <i key={item.name}>{item.name}　¥{money(item.amount)}</i>)}</span>
-                      <span>{quote.currentVersion.includedRevisions} 次</span>
-                      <span>{quote.currentVersion.acceptanceCriteria.map((item) => <i key={item}><Check />{item}</i>)}</span>
-                      <span>v{quote.currentVersion.version} · {quote.sentAt ? formatDateTime(quote.sentAt) : '-'}</span>
+                      <span className="is-price">¥{money(quote.currentVersion!.totalAmount)}</span>
+                      <span>{formatDateTime(quote.currentVersion!.validUntil)}</span>
+                      <span>{quote.currentVersion!.deliveryDays} 个工作日</span>
+                      <span>{quote.currentVersion!.serviceScope.map((item) => <i key={item}><Check />{item}</i>)}</span>
+                      <span>{quote.currentVersion!.exclusions.map((item) => <i className="is-exclusion" key={item}><CircleMinus />{item}</i>)}</span>
+                      <span>{quote.currentVersion!.milestones.map((item) => <i key={item.name}>{item.name}　¥{money(item.amount)}</i>)}</span>
+                      <span>{quote.currentVersion!.includedRevisions} 次</span>
+                      <span>{quote.currentVersion!.acceptanceCriteria.map((item) => <i key={item}><Check />{item}</i>)}</span>
+                      <span>v{quote.currentVersion!.version} · {quote.sentAt ? formatDateTime(quote.sentAt) : '-'}</span>
                     </label>
                   ))}
                 </div>
@@ -100,7 +100,7 @@ export default function QuoteComparePage() {
               </aside>
             </div>
           )}
-          {quotes.length > 0 && <footer className="transaction-sticky-action"><div><span>{alreadySelected ? '已中选：' : '已选择：'}</span><strong>{selected?.serviceName || '尚未选择'}</strong>{selected && <b>¥{money(selected.currentVersion.totalAmount)}</b>}</div>{alreadySelected ? <><span className="transaction-success"><CheckCircle2 />选标结果与报价快照已冻结</span><button type="button" className="marketplace-submit-button" onClick={() => navigate(`/enterprise/agreements/${requirement.agreementId}`)}><FileCheck2 />查看合作协议</button></> : <><label><input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} />我已阅读服务范围、排除项和验收标准</label><button type="button" className="marketplace-submit-button" disabled={!selected || !acknowledged || working} onClick={() => void choose()}><FileCheck2 />选定并生成协议</button></>}</footer>}
+          {quotes.length > 0 && <footer className="transaction-sticky-action"><div><span>{alreadySelected ? '已中选：' : '已选择：'}</span><strong>{selected?.serviceName || '尚未选择'}</strong>{selected && <b>¥{money(selected.currentVersion!.totalAmount)}</b>}</div>{alreadySelected ? <><span className="transaction-success"><CheckCircle2 />选标结果与报价快照已冻结</span><button type="button" className="marketplace-submit-button" onClick={() => navigate(`/enterprise/agreements/${requirement.agreementId}`)}><FileCheck2 />查看合作协议</button></> : <><label><input type="checkbox" checked={acknowledged} onChange={(event) => setAcknowledged(event.target.checked)} />我已阅读服务范围、排除项和验收标准</label><button type="button" className="marketplace-submit-button" disabled={!selected || !acknowledged || working} onClick={() => void choose()}><FileCheck2 />选定并生成协议</button></>}</footer>}
         </>
       )}
     </main>

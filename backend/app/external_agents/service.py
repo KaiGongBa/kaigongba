@@ -692,6 +692,8 @@ def confirm_import_draft(
     if not connection:
         raise HTTPException(status_code=409, detail="外部 Agent 连接不存在")
     if draft.status == "confirmed" and draft.agent_profile_id:
+        _ensure_marketplace_service_draft(db, current_user, draft, connection)
+        db.commit()
         return _draft_read(draft)
     if draft.status not in {"draft", "provisioning"}:
         raise HTTPException(status_code=409, detail="员工草稿当前不能确认")
@@ -722,7 +724,9 @@ def confirm_import_draft(
     draft.confirmed_at = draft.confirmed_at or utc_now()
     draft.updated_at = utc_now()
     connection.agent_profile_id = result.agent_profile_id
-    connection.status = "pending_connection_test"
+    connection.status = (
+        "manual_ready" if connection.transport == "manual" else "pending_connection_test"
+    )
     connection.sync_policy = draft.sync_policy
     connection.updated_at = utc_now()
     outbox.status = "published"
@@ -730,6 +734,7 @@ def confirm_import_draft(
     db.add(draft)
     db.add(connection)
     db.add(outbox)
+    service_draft = _ensure_marketplace_service_draft(db, current_user, draft, connection)
     _audit(
         db,
         draft.tenant_id,
@@ -738,7 +743,12 @@ def confirm_import_draft(
         "external_agent.employee_confirmed",
         "external_agent_import_draft",
         draft.id,
-        {"agent_profile_id": result.agent_profile_id, "created": result.created},
+        {
+            "agent_profile_id": result.agent_profile_id,
+            "created": result.created,
+            "marketplace_service_id": service_draft.id if service_draft else None,
+            "marketplace_service_version_id": service_draft.version_id if service_draft else None,
+        },
     )
     db.commit()
     db.refresh(draft)
@@ -753,6 +763,11 @@ def create_connection_test(
 ) -> ConnectionTestRead:
     connection = _get_connection(db, current_user, connection_id)
     _require_manager(db, current_user, connection.organization_id)
+    if connection.transport == "manual":
+        raise HTTPException(
+            status_code=409,
+            detail="临时手动执行模式不领取在线任务，无需执行连接测试",
+        )
     if not connection.agent_profile_id:
         raise HTTPException(status_code=409, detail="请先确认并创建外接员工")
     existing = db.exec(
@@ -2150,6 +2165,18 @@ def _draft_read(row: ExternalAgentImportDraft) -> ImportDraftRead:
         created_at=row.created_at,
         updated_at=row.updated_at,
     )
+
+
+def _ensure_marketplace_service_draft(
+    db: Session,
+    current_user: User,
+    draft: ExternalAgentImportDraft,
+    connection: ExternalAgentConnection,
+) -> Any:
+    # Local import keeps the external protocol independent from marketplace API routing.
+    from app.marketplace.management_service import ensure_external_agent_service_draft
+
+    return ensure_external_agent_service_draft(db, current_user, draft, connection)
 
 
 def _provision_request(

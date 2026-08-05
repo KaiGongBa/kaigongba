@@ -40,6 +40,7 @@ from app.transaction.schemas import (
     QuoteSelectionRequest,
     QuoteUpdate,
     RequirementDetailRead,
+    RequirementDraftWrite,
     RequirementAIAnalysisRead,
     RequirementSummaryRead,
     RequirementWrite,
@@ -67,7 +68,7 @@ def list_requirements(
 
 @router.post("/requirements", response_model=RequirementDetailRead)
 def create_requirement(
-    request: RequirementWrite,
+    request: RequirementDraftWrite,
     current_user: CurrentUser,
     db: DatabaseSession,
 ) -> RequirementDetailRead:
@@ -107,7 +108,7 @@ def get_requirement(
 )
 def update_requirement(
     requirement_id: str,
-    request: RequirementWrite,
+    request: RequirementDraftWrite,
     current_user: CurrentUser,
     db: DatabaseSession,
 ) -> RequirementDetailRead:

@@ -27,6 +27,7 @@ vi.mock('@/features/marketplace/repository', () => ({
 import KaiAssistantDrawer from './KaiAssistantDrawer';
 import type { AssistantTurnResult, KaiAssistantService } from '@/features/kai-assistant/components/assistantService';
 import { QuestionGroupBlock } from '@/features/kai-assistant/components/QuestionGroupBlock';
+import { OPEN_KAI_ASSISTANT_EVENT } from '@/features/kai-assistant/assistantEvents';
 import type {
   AdaptiveQuestionGroupBlock,
   InterviewStateBlock as InterviewStateBlockType,
@@ -107,6 +108,50 @@ describe('Kai Xiaohua isolated assistant drawer', () => {
     await waitFor(() => expect(screen.getByTestId('sidebar-state').textContent).toBe('expanded'));
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: /打开开小花/ })));
     expect(screen.getByTestId('location').textContent).toBe('/enterprise/orders/order_real?tab=materials');
+  });
+
+  it('opens from a business-page request and prefills the natural-language requirement', async () => {
+    renderDrawer('/enterprise/demands/new');
+
+    window.dispatchEvent(new CustomEvent(OPEN_KAI_ASSISTANT_EVENT, {
+      detail: { view: 'chat', prompt: '我想发布一个融资路演PPT需求', autoSend: true },
+    }));
+
+    expect(await screen.findByRole('complementary', { name: '开小花平台总助' })).toBeTruthy();
+    await waitFor(() => expect(apiPost).toHaveBeenCalledWith('/api/platform-assistant/turns', expect.objectContaining({
+      message: '我想发布一个融资路演PPT需求',
+      protocol_version: '2.0',
+    })));
+    expect(screen.getByTestId('location').textContent).toBe('/enterprise/demands/new');
+  });
+
+  it('archives an existing assistant workflow before a demand-page new-requirement launch', async () => {
+    const service = mockAssistantService(v2InterviewResult());
+    renderDrawer('/enterprise/demands/new', service);
+    fireEvent.click(await screen.findByRole('button', { name: /打开开小花/ }));
+    await screen.findByText('平台总助真实会话消息');
+
+    const composer = screen.getByRole('textbox', { name: '给开小花发送消息' });
+    fireEvent.change(composer, { target: { value: '先创建一个旧需求' } });
+    fireEvent.keyDown(composer, { key: 'Enter' });
+    expect(await screen.findByText('需求理解进度')).toBeTruthy();
+
+    window.dispatchEvent(new CustomEvent(OPEN_KAI_ASSISTANT_EVENT, {
+      detail: {
+        view: 'chat',
+        prompt: '现在开始一个全新的产品发布会需求',
+        autoSend: true,
+        startNewWorkflow: true,
+        entrypoint: 'requirement.create',
+      },
+    }));
+
+    await waitFor(() => expect(service.cancelRun).toHaveBeenCalledWith('session_structured', 'run_requirement'));
+    await waitFor(() => expect(service.sendTurn).toHaveBeenCalledTimes(2));
+    expect(service.sendTurn).toHaveBeenLastCalledWith(expect.objectContaining({
+      message: '现在开始一个全新的产品发布会需求',
+      entrypoint: 'requirement.create',
+    }));
   });
 
   it('uses real notification IDs and routes while keeping the drawer mounted', async () => {
@@ -282,6 +327,30 @@ describe('Kai Xiaohua isolated assistant drawer', () => {
       })],
     })));
     expect(screen.getByTestId('location').textContent).toBe('/enterprise/demands/new');
+  });
+
+  it('keeps a completed result visible without reactivating it for a new requirement', async () => {
+    const service = mockAssistantService(completedWorkflowResult());
+    vi.mocked(service.sendTurn)
+      .mockReset()
+      .mockResolvedValueOnce(completedWorkflowResult())
+      .mockResolvedValueOnce(v2InterviewResult());
+    renderDrawer('/enterprise/demands/new', service);
+    fireEvent.click(await screen.findByRole('button', { name: /打开开小花/ }));
+    await screen.findByText('平台总助真实会话消息');
+
+    const composer = screen.getByRole('textbox', { name: '给开小花发送消息' });
+    fireEvent.change(composer, { target: { value: '查看刚才完成的需求' } });
+    fireEvent.keyDown(composer, { key: 'Enter' });
+    expect(await screen.findAllByText('历史需求已经完成')).toHaveLength(2);
+    fireEvent.click(screen.getByRole('button', { name: '恢复旧流程' }));
+    expect(service.resumeRun).not.toHaveBeenCalled();
+
+    fireEvent.change(composer, { target: { value: '现在新建一个品牌视觉需求' } });
+    fireEvent.keyDown(composer, { key: 'Enter' });
+    await waitFor(() => expect(service.sendTurn).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText('需求理解进度')).toBeTruthy();
+    expect(screen.getAllByText('历史需求已经完成')).toHaveLength(2);
   });
 
   it('collects a question group locally and submits all selected answers once', async () => {
@@ -530,6 +599,24 @@ function guidanceResult(): AssistantTurnResult {
       },
     ],
     workflow: null,
+  };
+}
+
+function completedWorkflowResult(): AssistantTurnResult {
+  return {
+    sessionId: 'session_structured', runId: 'run_completed', runState: 'completed',
+    messageId: `message_completed_${crypto.randomUUID()}`,
+    assistantText: '历史需求已经完成',
+    blocks: [{
+      schema_version: '1.0', block_id: 'block_completed_history', block_version: 1,
+      type: 'notice', status: 'succeeded', title: '历史需求已经完成', description: '',
+      tone: 'success', code: 'WORKFLOW_COMPLETED', message: '可以保留查看，也可以开始一个新需求。',
+      actions: [{ id: 'workflow.resume', label: '恢复旧流程', style: 'secondary' }],
+    }],
+    workflow: {
+      capability_id: 'requirement.create', capability_version: '2.0.0', state: 'completed', row_version: 9,
+      progress: { completed_required: 13, total_required: 13 },
+    },
   };
 }
 

@@ -40,6 +40,52 @@ class RequirementWrite(TransactionWriteModel):
         return self
 
 
+class RequirementDraftWrite(TransactionWriteModel):
+    """Permissive transaction draft input.
+
+    A draft is intentionally allowed to be incomplete.  The strict
+    ``RequirementWrite`` contract remains the publication boundary and is
+    enforced by ``publish_requirement``.
+    """
+
+    organization_id: str
+    title: str = Field(default="", max_length=100)
+    category: str = Field(default="", max_length=80)
+    category_id: str | None = Field(default=None, max_length=64)
+    description: str = Field(default="", max_length=5000)
+    budget_min_amount: Decimal = Field(default=Decimal("0"), ge=0)
+    budget_max_amount: Decimal = Field(default=Decimal("0"), ge=0)
+    desired_delivery_at: datetime | None = None
+    visibility: Literal["public", "enterprise", "invited_providers"] = (
+        "invited_providers"
+    )
+    confidentiality_level: Literal[
+        "standard", "confidential", "highly_confidential"
+    ] = "standard"
+    invite_limit: int = Field(default=5, ge=1, le=20)
+    deliverables: list[dict[str, Any]] = Field(default_factory=list)
+    acceptance_criteria: list[str] = Field(default_factory=list)
+    attachments: list[dict[str, Any]] = Field(default_factory=list)
+    change_summary: str = "创建需求草稿"
+
+    @model_validator(mode="after")
+    def validate_draft_budget(self) -> RequirementDraftWrite:
+        if self.budget_max_amount and self.budget_max_amount < self.budget_min_amount:
+            raise ValueError("预算上限不能低于预算下限")
+        if not any(
+            (
+                self.title.strip(),
+                self.category.strip(),
+                self.description.strip(),
+                self.deliverables,
+                self.acceptance_criteria,
+                self.attachments,
+            )
+        ):
+            raise ValueError("需求草稿至少需要标题、描述或一项业务内容")
+        return self
+
+
 class RequirementAIAnalysisRead(MarketplaceReadModel):
     summary: str
     completeness_score: int
@@ -224,7 +270,7 @@ class QuoteRead(MarketplaceReadModel):
     service_id: str
     service_name: str
     status: str
-    current_version: QuoteVersionRead
+    current_version: QuoteVersionRead | None
     versions: list[QuoteVersionRead]
     confirmed_by: str | None
     confirmed_at: datetime | None

@@ -1,10 +1,11 @@
-import { ArrowLeft, Check, FileText, LockKeyhole, Paperclip, Plus, ShieldCheck, Trash2 } from 'lucide-react';
+import { ArrowLeft, Check, FileText, LockKeyhole, Paperclip, Plus, ShieldCheck, Sparkles, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { notify } from '@/components/ui/app-toast';
 import { TENANT_ID, uploadChatAttachments } from '@/api/client';
 import type { ChatAttachmentRead } from '@/types';
 import { MarketplaceHeader } from './components';
+import { openKaiAssistant } from '@/features/kai-assistant/assistantEvents';
 import { EMPTY_DEMAND_FORM, mergeNonEmptyRequirementSeed, type DemandFormState } from './demandDraftSeed';
 import { marketplaceRepository } from './repository';
 import type { AssistantRequirementDraftResponse, RequirementInput, ServiceCategory } from './types';
@@ -13,6 +14,8 @@ import { useMarketplaceOrganization } from './useMarketplaceOrganization';
 type DraftLoadState = 'idle' | 'loading' | 'ready' | 'error';
 type CategoryLoadState = 'loading' | 'ready' | 'error';
 type EditableField = keyof DemandFormState;
+type PublishField = 'title' | 'category' | 'description' | 'budgetMax' | 'deadline' | 'deliverables' | 'criteria';
+type PublishError = { field: PublishField; label: string; message: string };
 const REQUIREMENT_DRAFT_ID = /^reqdraft_[A-Za-z0-9_-]{8,120}$/;
 
 export default function DemandCreatePage() {
@@ -34,6 +37,8 @@ export default function DemandCreatePage() {
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [serviceCategories, setServiceCategories] = useState<ServiceCategory[]>([]);
   const [categoryLoadState, setCategoryLoadState] = useState<CategoryLoadState>('loading');
+  const [aiBrief, setAiBrief] = useState('');
+  const [validationErrors, setValidationErrors] = useState<PublishError[]>([]);
   const editedFields = useRef(new Set<EditableField>());
   const appliedDraftIds = useRef(new Set<string>());
   const draftId = searchParams.get('draftId')?.trim() || '';
@@ -52,10 +57,8 @@ export default function DemandCreatePage() {
     criteria,
     attachments,
   } = form;
-  const completeness = useMemo(() => {
-    const checks = [title.length >= 4, category.length >= 2, description.length >= 20, Number(budgetMax) > 0, deadline, deliverables.length > 0, criteria.length > 0];
-    return Math.round((checks.filter(Boolean).length / checks.length) * 100);
-  }, [category, criteria.length, deadline, deliverables.length, description.length, budgetMax, title.length]);
+  const publishErrors = useMemo(() => requirementPublishErrors(form), [form]);
+  const completeness = Math.round(((7 - publishErrors.length) / 7) * 100);
   const activeCategories = useMemo(
     () => serviceCategories.filter((item) => item.status === 'active'),
     [serviceCategories],
@@ -127,6 +130,7 @@ export default function DemandCreatePage() {
 
   function editField<K extends EditableField>(field: K, value: DemandFormState[K]) {
     editedFields.current.add(field);
+    setValidationErrors((current) => current.filter((item) => item.field !== field));
     setForm((current) => ({ ...current, [field]: value }));
   }
 
@@ -134,6 +138,7 @@ export default function DemandCreatePage() {
     const catalogCategory = activeCategories.find((item) => item.id === value);
     editedFields.current.add('category');
     editedFields.current.add('categoryId');
+    setValidationErrors((current) => current.filter((item) => item.field !== 'category'));
     setForm((current) => catalogCategory
       ? { ...current, categoryId: catalogCategory.id, category: catalogCategory.name }
       : { ...current, categoryId: undefined, category: value });
@@ -156,7 +161,7 @@ export default function DemandCreatePage() {
     }
   }
 
-  function buildInput(): RequirementInput | null {
+  function buildInput(publish: boolean): RequirementInput | null {
     if (!organization.selected) {
       notify.error('请先选择发布企业');
       return null;
@@ -166,8 +171,17 @@ export default function DemandCreatePage() {
       notify.error('开小花草稿所属企业与当前发布企业不一致，请先切换到草稿所属企业');
       return null;
     }
-    if (completeness < 100) {
-      notify.error('请完整填写需求、预算、交付物和验收标准');
+    if (publish && publishErrors.length > 0) {
+      setValidationErrors(publishErrors);
+      notify.error(`还有 ${publishErrors.length} 项发布信息需要补充`);
+      focusPublishField(publishErrors[0].field);
+      return null;
+    }
+    const hasDraftContent = Boolean(
+      title.trim() || description.trim() || category.trim() || deliverables.length || criteria.length || attachments.length,
+    );
+    if (!publish && !hasDraftContent) {
+      notify.error('请至少填写需求标题或需求描述后再保存草稿');
       return null;
     }
     return {
@@ -176,17 +190,17 @@ export default function DemandCreatePage() {
       category_id: categoryId || undefined,
       category,
       description,
-      budget_min_amount: budgetMin,
-      budget_max_amount: budgetMax,
+      budget_min_amount: budgetMin || '0.00',
+      budget_max_amount: budgetMax || '0.00',
       // Keep the business deadline as the user's local wall-clock time. The
       // transaction API stores naive datetimes, so converting to UTC here
       // would make the value render eight hours earlier on the next screen.
-      desired_delivery_at: deadline,
+      desired_delivery_at: deadline || null,
       visibility,
       confidentiality_level: confidentialityLevel,
       invite_limit: inviteLimit,
-      deliverables,
-      acceptance_criteria: criteria,
+      deliverables: deliverables.filter((item) => item.name.trim()),
+      acceptance_criteria: criteria.filter((item) => item.trim()),
       attachments: attachments.map((item) => item.file_id ? {
         file_id: item.file_id,
         filename: item.filename,
@@ -206,7 +220,7 @@ export default function DemandCreatePage() {
   }
 
   async function save(publish: boolean) {
-    const input = buildInput();
+    const input = buildInput(publish);
     if (!input) return;
     if (publish && !window.confirm('确认发布需求并由平台执行 AI 匹配、向候选服务商发送邀请？')) return;
     setSaving(true);
@@ -251,6 +265,31 @@ export default function DemandCreatePage() {
         onOrganizationChange={organization.selectOrganization}
       />
       <div className="transaction-steps"><span className="is-active"><b>1</b>描述需求</span><span><b>2</b>交付与验收</span><span><b>3</b>预算与周期</span><span><b>4</b>预览发布</span></div>
+      <section className="transaction-ai-requirement-entry" aria-labelledby="ai-requirement-entry-title">
+        <span className="transaction-ai-requirement-icon"><Sparkles /></span>
+        <div>
+          <h2 id="ai-requirement-entry-title">先用一句话告诉开小花你想做什么</h2>
+          <p>开小花会理解当前需求，按实际业务动态追问，再把完整内容写回下面的真实需求表。</p>
+          <textarea
+            aria-label="自然语言描述需求"
+            value={aiBrief}
+            maxLength={1000}
+            placeholder="例如：两周后要做一份面向投资人的融资路演 PPT，我已经有商业计划书。"
+            onChange={(event) => setAiBrief(event.target.value)}
+          />
+        </div>
+        <button
+          type="button"
+          disabled={!aiBrief.trim()}
+          onClick={() => openKaiAssistant({
+            view: 'chat',
+            autoSend: true,
+            startNewWorkflow: true,
+            entrypoint: 'requirement.create',
+            prompt: `我想发布一个需求：${aiBrief.trim()}。请先分析已有信息，并只追问最关键的 1 到 3 个问题。`,
+          })}
+        ><Sparkles />让开小花分析</button>
+      </section>
       <div className="transaction-editor-layout">
         <div className="transaction-form-stack">
           {draftId ? (
@@ -262,13 +301,19 @@ export default function DemandCreatePage() {
               onRetry={() => setLoadAttempt((value) => value + 1)}
             />
           ) : null}
-          <section className="transaction-card">
+          {validationErrors.length > 0 ? (
+            <section className="transaction-validation-summary" role="alert" aria-labelledby="publish-validation-title">
+              <div><strong id="publish-validation-title">还不能发布，请补充以下信息</strong><small>草稿仍然可以保存。</small></div>
+              <ul>{validationErrors.map((item) => <li key={item.field}><button type="button" onClick={() => focusPublishField(item.field)}>{item.label}：{item.message}</button></li>)}</ul>
+            </section>
+          ) : null}
+          <section className="transaction-card" data-publish-field="title">
             <h2>需求基本信息</h2>
-            <label><span>需求标题 *</span><input value={title} maxLength={100} onChange={(event) => editField('title', event.target.value)} /></label>
+            <label><span>需求标题 *</span><input aria-invalid={hasError(validationErrors, 'title')} value={title} maxLength={100} onChange={(event) => editField('title', event.target.value)} />{errorText(validationErrors, 'title')}</label>
             <div className="marketplace-form-grid">
-              <label>
+              <label data-publish-field="category">
                 <span>业务分类 *</span>
-                <select aria-label="业务分类 *" value={categoryId || category} onChange={(event) => editCategory(event.target.value)}>
+                <select aria-label="业务分类 *" aria-invalid={hasError(validationErrors, 'category')} value={categoryId || category} onChange={(event) => editCategory(event.target.value)}>
                   <option value="">请选择业务分类</option>
                   {categoryGroups.map((group) => (
                     <optgroup key={group.root.id} label={group.root.name}>
@@ -289,29 +334,32 @@ export default function DemandCreatePage() {
                     ? <option value={category}>{category}</option>
                     : null}
                 </select>
+                {errorText(validationErrors, 'category')}
                 {categoryLoadState === 'error' ? <small role="status">分类目录暂时不可用，已保留当前分类并启用兼容选项。</small> : null}
               </label>
               <label><span>可见范围 *</span><select value={visibility} onChange={(event) => editField('visibility', event.target.value as RequirementInput['visibility'])}><option value="invited_providers">仅受邀服务方可见</option><option value="enterprise">企业内部</option><option value="public">公开</option></select></label>
               <label><span>保密等级 *</span><select value={confidentialityLevel} onChange={(event) => editField('confidentialityLevel', event.target.value as RequirementInput['confidentiality_level'])}><option value="standard">标准</option><option value="confidential">保密</option><option value="highly_confidential">高度保密</option></select></label>
             </div>
-            <label><span>详细描述 *</span><textarea value={description} maxLength={5000} onChange={(event) => editField('description', event.target.value)} /></label>
+            <label data-publish-field="description"><span>详细描述 *</span><textarea aria-invalid={hasError(validationErrors, 'description')} value={description} maxLength={5000} onChange={(event) => editField('description', event.target.value)} />{errorText(validationErrors, 'description')}</label>
             <div className="transaction-upload">
               <div><strong>输入材料</strong><small>支持文档、PDF、表格、图片；材料随需求版本冻结。</small></div>
               <label className="marketplace-secondary-button"><Paperclip />{uploading ? '上传中…' : '添加附件'}<input type="file" multiple hidden disabled={uploading} onChange={(event) => void onFiles(event)} /></label>
             </div>
             {attachments.map((item) => <div className="transaction-file-row" key={item.id}><FileText /><span><strong>{item.filename}</strong><small>{formatBytes(item.size)}</small></span><Check /><button type="button" aria-label="移除附件" onClick={() => editField('attachments', attachments.filter((row) => row.id !== item.id))}><Trash2 /></button></div>)}
           </section>
-          <section className="transaction-card">
+          <section className="transaction-card" data-publish-field="deliverables">
             <h2>期望交付物</h2>
             <div className="transaction-deliverable-table">
               {deliverables.map((item, index) => <div key={`${item.name}-${index}`}><b>{index + 1}</b><input value={item.name} onChange={(event) => editField('deliverables', deliverables.map((row, rowIndex) => rowIndex === index ? { ...row, name: event.target.value } : row))} /><select value={item.format} onChange={(event) => editField('deliverables', deliverables.map((row, rowIndex) => rowIndex === index ? { ...row, format: event.target.value } : row))}><option>.pptx</option><option>.ppt</option><option>.xlsx</option><option>.docx</option><option>.pdf</option><option>链接</option>{!KNOWN_FORMATS.has(item.format) ? <option value={item.format}>{item.format}</option> : null}</select><label><input type="checkbox" checked={item.required} onChange={(event) => editField('deliverables', deliverables.map((row, rowIndex) => rowIndex === index ? { ...row, required: event.target.checked } : row))} />必需</label><button type="button" onClick={() => editField('deliverables', deliverables.filter((_, rowIndex) => rowIndex !== index))}><Trash2 /></button></div>)}
             </div>
             <button type="button" className="marketplace-link-button" onClick={() => editField('deliverables', [...deliverables, { name: '', format: '.docx', required: true }])}><Plus />添加交付物</button>
+            {errorText(validationErrors, 'deliverables')}
           </section>
-          <section className="transaction-card">
+          <section className="transaction-card" data-publish-field="criteria">
             <h2>验收要求</h2>
             {criteria.map((item, index) => <div className="transaction-criterion" key={index}><Check /><input value={item} onChange={(event) => editField('criteria', criteria.map((row, rowIndex) => rowIndex === index ? event.target.value : row))} /><button type="button" onClick={() => editField('criteria', criteria.filter((_, rowIndex) => rowIndex !== index))}><Trash2 /></button></div>)}
             <button type="button" className="marketplace-link-button" onClick={() => editField('criteria', [...criteria, ''])}><Plus />添加验收要求</button>
+            {errorText(validationErrors, 'criteria')}
           </section>
         </div>
         <aside className="transaction-side-stack">
@@ -320,11 +368,12 @@ export default function DemandCreatePage() {
             <strong className="transaction-completeness">{completeness}%</strong>
             <div className="transaction-progress"><span style={{ width: `${completeness}%` }} /></div>
             <small>{completeness === 100 ? '需求信息已完整，可以发布' : '请继续补充必填信息'}</small>
+            {publishErrors.length > 0 ? <ul className="transaction-missing-list">{publishErrors.map((item) => <li key={item.field}>{item.label}</li>)}</ul> : null}
           </section>
           <section className="transaction-card transaction-budget-card">
             <h2>预算与邀请设置</h2>
-            <div className="marketplace-form-grid"><label><span>预算下限</span><input type="number" min="0" value={budgetMin} onChange={(event) => editField('budgetMin', event.target.value)} /></label><label><span>预算上限</span><input type="number" min="1" value={budgetMax} onChange={(event) => editField('budgetMax', event.target.value)} /></label></div>
-            <label><span>期望完成时间</span><input type="datetime-local" value={deadline} onChange={(event) => editField('deadline', event.target.value)} /></label>
+            <div className="marketplace-form-grid"><label><span>预算下限</span><input type="number" min="0" value={budgetMin} onChange={(event) => editField('budgetMin', event.target.value)} /></label><label data-publish-field="budgetMax"><span>预算上限</span><input aria-invalid={hasError(validationErrors, 'budgetMax')} type="number" min="1" value={budgetMax} onChange={(event) => editField('budgetMax', event.target.value)} />{errorText(validationErrors, 'budgetMax')}</label></div>
+            <label data-publish-field="deadline"><span>期望完成时间</span><input aria-invalid={hasError(validationErrors, 'deadline')} type="datetime-local" value={deadline} onChange={(event) => editField('deadline', event.target.value)} />{errorText(validationErrors, 'deadline')}</label>
             <label><span>最多邀请服务商</span><input type="number" min="1" max="20" value={inviteLimit} onChange={(event) => editField('inviteLimit', Number(event.target.value))} /></label>
             <button type="button" className="marketplace-submit-button" disabled={saving} onClick={() => void save(true)}>{saving ? '发布中…' : '预览并发布'}</button>
             <button type="button" className="marketplace-secondary-button" disabled={saving} onClick={() => void save(false)}>保存草稿</button>
@@ -338,6 +387,42 @@ export default function DemandCreatePage() {
 
 const LEGACY_CATEGORIES = ['法律 / 合同审查', 'IT 运维', '财务分析', '人才招聘', '客户服务', '投标文件'];
 const KNOWN_FORMATS = new Set(['.pptx', '.ppt', '.xlsx', '.docx', '.pdf', '链接']);
+
+function requirementPublishErrors(form: DemandFormState): PublishError[] {
+  const checks: Array<[PublishField, string, boolean, string]> = [
+    ['title', '需求标题', form.title.trim().length >= 4, '至少填写 4 个字符'],
+    ['category', '业务分类', form.category.trim().length >= 2, '请选择平台业务分类'],
+    ['description', '详细描述', form.description.trim().length >= 20, '至少填写 20 个字符'],
+    ['budgetMax', '预算上限', Number(form.budgetMax) > 0, '请填写有效预算上限'],
+    ['deadline', '期望完成时间', Boolean(form.deadline), '请选择期望完成时间'],
+    ['deliverables', '期望交付物', form.deliverables.some((item) => item.name.trim()), '至少添加一个有名称的交付物'],
+    ['criteria', '验收要求', form.criteria.some((item) => item.trim()), '至少添加一项验收要求'],
+  ];
+  return checks
+    .filter(([, , complete]) => !complete)
+    .map(([field, label, , message]) => ({ field, label, message }));
+}
+
+function hasError(errors: PublishError[], field: PublishField) {
+  return errors.some((item) => item.field === field);
+}
+
+function errorText(errors: PublishError[], field: PublishField) {
+  const error = errors.find((item) => item.field === field);
+  return error ? <small className="transaction-field-error">{error.message}</small> : null;
+}
+
+function focusPublishField(field: PublishField) {
+  requestAnimationFrame(() => {
+    const container = document.querySelector<HTMLElement>(`[data-publish-field="${field}"]`);
+    if (typeof container?.scrollIntoView === 'function') {
+      container.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    (container?.matches('input, textarea, select, button')
+      ? container
+      : container?.querySelector<HTMLElement>('input, textarea, select, button'))?.focus();
+  });
+}
 
 function buildCategoryGroups(categories: ServiceCategory[]) {
   const sorted = [...categories].sort(compareCategory);

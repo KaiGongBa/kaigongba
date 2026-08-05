@@ -34,6 +34,7 @@ import {
   type StructuredBlockAction,
 } from '@/features/kai-assistant/components/StructuredBlockRenderer';
 import { collectAssistantOverlayPageContext, createPageInstanceId } from '@/features/kai-assistant/pageContext';
+import { OPEN_KAI_ASSISTANT_EVENT, type OpenKaiAssistantDetail } from '@/features/kai-assistant/assistantEvents';
 import type {
   AnswerSubmission,
   PlatformAssistantErrorEnvelope,
@@ -81,6 +82,11 @@ export default function KaiAssistantDrawer({
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState<AssistantFailure | null>(null);
   const [draft, setDraft] = useState('');
+  const [pendingLaunchPrompt, setPendingLaunchPrompt] = useState<{
+    prompt: string;
+    startNewWorkflow: boolean;
+    entrypoint?: 'requirement.create';
+  } | null>(null);
   const [sending, setSending] = useState(false);
   const [completedBlocks, setCompletedBlocks] = useState<Set<string>>(() => new Set());
   const [activeWorkflow, setActiveWorkflow] = useState<{
@@ -103,6 +109,7 @@ export default function KaiAssistantDrawer({
     answers: AnswerSubmission['answers'];
   }>());
   const submittingBlocksRef = useRef(new Set<string>());
+  const launchInProgressRef = useRef(false);
   const user = getEnterpriseAuthSession()?.user;
 
   useEffect(() => {
@@ -165,7 +172,7 @@ export default function KaiAssistantDrawer({
       }));
       try {
         const snapshot = await api.get<unknown>(
-          `/api/platform-assistant/runs/latest?session_id=${encodeURIComponent(session.id)}`,
+          `/api/platform-assistant/runs/latest?session_id=${encodeURIComponent(session.id)}&protocol_version=2.0`,
         );
         const restored = normalizeAssistantResult(snapshot, {
           sessionId: session.id,
@@ -180,12 +187,14 @@ export default function KaiAssistantDrawer({
           runId: restored.runId,
           workflow: restored.workflow,
         });
-        if (restored.runId) {
+        if (restored.runId && !isTerminalAssistantResult(restored)) {
           setActiveWorkflow({
             sessionId: restored.sessionId,
             runId: restored.runId,
             workflow: restored.workflow,
           });
+        } else if (isTerminalAssistantResult(restored)) {
+          setActiveWorkflow(null);
         }
       } catch {
         // A platform-assistant session may legitimately have no active run.
@@ -242,7 +251,66 @@ export default function KaiAssistantDrawer({
     setState((current) => nextKaiAssistantState(current, { type: 'close' }));
   }
 
-  async function sendMessage(value?: string) {
+  useEffect(() => {
+    const handleOpenRequest = (event: Event) => {
+      const detail = (event as CustomEvent<OpenKaiAssistantDetail>).detail || {};
+      openDrawer(detail.view || 'chat');
+      if (detail.prompt?.trim()) {
+        const prompt = detail.prompt.trim();
+        setDraft(prompt);
+        if (detail.autoSend) {
+          setPendingLaunchPrompt({
+            prompt,
+            startNewWorkflow: Boolean(detail.startNewWorkflow),
+            entrypoint: detail.entrypoint,
+          });
+        }
+        else requestAnimationFrame(() => composerRef.current?.focus());
+      }
+    };
+    window.addEventListener(OPEN_KAI_ASSISTANT_EVENT, handleOpenRequest);
+    return () => window.removeEventListener(OPEN_KAI_ASSISTANT_EVENT, handleOpenRequest);
+  // The listener is refreshed whenever the controlled shell state changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sidebarCollapsed, state.open]);
+
+  useEffect(() => {
+    if (
+      !state.open
+      || !assistant
+      || chatLoading
+      || sending
+      || !pendingLaunchPrompt
+      || launchInProgressRef.current
+    ) return;
+    const launch = pendingLaunchPrompt;
+    launchInProgressRef.current = true;
+    setPendingLaunchPrompt(null);
+    void (async () => {
+      try {
+        if (launch.startNewWorkflow && activeWorkflow) {
+          setSending(true);
+          setChatError(null);
+          appendAssistantResult(await assistantService.cancelRun(
+            activeWorkflow.sessionId,
+            activeWorkflow.runId,
+          ));
+          setActiveWorkflow(null);
+          setSending(false);
+        }
+        await sendMessage(launch.prompt, launch.entrypoint);
+      } catch (error) {
+          setChatError(parseAssistantError(error));
+      } finally {
+        setSending(false);
+        launchInProgressRef.current = false;
+      }
+    })();
+  // sendMessage intentionally consumes the latest assistant/session state.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeWorkflow, assistant, assistantService, chatLoading, pendingLaunchPrompt, sending, state.open]);
+
+  async function sendMessage(value?: string, entrypoint?: 'requirement.create') {
     const message = (value ?? draft).trim();
     if (!message || !assistant || sending) return;
     const now = new Date().toISOString();
@@ -267,6 +335,7 @@ export default function KaiAssistantDrawer({
         sessionId: assistantSessionId || null,
         agentId: assistant.id,
         message,
+        entrypoint,
       });
       appendAssistantResult(result);
     } catch (error) {
@@ -278,19 +347,25 @@ export default function KaiAssistantDrawer({
 
   function appendAssistantResult(result: AssistantTurnResult) {
     setAssistantSessionId(result.sessionId);
-    setMessages((current) => [...current, {
-      id: result.messageId || `local-assistant-${crypto.randomUUID()}`,
+    const messageId = result.messageId || `local-assistant-${crypto.randomUUID()}`;
+    const nextMessage: AssistantUiMessage = {
+      id: messageId,
       role: 'assistant',
       content: result.assistantText,
       created_at: new Date().toISOString(),
       blocks: result.blocks,
       runId: result.runId,
       workflow: result.workflow,
-    }]);
-    if (result.runId) {
-      setActiveWorkflow({ sessionId: result.sessionId, runId: result.runId, workflow: result.workflow });
-    } else if (result.workflow?.state === 'completed' || result.workflow?.state === 'cancelled') {
+    };
+    setMessages((current) => {
+      const existingIndex = current.findIndex((message) => message.id === messageId);
+      if (existingIndex < 0) return [...current, nextMessage];
+      return current.map((message, index) => (index === existingIndex ? nextMessage : message));
+    });
+    if (isTerminalAssistantResult(result)) {
       setActiveWorkflow(null);
+    } else if (result.runId) {
+      setActiveWorkflow({ sessionId: result.sessionId, runId: result.runId, workflow: result.workflow });
     }
   }
 
@@ -555,6 +630,11 @@ export default function KaiAssistantDrawer({
       )}
     </>
   );
+}
+
+function isTerminalAssistantResult(result: AssistantTurnResult): boolean {
+  const state = result.runState || result.workflow?.state;
+  return state === 'completed' || state === 'cancelled';
 }
 
 function DrawerTab({ active, icon, children, onClick }: { active: boolean; icon: ReactNode; children: ReactNode; onClick: () => void }) {

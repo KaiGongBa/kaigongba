@@ -51,16 +51,20 @@ from app.db.models import (
     TransactionPaymentEvent,
     TransactionPaymentOrder,
     TransactionQuote,
+    TransactionQuoteVersion,
     TransactionRequirement,
     TransactionRequirementVersion,
     User,
 )
 from app.marketplace.seed import seed_marketplace_development_data
+from app.llm import LLMError
+from app.llm.platform_gateway import AIModelGateway
 from app.security.auth import create_access_token
 from app.security.internal_service import (
     INTERNAL_SERVICE_HEADER,
     internal_service_token,
 )
+from app.transaction import outbox_worker
 
 
 @pytest.fixture
@@ -437,6 +441,24 @@ def test_real_requirement_match_quote_selection_and_two_party_confirmation(
         headers=headers,
     )
     assert repeated_selection.status_code == 409
+    with Session(engine) as db:
+        assert outbox_worker.publish_quote_draft_outbox_once(db, limit=20) == 6
+        cancelled_quotes = db.exec(
+            select(TransactionQuote).where(
+                TransactionQuote.requirement_id == requirement_id,
+                TransactionQuote.status == "cancelled",
+            )
+        ).all()
+        assert len(cancelled_quotes) == 4
+        assert all(item.current_version_id is None for item in cancelled_quotes)
+    visible_after_selection = client.get(
+        f"/api/transactions/requirements/{requirement_id}/quotes",
+        params={"organizationId": "org_demo_buyer"},
+        headers=headers,
+    )
+    assert visible_after_selection.status_code == 200
+    assert len(visible_after_selection.json()) == 2
+    assert all(item["currentVersion"] for item in visible_after_selection.json())
 
     buyer_confirmed = client.post(
         f"/api/transactions/agreements/{agreement_id}/confirm",
@@ -621,7 +643,12 @@ def test_real_requirement_match_quote_selection_and_two_party_confirmation(
         assert agreement is not None and agreement.snapshot_digest
         assert requirement.confidentiality_level == "confidential"
         assert agreement.snapshot_json["requirement"]["confidentiality_level"] == "confidential"
-        assert {quote.status for quote in quotes} == {"selected", "rejected"}
+        assert {quote.status for quote in quotes} == {
+            "selected",
+            "rejected",
+            "cancelled",
+        }
+        assert sum(quote.status == "cancelled" for quote in quotes) == 4
         assert len(confirmations) == 2
         assert len(payment_rows) == 1
         assert len(payment_events) == 2
@@ -636,6 +663,53 @@ def test_real_requirement_match_quote_selection_and_two_party_confirmation(
             "payment.succeeded",
             "order.created",
         }
+
+
+def test_incomplete_requirement_can_be_saved_but_not_published(
+    transaction_app: tuple[TestClient, object, User],
+) -> None:
+    client, _engine, user = transaction_app
+    headers = _auth(user)
+
+    created = client.post(
+        "/api/transactions/requirements",
+        json={
+            "organization_id": "org_demo_buyer",
+            "title": "融资PPT",
+            "description": "需要先由开小花继续访谈并整理完整需求。",
+        },
+        headers=headers,
+    )
+
+    assert created.status_code == 200, created.text
+    assert created.json()["status"] == "draft"
+    assert created.json()["budgetMaxAmount"] == "0.00"
+    assert created.json()["desiredDeliveryAt"] is None
+
+    published = client.post(
+        f"/api/transactions/requirements/{created.json()['id']}/publish",
+        params={"organizationId": "org_demo_buyer"},
+        headers=headers,
+    )
+
+    assert published.status_code == 422, published.text
+    detail = published.json()["detail"]
+    assert detail["code"] == "REQUIREMENT_INCOMPLETE"
+    assert {item["field"] for item in detail["missing_fields"]} == {
+        "category",
+        "description",
+        "budget_max_amount",
+        "desired_delivery_at",
+        "deliverables",
+        "acceptance_criteria",
+    }
+
+    empty = client.post(
+        "/api/transactions/requirements",
+        json={"organization_id": "org_demo_buyer"},
+        headers=headers,
+    )
+    assert empty.status_code == 422, empty.text
 
 
 def test_ai_draft_requires_invited_provider_manager_and_is_tenant_isolated(
@@ -681,6 +755,342 @@ def test_ai_draft_requires_invited_provider_manager_and_is_tenant_isolated(
 
     assert denied.status_code == 403
     assert cross_org.status_code == 403
+
+
+def test_invitation_outbox_generates_private_draft_without_ai_pricing_or_auto_send(
+    transaction_app: tuple[TestClient, object, User],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, engine, provider_manager = transaction_app
+    headers = _auth(provider_manager)
+    created = client.post(
+        "/api/transactions/requirements",
+        json=_requirement_payload(),
+        headers=headers,
+    )
+    requirement_id = created.json()["id"]
+    published = client.post(
+        f"/api/transactions/requirements/{requirement_id}/publish",
+        params={"organizationId": "org_demo_buyer"},
+        headers=headers,
+    )
+    assert published.status_code == 200, published.text
+
+    with Session(engine) as db:
+        quotes = db.exec(
+            select(TransactionQuote).where(
+                TransactionQuote.requirement_id == requirement_id
+            )
+        ).all()
+        assert len(quotes) == published.json()["invitationCount"]
+        assert {item.status for item in quotes} == {"queued"}
+        cloud_quote = next(
+            item for item in quotes if item.provider_organization_id == "org_cloud_ops"
+        )
+        queued_events = db.exec(
+            select(TransactionOutboxEvent).where(
+                TransactionOutboxEvent.event_type
+                == outbox_worker.transaction_service.QUOTE_DRAFT_REQUESTED_EVENT,
+                TransactionOutboxEvent.aggregate_id == cloud_quote.id,
+            )
+        ).all()
+        assert len(queued_events) == 1
+
+    replayed_match = client.post(
+        f"/api/transactions/requirements/{requirement_id}/match",
+        json={"organization_id": "org_demo_buyer", "invite_limit": 6},
+        headers=headers,
+    )
+    assert replayed_match.status_code == 200, replayed_match.text
+    with Session(engine) as db:
+        assert len(
+            db.exec(
+                select(TransactionOutboxEvent).where(
+                    TransactionOutboxEvent.event_type
+                    == outbox_worker.transaction_service.QUOTE_DRAFT_REQUESTED_EVENT
+                )
+            ).all()
+        ) == published.json()["invitationCount"]
+
+    hidden = client.get(
+        f"/api/transactions/quotes/{cloud_quote.id}",
+        params={"organizationId": "org_demo_buyer"},
+        headers=headers,
+    )
+    assert hidden.status_code == 404
+    workbench = client.get(
+        "/api/transactions/provider/workbench",
+        params={"organizationId": "org_cloud_ops"},
+        headers=headers,
+    )
+    assert workbench.status_code == 200, workbench.text
+    queued_read = next(
+        item for item in workbench.json()["quoteDrafts"] if item["id"] == cloud_quote.id
+    )
+    assert queued_read["status"] == "queued"
+    assert queued_read["currentVersion"] is None
+    assert queued_read["canConfirm"] is False
+
+    def quote_result(
+        _gateway: AIModelGateway,
+        _system_prompt: str,
+        _payload: dict[str, object],
+    ) -> dict[str, object]:
+        return {
+            "total_amount": "999999999.99",
+            "service_scope": ["按已发布服务范围执行"],
+            "exclusions": ["未列明的第三方费用"],
+            "delivery_days": 7,
+            "included_revisions": 2,
+            "milestones": [
+                {
+                    "name": "AI 草案里程碑",
+                    "description": "金额字段必须被交易系统忽略",
+                    "deliverables": ["阶段成果"],
+                    "acceptance_criteria": ["可人工复核"],
+                    "duration_days": 2,
+                    "amount": "999999999.99",
+                }
+            ],
+            "acceptance_criteria": ["交付物可人工复核"],
+        }
+
+    monkeypatch.setattr(AIModelGateway, "generate_json", quote_result)
+    with Session(engine) as db:
+        assert outbox_worker.publish_quote_draft_outbox_once(db, limit=20) == len(quotes)
+
+    generated = client.get(
+        f"/api/transactions/quotes/{cloud_quote.id}",
+        params={"organizationId": "org_cloud_ops"},
+        headers=headers,
+    )
+    assert generated.status_code == 200, generated.text
+    draft = generated.json()
+    assert draft["status"] == "ai_draft"
+    assert draft["sentAt"] is None
+    assert draft["canConfirm"] is True
+    fixed_total = Decimal(draft["currentVersion"]["totalAmount"])
+    assert fixed_total <= Decimal(published.json()["budgetMaxAmount"])
+    assert fixed_total != Decimal("999999999.99")
+    assert sum(
+        Decimal(str(item["amount"]))
+        for item in draft["currentVersion"]["milestones"]
+    ) == fixed_total
+    with Session(engine) as db:
+        ready_notifications = db.exec(
+            select(TransactionNotification).where(
+                TransactionNotification.organization_id == "org_cloud_ops",
+                TransactionNotification.notification_type
+                == "quote_draft.ready_for_confirmation",
+            )
+        ).all()
+        assert ready_notifications
+        assert all(item.organization_id == "org_cloud_ops" for item in ready_notifications)
+
+    with Session(engine) as db:
+        staff = User(
+            id="provider_quote_staff",
+            tenant_id="tenant_demo",
+            username="provider_quote_staff",
+            password_hash="test",
+        )
+        db.add(staff)
+        db.add(
+            OrganizationMember(
+                id="orgmember_provider_quote_staff",
+                tenant_id="tenant_demo",
+                organization_id="org_cloud_ops",
+                user_id=staff.id,
+                role="member",
+                roles_json=["member"],
+                data_scope_json={"mode": "assigned_only"},
+                status="active",
+            )
+        )
+        db.commit()
+        db.refresh(staff)
+    denied_send = client.post(
+        f"/api/transactions/quotes/{cloud_quote.id}/confirm-send",
+        params={"organizationId": "org_cloud_ops"},
+        headers=_auth(staff),
+    )
+    assert denied_send.status_code == 403
+    confirmed = client.post(
+        f"/api/transactions/quotes/{cloud_quote.id}/confirm-send",
+        params={"organizationId": "org_cloud_ops"},
+        headers=headers,
+    )
+    assert confirmed.status_code == 200, confirmed.text
+    assert confirmed.json()["status"] == "sent"
+
+
+def test_quote_draft_outbox_retries_failures_and_is_idempotent(
+    transaction_app: tuple[TestClient, object, User],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, engine, user = transaction_app
+    headers = _auth(user)
+    created = client.post(
+        "/api/transactions/requirements",
+        json=_requirement_payload(),
+        headers=headers,
+    )
+    requirement_id = created.json()["id"]
+    published = client.post(
+        f"/api/transactions/requirements/{requirement_id}/publish",
+        params={"organizationId": "org_demo_buyer"},
+        headers=headers,
+    )
+    assert published.status_code == 200, published.text
+
+    def fail_generation(
+        _gateway: AIModelGateway,
+        _system_prompt: str,
+        _payload: dict[str, object],
+    ) -> dict[str, object]:
+        raise LLMError("TEST_MODEL_UNAVAILABLE")
+
+    monkeypatch.setattr(AIModelGateway, "generate_json", fail_generation)
+    with Session(engine) as db:
+        assert outbox_worker.publish_quote_draft_outbox_once(db, limit=1) == 0
+        event = db.exec(
+            select(TransactionOutboxEvent)
+            .where(
+                TransactionOutboxEvent.event_type
+                == outbox_worker.transaction_service.QUOTE_DRAFT_REQUESTED_EVENT
+            )
+            .order_by(TransactionOutboxEvent.created_at)
+        ).first()
+        assert event is not None
+        quote = db.get(TransactionQuote, event.aggregate_id)
+        assert quote is not None and quote.status == "failed"
+        assert event.status == "pending"
+        assert event.payload_json["attempts"] == 1
+        assert event.payload_json["next_retry_at"]
+        assert outbox_worker.publish_quote_draft_outbox_once(db, limit=1) == 0
+
+        payload = dict(event.payload_json)
+        payload["next_retry_at"] = (datetime.now(UTC) - timedelta(seconds=1)).isoformat()
+        event.payload_json = payload
+        db.add(event)
+        db.commit()
+        event_id = event.id
+        quote_id = quote.id
+
+    monkeypatch.setattr(
+        AIModelGateway,
+        "generate_json",
+        lambda _gateway, _prompt, _payload: {
+            "service_scope": ["按服务快照执行"],
+            "acceptance_criteria": ["由服务方负责人复核"],
+        },
+    )
+    with Session(engine) as db:
+        assert outbox_worker.publish_quote_draft_outbox_once(db, limit=1) == 1
+        quote = db.get(TransactionQuote, quote_id)
+        event = db.get(TransactionOutboxEvent, event_id)
+        assert quote is not None and quote.status == "ai_draft"
+        assert event is not None and event.status == "published"
+        versions = db.exec(
+            select(TransactionQuoteVersion).where(
+                TransactionQuoteVersion.quote_id == quote_id
+            )
+        ).all()
+        assert len(versions) == 1
+
+        event.status = "pending"
+        payload = dict(event.payload_json)
+        payload["next_retry_at"] = (datetime.now(UTC) - timedelta(seconds=1)).isoformat()
+        event.payload_json = payload
+        db.add(event)
+        db.commit()
+        assert outbox_worker.publish_quote_draft_outbox_once(db, limit=1) == 1
+        assert len(
+            db.exec(
+                select(TransactionQuoteVersion).where(
+                    TransactionQuoteVersion.quote_id == quote_id
+                )
+            ).all()
+        ) == 1
+
+
+def test_quote_draft_marks_needs_clarification_before_model_generation(
+    transaction_app: tuple[TestClient, object, User],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, engine, user = transaction_app
+    headers = _auth(user)
+    created = client.post(
+        "/api/transactions/requirements",
+        json=_requirement_payload(),
+        headers=headers,
+    )
+    requirement_id = created.json()["id"]
+    client.post(
+        f"/api/transactions/requirements/{requirement_id}/publish",
+        params={"organizationId": "org_demo_buyer"},
+        headers=headers,
+    )
+    with Session(engine) as db:
+        requirement = db.get(TransactionRequirement, requirement_id)
+        assert requirement is not None
+        cloud_quote = db.exec(
+            select(TransactionQuote).where(
+                TransactionQuote.requirement_id == requirement_id,
+                TransactionQuote.provider_organization_id == "org_cloud_ops",
+            )
+        ).first()
+        assert cloud_quote is not None
+        cloud_quote_id = cloud_quote.id
+        for other_event in db.exec(
+            select(TransactionOutboxEvent).where(
+                TransactionOutboxEvent.event_type
+                == outbox_worker.transaction_service.QUOTE_DRAFT_REQUESTED_EVENT,
+                TransactionOutboxEvent.aggregate_id != cloud_quote.id,
+            )
+        ).all():
+            other_event.status = "published"
+            db.add(other_event)
+        version = db.get(TransactionRequirementVersion, requirement.current_version_id or "")
+        assert version is not None
+        version.acceptance_criteria_json = []
+        db.add(version)
+        db.commit()
+
+    def must_not_call_model(*_args: object, **_kwargs: object) -> dict[str, object]:
+        raise AssertionError("需求信息不足时不应调用模型")
+
+    monkeypatch.setattr(AIModelGateway, "generate_json", must_not_call_model)
+    with Session(engine) as db:
+        assert outbox_worker.publish_quote_draft_outbox_once(db, limit=1) == 1
+        quote = db.exec(
+            select(TransactionQuote)
+            .where(TransactionQuote.id == cloud_quote_id)
+            .order_by(TransactionQuote.created_at)
+        ).first()
+        assert quote is not None and quote.status == "needs_clarification"
+        assert quote.current_version_id is None
+        event = db.exec(
+            select(TransactionOutboxEvent).where(
+                TransactionOutboxEvent.aggregate_id == quote.id,
+                TransactionOutboxEvent.event_type
+                == outbox_worker.transaction_service.QUOTE_DRAFT_REQUESTED_EVENT,
+            )
+        ).first()
+        assert event is not None and event.status == "published"
+        assert event.payload_json["missing_information"] == ["缺少验收标准"]
+
+    provider_view = client.get(
+        "/api/transactions/provider/workbench",
+        params={"organizationId": quote.provider_organization_id},
+        headers=headers,
+    )
+    assert provider_view.status_code == 200, provider_view.text
+    visible = next(
+        item for item in provider_view.json()["quoteDrafts"] if item["id"] == quote.id
+    )
+    assert visible["status"] == "needs_clarification"
+    assert visible["currentVersion"] is None
 
 
 def test_requirement_confidentiality_persists_in_versions_and_has_safe_default(

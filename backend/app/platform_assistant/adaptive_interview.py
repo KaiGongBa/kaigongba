@@ -1,22 +1,31 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Iterable, Mapping, Sequence
 
 from sqlmodel import Session, select
 
 from app.db.models import Organization
-from app.platform_assistant.adaptive_planning import PlanningGap, TrustedOption
+from app.platform_assistant.adaptive_planning import (
+    AdaptiveQuestionPlan,
+    PlanningGap,
+    TrustedOption,
+    build_adaptive_question_plan,
+)
 from app.platform_assistant.adaptive_readiness import (
     AdaptiveReadinessReport,
     MissingInformation,
     evaluate_adaptive_readiness,
 )
 from app.platform_assistant.category_matching import (
+    CategoryClassificationRejected,
     CategoryCandidate,
     CategoryMatchResult,
     load_active_category_candidates,
+    match_service_category,
+    rank_category_candidates,
+    validate_ai_classification,
 )
 from app.platform_assistant.orchestrator import RequirementWorkflowOrchestrator
 from app.platform_assistant.protocol_v2 import validate_v2_structured_block
@@ -118,22 +127,72 @@ class AdaptiveInterviewCoordinator:
     ) -> AdaptiveInterviewTurn:
         candidates = load_active_category_candidates(self.db)
         allowed_fields = _allowed_fact_fields(candidates)
-        extracted = self.orchestrator.extract_adaptive_facts(
+        fact_scope = _fact_scope(scope, organization_id)
+        current = self.ledger.current_facts(
+            fact_scope,
+            workflow_run_id=workflow_run_id,
+        )
+        preliminary = self._classification(
+            current,
+            message,
+            candidates,
+            use_model=False,
+        )
+        preliminary_selected = _selected_category(preliminary, candidates)
+        preliminary_readiness = evaluate_adaptive_readiness(
+            current,
+            classification_status=preliminary.status,
+            required_facets=(
+                preliminary_selected.required_facets
+                if preliminary_selected
+                else ()
+            ),
+        )
+        preliminary_active = (
+            preliminary_readiness.handoff
+            if preliminary_readiness.preview.ready
+            else preliminary_readiness.preview
+        )
+        preliminary_options = self._trusted_options(
+            preliminary,
+            authorized_organization_ids,
+        )
+        context_candidates = _compact_category_candidates(
+            _classification_narrative(current, message),
+            candidates,
+        )
+        analysis = self.orchestrator.analyze_adaptive_round(
             message,
             allowed_fields=allowed_fields,
+            confirmed_facts={
+                item.field: item.value_json
+                for item in current
+                if item.status == "confirmed"
+            },
+            missing_information=_missing_context(
+                _planning_gaps(preliminary_active.missing_information)
+            ),
+            classification_candidates=context_candidates,
+            trusted_options=preliminary_options,
+            context_summary=_context_summary(current, preliminary_active),
         )
-        fact_scope = _fact_scope(scope, organization_id)
-        if extracted.facts:
+        if analysis.facts:
             self.ledger.merge_candidates(
                 fact_scope,
                 workflow_run_id=workflow_run_id,
-                candidates=extracted.facts,
+                candidates=analysis.facts,
             )
         current = self.ledger.current_facts(
             fact_scope,
             workflow_run_id=workflow_run_id,
         )
-        classification = self._classification(current, message, candidates)
+        classification = self._classification(
+            current,
+            message,
+            candidates,
+            ai_payload=analysis.classification,
+            use_model=False,
+        )
         current = self._persist_classification(
             fact_scope,
             workflow_run_id,
@@ -155,15 +214,9 @@ class AdaptiveInterviewCoordinator:
             classification,
             authorized_organization_ids,
         )
-        plan = self.orchestrator.plan_adaptive_questions(
+        plan = build_adaptive_question_plan(
             gaps=gaps,
-            confirmed_facts={
-                item.field: item.value_json
-                for item in current
-                if item.status == "confirmed"
-            },
-            classification=_classification_payload(classification),
-            category_context=_category_context(selected),
+            ai_payload=_filter_question_plan(analysis.question_plan, gaps),
             trusted_options=trusted_options,
             block_seed=block_seed,
         )
@@ -181,9 +234,9 @@ class AdaptiveInterviewCoordinator:
             readiness=readiness,
             current_facts=current,
             required_facets=required_facets,
-            degraded=extracted.degraded or bool(plan and plan.degraded),
+            degraded=analysis.degraded or bool(plan and plan.degraded),
             degradation_code=(
-                extracted.degradation_code
+                analysis.degradation_code
                 or (plan.degradation_code if plan else None)
             ),
         )
@@ -196,6 +249,7 @@ class AdaptiveInterviewCoordinator:
         organization_id: str | None,
         authorized_organization_ids: Iterable[str],
         block_seed: str,
+        use_model_planning: bool = True,
     ) -> AdaptiveInterviewTurn:
         """Re-plan after structured answers have already updated the ledger."""
 
@@ -214,20 +268,29 @@ class AdaptiveInterviewCoordinator:
             required_facets=required_facets,
         )
         active_readiness = readiness.handoff if readiness.preview.ready else readiness.preview
-        plan = self.orchestrator.plan_adaptive_questions(
-            gaps=_planning_gaps(active_readiness.missing_information),
-            confirmed_facts={
-                item.field: item.value_json
-                for item in current
-                if item.status == "confirmed"
-            },
-            classification=_classification_payload(classification),
-            category_context=_category_context(selected),
-            trusted_options=self._trusted_options(
-                classification, authorized_organization_ids
-            ),
-            block_seed=block_seed,
+        gaps = _planning_gaps(active_readiness.missing_information)
+        trusted_options = self._trusted_options(
+            classification, authorized_organization_ids
         )
+        if use_model_planning:
+            plan = self.orchestrator.plan_adaptive_questions(
+                gaps=gaps,
+                confirmed_facts={
+                    item.field: item.value_json
+                    for item in current
+                    if item.status == "confirmed"
+                },
+                classification=_classification_payload(classification),
+                category_context=_category_context(selected),
+                trusted_options=trusted_options,
+                block_seed=block_seed,
+            )
+        else:
+            plan = _deterministic_question_plan(
+                gaps,
+                trusted_options=trusted_options,
+                block_seed=block_seed,
+            )
         state = _interview_state_block(
             seed=block_seed,
             facts=current,
@@ -250,6 +313,9 @@ class AdaptiveInterviewCoordinator:
         current: Sequence[Any],
         message: str,
         candidates: Sequence[CategoryCandidate],
+        *,
+        ai_payload: Mapping[str, Any] | None = None,
+        use_model: bool = True,
     ) -> CategoryMatchResult:
         confirmed_id = next(
             (
@@ -297,7 +363,19 @@ class AdaptiveInterviewCoordinator:
                     alternatives=(),
                 )
         narrative = _classification_narrative(current, message)
-        return self.orchestrator.match_category(narrative, candidates)
+        lexical = rank_category_candidates(narrative, candidates)
+        if ai_payload is not None:
+            try:
+                return validate_ai_classification(
+                    ai_payload,
+                    candidates,
+                    lexical=lexical,
+                )
+            except CategoryClassificationRejected:
+                return match_service_category(narrative, candidates)
+        if use_model:
+            return self.orchestrator.match_category(narrative, candidates)
+        return match_service_category(narrative, candidates)
 
     def _persist_classification(
         self,
@@ -430,6 +508,92 @@ def _classification_narrative(current: Sequence[Any], message: str) -> str:
     values.append(message.strip())
     text = "\n".join(item for item in values if item).strip()
     return text[:8000] or "待分类的服务需求"
+
+
+def _compact_category_candidates(
+    narrative: str,
+    candidates: Sequence[CategoryCandidate],
+    *,
+    limit: int = 12,
+) -> tuple[CategoryCandidate, ...]:
+    by_id = {item.category_id: item for item in candidates}
+    ranked = rank_category_candidates(
+        narrative,
+        candidates,
+        top_k=min(limit, max(1, len(candidates))),
+    ) if candidates else ()
+    selected = [by_id[item.category_id] for item in ranked]
+    if len(selected) < limit:
+        selected_ids = {item.category_id for item in selected}
+        selected.extend(
+            item
+            for item in candidates
+            if item.category_id not in selected_ids
+        )
+    return tuple(selected[:limit])
+
+
+def _missing_context(gaps: Sequence[PlanningGap]) -> tuple[dict[str, Any], ...]:
+    return tuple(
+        {
+            "field_key": item.key,
+            "label": item.label,
+            "reason": item.reason,
+            "priority": item.priority,
+            "hard_fact": item.hard_fact,
+        }
+        for item in gaps
+    )
+
+
+def _context_summary(current: Sequence[Any], readiness: Any) -> str:
+    confirmed = sorted(
+        item.field for item in current if item.status == "confirmed"
+    )
+    candidate = sorted(
+        item.field for item in current if item.status == "candidate"
+    )
+    missing = sorted(item.field for item in readiness.missing_information)
+    return (
+        f"已确认字段：{','.join(confirmed) or '无'}；"
+        f"待确认字段：{','.join(candidate) or '无'}；"
+        f"当前缺口：{','.join(missing) or '无'}"
+    )[:1000]
+
+
+def _filter_question_plan(
+    payload: Mapping[str, Any] | None,
+    gaps: Sequence[PlanningGap],
+) -> dict[str, Any] | None:
+    if not isinstance(payload, Mapping):
+        return None
+    questions = payload.get("questions")
+    if not isinstance(questions, list):
+        return None
+    allowed = {item.key for item in gaps}
+    filtered = [
+        dict(item)
+        for item in questions
+        if isinstance(item, Mapping) and item.get("field_key") in allowed
+    ]
+    return {"questions": filtered} if filtered else None
+
+
+def _deterministic_question_plan(
+    gaps: Sequence[PlanningGap],
+    *,
+    trusted_options: Mapping[str, Sequence[TrustedOption]],
+    block_seed: str,
+) -> AdaptiveQuestionPlan | None:
+    plan = build_adaptive_question_plan(
+        gaps=gaps,
+        block_seed=block_seed,
+        ai_payload=None,
+        trusted_options=trusted_options,
+    )
+    if plan is None:
+        return None
+    return replace(plan, degraded=False, degradation_code=None)
 
 
 def _selected_category(

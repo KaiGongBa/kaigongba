@@ -52,6 +52,11 @@ def test_outbox_worker_idle_wait_is_interrupted_by_stop(monkeypatch) -> None:
     monkeypatch.setattr(outbox_worker, "distributed_lock", lock)
     monkeypatch.setattr(
         outbox_worker,
+        "publish_quote_draft_outbox_once",
+        lambda _db: 0,
+    )
+    monkeypatch.setattr(
+        outbox_worker,
         "publish_staffdeck_outbox_once",
         lambda _db: scanned.set() or 0,
     )

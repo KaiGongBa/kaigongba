@@ -409,7 +409,7 @@ export type RequirementInput = {
   description: string;
   budget_min_amount: string;
   budget_max_amount: string;
-  desired_delivery_at: string;
+  desired_delivery_at: string | null;
   visibility: 'public' | 'enterprise' | 'invited_providers';
   confidentiality_level: 'standard' | 'confidential' | 'highly_confidential';
   invite_limit: number;
@@ -530,7 +530,7 @@ export type Quote = {
   serviceId: string;
   serviceName: string;
   status: string;
-  currentVersion: QuoteVersion;
+  currentVersion: QuoteVersion | null;
   versions: QuoteVersion[];
   confirmedBy?: string;
   confirmedAt?: string;

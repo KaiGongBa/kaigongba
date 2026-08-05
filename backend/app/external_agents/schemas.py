@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 
 def _to_camel(value: str) -> str:
@@ -11,8 +11,21 @@ def _to_camel(value: str) -> str:
     return head + "".join(part.capitalize() for part in tail)
 
 
+def _utc_iso(value: datetime) -> str:
+    normalized = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+    return normalized.isoformat().replace("+00:00", "Z")
+
+
 class ExternalAgentReadModel(BaseModel):
-    model_config = ConfigDict(alias_generator=_to_camel, populate_by_name=True, from_attributes=True)
+    model_config = ConfigDict(
+        alias_generator=_to_camel,
+        populate_by_name=True,
+        from_attributes=True,
+    )
+
+    @field_serializer("*", when_used="json", check_fields=False)
+    def serialize_utc_datetimes(self, value: Any) -> Any:
+        return _utc_iso(value) if isinstance(value, datetime) else value
 
 
 class StrictManifestModel(BaseModel):

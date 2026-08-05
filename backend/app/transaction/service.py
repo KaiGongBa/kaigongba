@@ -32,6 +32,7 @@ from app.db.models import (
     TransactionMatchRecommendation,
     TransactionMaterialRequest,
     TransactionMaterialSubmission,
+    TransactionNotification,
     TransactionOrder,
     TransactionOrderEvent,
     TransactionOrderFile,
@@ -100,6 +101,7 @@ from app.transaction.schemas import (
     QuoteUpdate,
     QuoteVersionRead,
     RequirementDetailRead,
+    RequirementDraftWrite,
     RequirementAIAnalysisRead,
     RequirementSummaryRead,
     RequirementVersionRead,
@@ -121,6 +123,15 @@ EDITABLE_QUOTE_STATES = {
     "pending_provider_confirmation",
     "sent",
 }
+PROVIDER_QUOTE_DRAFT_STATES = {
+    "queued",
+    "generating",
+    "ai_draft",
+    "pending_provider_confirmation",
+    "needs_clarification",
+    "failed",
+}
+QUOTE_DRAFT_REQUESTED_EVENT = "transaction.quote.ai_draft.requested"
 TERMINAL_PAYMENT_STATES = {"succeeded", "failed", "cancelled", "timed_out"}
 
 
@@ -1204,14 +1215,10 @@ def list_requirements(
 def create_requirement(
     db: Session,
     current_user: User,
-    request: RequirementWrite,
+    request: RequirementDraftWrite,
 ) -> RequirementDetailRead:
     _require_manager(db, current_user, request.organization_id)
-    category_id, category_name = resolve_category_for_requirement(
-        db,
-        category_id=request.category_id,
-        legacy_category=request.category,
-    )
+    category_id, category_name = _resolve_optional_requirement_category(db, request)
     requirement = TransactionRequirement(
         tenant_id=current_user.tenant_id,
         code=_next_code("XQ"),
@@ -1220,7 +1227,7 @@ def create_requirement(
         title=request.title.strip(),
         category=category_name if request.category_id else request.category.strip(),
         category_id=category_id,
-        category_name_snapshot=category_name,
+        category_name_snapshot=category_name or None,
         status="draft",
         visibility=request.visibility,
         confidentiality_level=request.confidentiality_level,
@@ -1251,7 +1258,7 @@ def update_requirement(
     db: Session,
     current_user: User,
     requirement_id: str,
-    request: RequirementWrite,
+    request: RequirementDraftWrite,
 ) -> RequirementDetailRead:
     requirement = _require_buyer_manager(
         db,
@@ -1264,15 +1271,11 @@ def update_requirement(
     current_version = _requirement_version(db, requirement)
     current_version.status = "superseded"
     db.add(current_version)
-    category_id, category_name = resolve_category_for_requirement(
-        db,
-        category_id=request.category_id,
-        legacy_category=request.category,
-    )
+    category_id, category_name = _resolve_optional_requirement_category(db, request)
     requirement.title = request.title.strip()
     requirement.category = category_name if request.category_id else request.category.strip()
     requirement.category_id = category_id
-    requirement.category_name_snapshot = category_name
+    requirement.category_name_snapshot = category_name or None
     requirement.visibility = request.visibility
     requirement.confidentiality_level = request.confidentiality_level
     requirement.budget_min_amount = request.budget_min_amount
@@ -1318,6 +1321,16 @@ def publish_requirement(
     if requirement.status != "draft":
         raise HTTPException(status_code=409, detail="只有草稿需求可以发布")
     version = _requirement_version(db, requirement)
+    missing_fields = _requirement_publish_missing_fields(requirement, version)
+    if missing_fields:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "REQUIREMENT_INCOMPLETE",
+                "message": "需求信息不完整，请补充后再发布",
+                "missing_fields": missing_fields,
+            },
+        )
     version.status = "published"
     requirement.status = "matching"
     requirement.published_at = utc_now()
@@ -1522,6 +1535,12 @@ def answer_clarification(
     clarification.status = "answered"
     clarification.updated_at = utc_now()
     db.add(clarification)
+    _requeue_quote_drafts_after_clarification(
+        db,
+        current_user,
+        requirement,
+        clarification,
+    )
     _record_event(
         db,
         current_user,
@@ -1561,7 +1580,7 @@ def get_provider_workbench(
     drafts = [
         _quote_read(db, current_user, item, organization_id)
         for item in quote_rows
-        if item.status in {"ai_draft", "pending_provider_confirmation"}
+        if item.status in PROVIDER_QUOTE_DRAFT_STATES
     ]
     sent = [
         _quote_read(db, current_user, item, organization_id)
@@ -1644,6 +1663,7 @@ def generate_quote(
         request.generator_skill_id,
         generator_skill_version,
     )
+    _validate_quote_version_contract(version)
     quote.current_version_id = version.id
     invitation.status = "viewed"
     invitation.viewed_at = invitation.viewed_at or utc_now()
@@ -1754,12 +1774,10 @@ def confirm_and_send_quote(
     version = _quote_version(db, quote)
     if version.valid_until <= utc_now():
         raise HTTPException(status_code=409, detail="报价有效期已经过期")
-    total = sum(
-        (Decimal(str(item.get("amount", "0"))) for item in version.milestones_json),
-        Decimal(0),
-    )
-    if total != version.total_amount:
-        raise HTTPException(status_code=409, detail="里程碑金额与总报价不一致")
+    try:
+        _validate_quote_version_contract(version)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     version.status = "sent"
     quote.status = "sent"
     quote.confirmed_by_user_id = current_user.id
@@ -2268,12 +2286,17 @@ def select_quote(
         select(TransactionQuote).where(
             TransactionQuote.requirement_id == requirement.id,
             TransactionQuote.id != quote.id,
-            TransactionQuote.status == "sent",
+            TransactionQuote.status.in_([*PROVIDER_QUOTE_DRAFT_STATES, "sent"]),
         )
     ).all()
     for other in other_quotes:
-        other.status = "rejected"
-        other.rejection_reason = "甲方已选择其他报价"
+        was_sent = other.status == "sent"
+        other.status = "rejected" if was_sent else "cancelled"
+        other.rejection_reason = (
+            "甲方已选择其他报价"
+            if was_sent
+            else "甲方选标前未确认发送，草案已终止"
+        )
         other.updated_at = utc_now()
         db.add(other)
     _record_event(
@@ -2412,6 +2435,347 @@ def request_agreement_change(
     return get_agreement(db, current_user, agreement.id, request.organization_id)
 
 
+def _enqueue_quote_draft(
+    db: Session,
+    current_user: User,
+    requirement: TransactionRequirement,
+    invitation: TransactionProviderInvitation,
+    service: MarketplaceAIService,
+    *,
+    trigger_key: str | None = None,
+) -> TransactionQuote | None:
+    requirement_version = _requirement_version(db, requirement)
+    effective_trigger = trigger_key or f"requirement-version:{requirement_version.id}"
+    quote = db.exec(
+        select(TransactionQuote).where(
+            TransactionQuote.requirement_id == requirement.id,
+            TransactionQuote.provider_organization_id
+            == invitation.provider_organization_id,
+        )
+    ).first()
+    if quote and quote.status in {
+        "ai_draft",
+        "pending_provider_confirmation",
+        "sent",
+        "selected",
+        "rejected",
+        "withdrawn",
+        "cancelled",
+    }:
+        return quote
+    if not quote:
+        quote = TransactionQuote(
+            tenant_id=current_user.tenant_id,
+            requirement_id=requirement.id,
+            provider_organization_id=invitation.provider_organization_id,
+            service_id=service.id,
+            status="queued",
+            created_by_user_id=current_user.id,
+        )
+        db.add(quote)
+        db.flush()
+    elif quote.status not in {"queued", "generating", "failed"}:
+        quote.status = "queued"
+        quote.updated_at = utc_now()
+        db.add(quote)
+
+    idempotency_key = f"quote.ai_draft.requested:{invitation.id}:{effective_trigger}"
+    existing = db.exec(
+        select(TransactionOutboxEvent).where(
+            TransactionOutboxEvent.idempotency_key == idempotency_key
+        )
+    ).first()
+    if not existing:
+        db.add(
+            TransactionOutboxEvent(
+                tenant_id=current_user.tenant_id,
+                aggregate_type="quote",
+                aggregate_id=quote.id,
+                event_type=QUOTE_DRAFT_REQUESTED_EVENT,
+                idempotency_key=idempotency_key,
+                payload_json={
+                    "quote_id": quote.id,
+                    "requirement_id": requirement.id,
+                    "requirement_version_id": requirement_version.id,
+                    "requirement_digest": requirement_version.snapshot_digest,
+                    "invitation_id": invitation.id,
+                    "provider_organization_id": invitation.provider_organization_id,
+                    "service_id": service.id,
+                    "actor_user_id": current_user.id,
+                    "trigger": effective_trigger,
+                    "attempts": 0,
+                },
+            )
+        )
+    _notify_quote_provider(
+        db,
+        current_user,
+        quote,
+        notification_type="quote_draft.queued",
+        title="收到新的报价邀请",
+        body="平台正在生成仅服务方可见的 AI 报价草案，生成后仍需负责人确认才能发送。",
+        dedupe_key=f"quote-draft-queued:{quote.id}",
+    )
+    return quote
+
+
+def _requeue_quote_drafts_after_clarification(
+    db: Session,
+    current_user: User,
+    requirement: TransactionRequirement,
+    clarification: TransactionClarification,
+) -> None:
+    rows = db.exec(
+        select(TransactionQuote).where(
+            TransactionQuote.requirement_id == requirement.id,
+            TransactionQuote.status == "needs_clarification",
+        )
+    ).all()
+    for quote in rows:
+        if (
+            clarification.provider_organization_id
+            and quote.provider_organization_id != clarification.provider_organization_id
+        ):
+            continue
+        invitation = _require_provider_invitation(
+            db,
+            requirement.id,
+            quote.provider_organization_id,
+        )
+        service = db.get(MarketplaceAIService, quote.service_id)
+        if service:
+            _enqueue_quote_draft(
+                db,
+                current_user,
+                requirement,
+                invitation,
+                service,
+                trigger_key=f"clarification:{clarification.id}",
+            )
+
+
+def _quote_draft_missing_information(
+    db: Session,
+    requirement: TransactionRequirement,
+) -> list[str]:
+    version = _requirement_version(db, requirement)
+    missing: list[str] = []
+    if not version.description.strip():
+        missing.append("缺少可执行的需求描述")
+    if not version.deliverables_json:
+        missing.append("缺少交付物要求")
+    if not version.acceptance_criteria_json:
+        missing.append("缺少验收标准")
+    if requirement.budget_max_amount <= 0:
+        missing.append("缺少有效预算上限")
+    if requirement.budget_max_amount < requirement.budget_min_amount:
+        missing.append("预算上下限不一致")
+    if not requirement.desired_delivery_at:
+        missing.append("缺少期望交付时间")
+    return missing
+
+
+def _notify_quote_provider(
+    db: Session,
+    current_user: User,
+    quote: TransactionQuote,
+    *,
+    notification_type: str,
+    title: str,
+    body: str,
+    dedupe_key: str,
+) -> None:
+    members = db.exec(
+        select(OrganizationMember).where(
+            OrganizationMember.tenant_id == current_user.tenant_id,
+            OrganizationMember.organization_id == quote.provider_organization_id,
+            OrganizationMember.status == "active",
+        )
+    ).all()
+    for member in members:
+        if not _is_manager(member):
+            continue
+        exists = db.exec(
+            select(TransactionNotification).where(
+                TransactionNotification.user_id == member.user_id,
+                TransactionNotification.dedupe_key == dedupe_key,
+            )
+        ).first()
+        if exists:
+            continue
+        db.add(
+            TransactionNotification(
+                tenant_id=current_user.tenant_id,
+                organization_id=quote.provider_organization_id,
+                user_id=member.user_id,
+                notification_type=notification_type,
+                title=title,
+                body=body,
+                route=f"/enterprise/provider/quotes/{quote.id}",
+                payload_json={
+                    "quote_id": quote.id,
+                    "requirement_id": quote.requirement_id,
+                    "status": quote.status,
+                },
+                dedupe_key=dedupe_key,
+            )
+        )
+
+
+def process_quote_draft_outbox_event(
+    db: Session,
+    event: TransactionOutboxEvent,
+) -> None:
+    """Generate one provider-private quote draft from a durable Outbox event."""
+
+    if event.event_type != QUOTE_DRAFT_REQUESTED_EVENT:
+        raise ValueError("不支持的报价草案事件")
+    event_id = event.id
+    payload = dict(event.payload_json or {})
+    quote = db.get(TransactionQuote, str(payload.get("quote_id") or ""))
+    requirement = db.get(
+        TransactionRequirement,
+        str(payload.get("requirement_id") or ""),
+    )
+    service = db.get(MarketplaceAIService, str(payload.get("service_id") or ""))
+    current_user = db.get(User, str(payload.get("actor_user_id") or ""))
+    if (
+        not quote
+        or not requirement
+        or not service
+        or not current_user
+        or quote.tenant_id != event.tenant_id
+        or requirement.tenant_id != event.tenant_id
+        or current_user.tenant_id != event.tenant_id
+        or quote.requirement_id != requirement.id
+        or quote.service_id != service.id
+        or quote.provider_organization_id
+        != str(payload.get("provider_organization_id") or "")
+    ):
+        raise ValueError("报价草案事件关联数据无效")
+    requirement_version = _requirement_version(db, requirement)
+    requested_requirement_version_id = str(
+        payload.get("requirement_version_id") or ""
+    )
+    if (
+        requested_requirement_version_id
+        and requested_requirement_version_id != requirement_version.id
+    ):
+        event.status = "published"
+        event.published_at = event.published_at or utc_now()
+        event.payload_json = {**payload, "discarded_reason": "stale_requirement_version"}
+        db.add(event)
+        db.commit()
+        return
+    if quote.status in {"sent", "selected", "rejected", "withdrawn", "cancelled"} or (
+        quote.current_version_id
+        and quote.status in {"ai_draft", "pending_provider_confirmation"}
+    ):
+        event.status = "published"
+        event.published_at = event.published_at or utc_now()
+        db.add(event)
+        db.commit()
+        return
+    service_version = db.get(MarketplaceAIServiceVersion, service.current_version_id or "")
+    if not service_version or service_version.status != "published":
+        raise ValueError("服务缺少已发布版本")
+    missing = _quote_draft_missing_information(db, requirement)
+    if missing:
+        quote.status = "needs_clarification"
+        quote.updated_at = utc_now()
+        event.status = "published"
+        event.published_at = utc_now()
+        event.payload_json = {**payload, "missing_information": missing}
+        db.add(quote)
+        db.add(event)
+        _notify_quote_provider(
+            db,
+            current_user,
+            quote,
+            notification_type="quote_draft.needs_clarification",
+            title="报价草案需要补充需求信息",
+            body="；".join(missing),
+            dedupe_key=f"quote-draft-needs-clarification:{quote.id}",
+        )
+        _record_event(
+            db,
+            current_user,
+            quote.provider_organization_id,
+            "quote.ai_draft.needs_clarification",
+            "quote",
+            quote.id,
+            {"requirement_id": requirement.id, "missing_information": missing},
+        )
+        db.commit()
+        return
+
+    quote.status = "generating"
+    quote.updated_at = utc_now()
+    db.add(quote)
+    db.commit()
+
+    version = _generate_quote_version(
+        db,
+        current_user,
+        requirement,
+        quote,
+        service,
+        service_version,
+        _next_quote_version(db, quote.id),
+        None,
+        None,
+        require_ai=True,
+    )
+    _validate_quote_version_contract(version)
+    db.refresh(quote)
+    if quote.status in {"sent", "selected", "rejected", "withdrawn", "cancelled"} or (
+        quote.current_version_id
+        and quote.status in {"ai_draft", "pending_provider_confirmation"}
+    ):
+        # A provider may have generated a manual version, or the buyer may have
+        # selected another quote while the model call was running.  Discard the
+        # uncommitted AI version instead of reviving a closed/private draft.
+        db.rollback()
+        current_event = db.get(TransactionOutboxEvent, event_id)
+        if current_event:
+            current_event.status = "published"
+            current_event.published_at = current_event.published_at or utc_now()
+            db.add(current_event)
+            db.commit()
+        return
+    quote.current_version_id = version.id
+    quote.status = "ai_draft"
+    quote.updated_at = utc_now()
+    event.status = "published"
+    event.published_at = utc_now()
+    event.payload_json = {
+        **payload,
+        "quote_version_id": version.id,
+        "quote_version": version.version,
+    }
+    db.add(quote)
+    db.add(event)
+    _notify_quote_provider(
+        db,
+        current_user,
+        quote,
+        notification_type="quote_draft.ready_for_confirmation",
+        title="AI 报价草案待确认",
+        body="AI 已生成报价范围和里程碑，请服务方负责人核对金额、范围和工期后发送。",
+        dedupe_key=f"quote-draft-ready:{quote.id}:v{version.version}",
+    )
+    _record_event(
+        db,
+        current_user,
+        quote.provider_organization_id,
+        "quote.ai_draft.generated",
+        "quote",
+        quote.id,
+        {"requirement_id": requirement.id, "version": version.version},
+    )
+    db.commit()
+
+
 def _run_matching(
     db: Session,
     current_user: User,
@@ -2519,6 +2883,14 @@ def _run_matching(
         recommendation.status = "invited"
         db.add(recommendation)
         db.add(invitation)
+        db.flush()
+        _enqueue_quote_draft(
+            db,
+            current_user,
+            requirement,
+            invitation,
+            service,
+        )
     requirement.status = "matching"
     requirement.updated_at = utc_now()
     db.add(requirement)
@@ -2607,6 +2979,8 @@ def _generate_quote_version(
     version_number: int,
     generator_skill_id: str | None,
     generator_skill_version: str | None,
+    *,
+    require_ai: bool = False,
 ) -> TransactionQuoteVersion:
     requirement_version = _requirement_version(db, requirement)
     snapshot = service_version.snapshot_json or {}
@@ -2690,6 +3064,7 @@ def _generate_quote_version(
             service_version,
             total,
             milestones,
+            strict=require_ai,
         )
     if ai_draft:
         scope = _string_list(ai_draft.get("service_scope"), 30) or scope
@@ -2763,6 +3138,33 @@ def _generate_quote_version(
     return version
 
 
+def _validate_quote_version_contract(version: TransactionQuoteVersion) -> None:
+    if version.total_amount <= 0:
+        raise ValueError("总报价必须大于 0")
+    if not version.milestones_json:
+        raise ValueError("报价至少需要一个里程碑")
+    milestone_total = Decimal(0)
+    for item in version.milestones_json:
+        try:
+            amount = Decimal(str(item.get("amount")))
+            duration_days = int(item.get("duration_days"))
+        except (ArithmeticError, TypeError, ValueError) as exc:
+            raise ValueError("里程碑金额或工期格式无效") from exc
+        if amount < 0:
+            raise ValueError("里程碑金额不能为负数")
+        if duration_days < 1 or duration_days > 365:
+            raise ValueError("里程碑工期必须介于 1 至 365 天")
+        if not str(item.get("name") or "").strip():
+            raise ValueError("里程碑名称不能为空")
+        if not item.get("deliverables"):
+            raise ValueError("里程碑必须声明交付物")
+        if not item.get("acceptance_criteria"):
+            raise ValueError("里程碑必须声明验收标准")
+        milestone_total += amount
+    if milestone_total != version.total_amount:
+        raise ValueError("里程碑金额合计必须等于总报价")
+
+
 def _platform_ai_quote_draft(
     db: Session,
     current_user: User,
@@ -2772,6 +3174,8 @@ def _platform_ai_quote_draft(
     service_version: MarketplaceAIServiceVersion,
     total: Decimal,
     baseline_milestones: list[dict[str, Any]],
+    *,
+    strict: bool = False,
 ) -> dict[str, Any]:
     provider = db.get(MarketplaceProviderProfile, service.provider_id)
     gateway = AIModelGateway(
@@ -2782,7 +3186,7 @@ def _platform_ai_quote_draft(
         organization_id=provider.organization_id if provider else None,
     )
     try:
-        return gateway.generate_json(
+        result = gateway.generate_json(
             """你是开工吧报价草案助手。只根据给定需求、已发布服务快照和确定的总价起草报价。
 不得扩大服务范围、减少验收要求或改变总价。只返回 JSON object，字段：service_scope、exclusions、
 delivery_days、included_revisions、milestones、acceptance_criteria、additional_terms。
@@ -2809,7 +3213,12 @@ milestones 最多 3 项；金额由交易系统计算，不要输出金额。草
                 ],
             },
         )
+        if strict and not result:
+            raise LLMError("MODEL_EMPTY_QUOTE_DRAFT")
+        return result
     except LLMError:
+        if strict:
+            raise
         return {}
 
 
@@ -2970,7 +3379,11 @@ def _quote_read(
         .where(TransactionQuoteVersion.quote_id == quote.id)
         .order_by(TransactionQuoteVersion.version.desc())
     ).all()
-    current = _quote_version(db, quote)
+    current = (
+        db.get(TransactionQuoteVersion, quote.current_version_id)
+        if quote.current_version_id
+        else None
+    )
     expose_internal = is_provider or platform_access
     return QuoteRead(
         id=quote.id,
@@ -2985,7 +3398,9 @@ def _quote_read(
         service_id=quote.service_id,
         service_name=service.name if service else quote.service_id,
         status=quote.status,
-        current_version=_quote_version_read(db, current, expose_internal),
+        current_version=(
+            _quote_version_read(db, current, expose_internal) if current else None
+        ),
         versions=[
             _quote_version_read(db, item, expose_internal)
             for item in versions
@@ -3677,7 +4092,7 @@ def _create_requirement_version(
     db: Session,
     current_user: User,
     requirement: TransactionRequirement,
-    request: RequirementWrite,
+    request: RequirementDraftWrite | RequirementWrite,
     version_number: int,
 ) -> TransactionRequirementVersion:
     snapshot = {
@@ -3686,7 +4101,11 @@ def _create_requirement_version(
         "description": request.description.strip(),
         "budget_min_amount": str(request.budget_min_amount),
         "budget_max_amount": str(request.budget_max_amount),
-        "desired_delivery_at": request.desired_delivery_at.isoformat(),
+        "desired_delivery_at": (
+            request.desired_delivery_at.isoformat()
+            if request.desired_delivery_at is not None
+            else None
+        ),
         "visibility": request.visibility,
         "confidentiality_level": request.confidentiality_level,
         "deliverables": request.deliverables,
@@ -3710,6 +4129,47 @@ def _create_requirement_version(
     db.add(version)
     db.flush()
     return version
+
+
+def _resolve_optional_requirement_category(
+    db: Session,
+    request: RequirementDraftWrite,
+) -> tuple[str | None, str]:
+    if not request.category_id and not request.category.strip():
+        return None, ""
+    return resolve_category_for_requirement(
+        db,
+        category_id=request.category_id,
+        legacy_category=request.category,
+    )
+
+
+def _requirement_publish_missing_fields(
+    requirement: TransactionRequirement,
+    version: TransactionRequirementVersion,
+) -> list[dict[str, str]]:
+    checks = (
+        ("title", "需求标题", len(requirement.title.strip()) >= 4),
+        ("category", "业务分类", len(requirement.category.strip()) >= 2),
+        ("description", "详细描述", len(version.description.strip()) >= 20),
+        ("budget_max_amount", "预算上限", requirement.budget_max_amount > 0),
+        ("desired_delivery_at", "期望完成时间", requirement.desired_delivery_at is not None),
+        (
+            "deliverables",
+            "期望交付物",
+            any(str(item.get("name") or "").strip() for item in version.deliverables_json),
+        ),
+        (
+            "acceptance_criteria",
+            "验收要求",
+            any(str(item).strip() for item in version.acceptance_criteria_json),
+        ),
+    )
+    return [
+        {"field": field, "label": label}
+        for field, label, complete in checks
+        if not complete
+    ]
 
 
 def _require_buyer_manager(

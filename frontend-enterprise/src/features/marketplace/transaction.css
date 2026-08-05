@@ -13,6 +13,15 @@
 .transaction-steps b { display: grid; width: 28px; height: 28px; place-items: center; border: 1px solid #e0e4e9; border-radius: 50%; background: #fafbfc; color: #555d6b; }
 .transaction-steps .is-active { color: #23262d; font-weight: 650; }
 .transaction-steps .is-active b { border-color: #202329; background: #202329; color: #fff; }
+.transaction-ai-requirement-entry { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 14px; margin: 0 0 16px; border: 1px solid #d9d6f6; border-radius: 10px; padding: 15px 16px; background: #fbfaff; }
+.transaction-ai-requirement-icon { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 10px; background: #ece9ff; color: #625ac6; }
+.transaction-ai-requirement-icon svg { width: 19px; }
+.transaction-ai-requirement-entry h2 { margin: 0; color: #252832; font-size: 14px; }
+.transaction-ai-requirement-entry p { margin: 4px 0 9px; color: #747c8b; font-size: 11px; }
+.transaction-ai-requirement-entry textarea { min-height: 58px; width: 100%; padding: 9px 11px; line-height: 1.55; }
+.transaction-ai-requirement-entry > button { display: inline-flex; min-height: 38px; align-items: center; gap: 6px; border: 0; border-radius: 7px; padding: 0 14px; background: #26292f; color: #fff; white-space: nowrap; }
+.transaction-ai-requirement-entry > button:disabled { cursor: not-allowed; opacity: .45; }
+.transaction-ai-requirement-entry > button svg { width: 15px; }
 .transaction-editor-layout { display: grid; grid-template-columns: minmax(620px, 1fr) 330px; align-items: start; gap: 18px; }
 .transaction-form-stack, .transaction-side-stack { display: flex; min-width: 0; flex-direction: column; gap: 14px; }
 .transaction-card { min-width: 0; border: 1px solid #e3e6eb; border-radius: 10px; padding: 16px; background: #fff; }
@@ -52,6 +61,16 @@
 .transaction-progress { height: 6px; overflow: hidden; border-radius: 3px; background: #edeff2; }
 .transaction-progress span { display: block; height: 100%; border-radius: inherit; background: #2ca258; }
 .transaction-card > small { display: block; margin-top: 8px; color: #7b8391; font-size: 11px; }
+.transaction-validation-summary { border: 1px solid #e6b6b3; border-radius: 10px; padding: 13px 15px; background: #fff8f7; color: #7f302b; }
+.transaction-validation-summary > div { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.transaction-validation-summary strong { font-size: 13px; }
+.transaction-validation-summary small { color: #9a5d58; font-size: 10px; }
+.transaction-validation-summary ul { display: flex; flex-wrap: wrap; gap: 6px; margin: 9px 0 0; padding: 0; list-style: none; }
+.transaction-validation-summary button { border: 1px solid #efcfcc; border-radius: 6px; padding: 5px 8px; background: #fff; color: #7f302b; font-size: 10px; }
+.transaction-field-error { color: #bd3d36 !important; font-size: 10px !important; }
+.transaction-page [aria-invalid="true"] { border-color: #ce635d !important; box-shadow: 0 0 0 2px rgb(196 61 54 / 8%); }
+.transaction-missing-list { display: flex; flex-wrap: wrap; gap: 5px; margin: 9px 0 0; padding: 0; list-style: none; }
+.transaction-missing-list li { border-radius: 5px; padding: 3px 6px; background: #f6f0e8; color: #91601f; font-size: 9px; }
 .transaction-budget-card .marketplace-secondary-button, .transaction-budget-card .marketplace-submit-button { width: 100%; margin-top: 10px; }
 .transaction-privacy-note { display: flex; align-items: flex-start; gap: 10px; background: #fbfcff; }
 .transaction-privacy-note > svg { width: 18px; flex: none; color: #51658c; }
@@ -242,6 +261,8 @@
 }
 
 @media (max-width: 900px) {
+  .transaction-ai-requirement-entry { grid-template-columns: auto 1fr; }
+  .transaction-ai-requirement-entry > button { grid-column: 2; justify-self: start; }
   .transaction-steps, .transaction-agreement-steps { grid-template-columns: repeat(2, 1fr); row-gap: 14px; padding-inline: 12px; }
   .transaction-detail-layout, .transaction-agreement-layout { grid-template-columns: 1fr; }
   .transaction-detail-layout > aside, .transaction-agreement-layout > .transaction-side-stack { display: flex; grid-column: auto; }

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  collectStructuredBlockDiagnostics,
+  parseStructuredBlockBySchema,
   safeParseAnyTurnResponse,
   safeParseStructuredBlockV2,
   safeParseTurnResponse,
@@ -78,6 +80,34 @@ function responseV2(blocks: unknown[]) {
 }
 
 describe('platform assistant adaptive interview protocol v2', () => {
+  it('accepts an unmatched classification when optional identity fields are omitted on the wire', () => {
+    const parsed = parseStructuredBlockBySchema({
+      schema_version: '2.0',
+      block_id: 'block_interview_unmatched',
+      block_version: 1,
+      type: 'interview_state',
+      status: 'pending',
+      title: '已收集的信息',
+      description: '等待匹配分类。',
+      facts: [],
+      classification: { confidence: 0.08, status: 'unmatched' },
+      missing_information: [{
+        key: 'category', label: '服务分类', severity: 'blocking', reason: '请补充服务分类。',
+      }],
+      readiness: { ready: false, blocking_fields: ['category'] },
+    }, 0);
+
+    expect(parsed.diagnostic).toBeNull();
+    expect(parsed.block.type).toBe('interview_state');
+    if (parsed.block.type === 'interview_state') {
+      expect(parsed.block.classification).toEqual({
+        category_id: null,
+        name: null,
+        confidence: 0.08,
+        status: 'unmatched',
+      });
+    }
+  });
   it('parses interview state, adaptive questions and frozen v1 blocks in one v2 response', () => {
     const parsed = safeParseTurnResponseV2(responseV2([interviewBlock, adaptiveQuestions, frozenV1Notice]));
     expect(parsed?.protocol_version).toBe('2.0');
@@ -138,5 +168,23 @@ describe('platform assistant adaptive interview protocol v2', () => {
     });
     expect(malformed).toMatchObject({ type: 'notice', code: 'INVALID_BLOCK' });
     expect(JSON.stringify(malformed)).not.toContain('<script');
+  });
+
+  it('dispatches restored blocks by their own schema and emits non-sensitive audit diagnostics', () => {
+    const restored = [interviewBlock, adaptiveQuestions, frozenV1Notice, {
+      schema_version: '9.9', block_id: 'block_future_unknown', type: 'future_widget',
+      secret_payload: '<script>do-not-log</script>',
+    }];
+
+    expect(restored.map((block, index) => parseStructuredBlockBySchema(block, index).block.type))
+      .toEqual(['interview_state', 'question_group', 'notice', 'notice']);
+    expect(collectStructuredBlockDiagnostics(restored)).toEqual([{
+      code: 'UNSUPPORTED_BLOCK', block_index: 3, schema_version: '9.9',
+      block_type: 'future_widget', block_id: 'block_future_unknown',
+    }]);
+    expect(JSON.stringify(collectStructuredBlockDiagnostics(restored))).not.toContain('do-not-log');
+    expect(parseStructuredBlockBySchema(restored[3], 3).block).toMatchObject({
+      block_id: 'block_safe_fallback_3', code: 'UNSUPPORTED_BLOCK', actions: [],
+    });
   });
 });

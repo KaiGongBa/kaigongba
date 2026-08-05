@@ -298,6 +298,19 @@ export type PlatformAssistantV2StructuredBlock =
   | AdaptiveQuestionGroupBlock
   | InterviewStateBlock;
 
+export type StructuredBlockParseDiagnostic = Readonly<{
+  code: 'UNSUPPORTED_BLOCK' | 'INVALID_BLOCK';
+  block_index: number;
+  schema_version: string | null;
+  block_type: string | null;
+  block_id: string | null;
+}>;
+
+export type StructuredBlockParseResult = Readonly<{
+  block: PlatformAssistantV2StructuredBlock;
+  diagnostic: StructuredBlockParseDiagnostic | null;
+}>;
+
 export type WorkflowState =
   | 'intent_pending'
   | 'intent_confirmed'
@@ -416,7 +429,63 @@ export function safeParseStructuredBlock(value: unknown, fallbackIndex = 0): Str
   if (!isRecord(value) || typeof value.type !== 'string' || !BLOCK_TYPES.has(value.type)) {
     return fallbackNotice('UNSUPPORTED_BLOCK', fallbackIndex);
   }
-  const parsed = value.type === 'intent_confirmation'
+  const parsed = parseKnownV1Block(value);
+  return parsed ?? fallbackNotice('INVALID_BLOCK', fallbackIndex);
+}
+
+export function safeParseStructuredBlockV2(
+  value: unknown,
+  fallbackIndex = 0,
+): PlatformAssistantV2StructuredBlock {
+  return parseStructuredBlockBySchema(value, fallbackIndex).block;
+}
+
+/**
+ * Persisted runs may legitimately contain frozen v1 blocks and adaptive v2
+ * blocks together. Dispatch from the block's own schema_version rather than
+ * the response envelope so restore remains safe across protocol upgrades.
+ */
+export function parseStructuredBlockBySchema(
+  value: unknown,
+  fallbackIndex = 0,
+): StructuredBlockParseResult {
+  if (!isRecord(value)) {
+    return blockParseFailure('UNSUPPORTED_BLOCK', value, fallbackIndex);
+  }
+  if (value.schema_version === '1.0') {
+    if (typeof value.type !== 'string' || !BLOCK_TYPES.has(value.type)) {
+      return blockParseFailure('UNSUPPORTED_BLOCK', value, fallbackIndex);
+    }
+    const block = parseKnownV1Block(value);
+    return block
+      ? { block, diagnostic: null }
+      : blockParseFailure('INVALID_BLOCK', value, fallbackIndex);
+  }
+  if (value.schema_version === '2.0') {
+    if (typeof value.type !== 'string' || !V2_BLOCK_TYPES.has(value.type)) {
+      return blockParseFailure('UNSUPPORTED_BLOCK', value, fallbackIndex);
+    }
+    const parsed = value.type === 'question_group'
+      ? parseAdaptiveQuestionGroup(value)
+      : parseInterviewState(value);
+    return parsed
+      ? { block: parsed, diagnostic: null }
+      : blockParseFailure('INVALID_BLOCK', value, fallbackIndex);
+  }
+  return blockParseFailure('UNSUPPORTED_BLOCK', value, fallbackIndex);
+}
+
+export function collectStructuredBlockDiagnostics(
+  values: readonly unknown[],
+): StructuredBlockParseDiagnostic[] {
+  return values.flatMap((value, index) => {
+    const result = parseStructuredBlockBySchema(value, index);
+    return result.diagnostic ? [result.diagnostic] : [];
+  });
+}
+
+function parseKnownV1Block(value: Record<string, unknown>): StructuredBlock | null {
+  return value.type === 'intent_confirmation'
     ? parseIntentConfirmation(value)
     : value.type === 'question_group'
       ? parseQuestionGroup(value)
@@ -429,23 +498,6 @@ export function safeParseStructuredBlock(value: unknown, fallbackIndex = 0): Str
             : value.type === 'deep_link'
               ? parseDeepLink(value)
               : parseNotice(value);
-  return parsed ?? fallbackNotice('INVALID_BLOCK', fallbackIndex);
-}
-
-export function safeParseStructuredBlockV2(
-  value: unknown,
-  fallbackIndex = 0,
-): PlatformAssistantV2StructuredBlock {
-  if (isRecord(value) && value.schema_version === '1.0') {
-    return safeParseStructuredBlock(value, fallbackIndex);
-  }
-  if (!isRecord(value) || typeof value.type !== 'string' || !V2_BLOCK_TYPES.has(value.type)) {
-    return fallbackNotice('UNSUPPORTED_BLOCK', fallbackIndex);
-  }
-  const parsed = value.type === 'question_group'
-    ? parseAdaptiveQuestionGroup(value)
-    : parseInterviewState(value);
-  return parsed ?? fallbackNotice('INVALID_BLOCK', fallbackIndex);
 }
 
 export function safeParseTurnResponse(value: unknown): PlatformAssistantTurnResponse | null {
@@ -633,16 +685,18 @@ function parseInterviewFact(value: unknown): InterviewFact | null {
 
 function parseInterviewClassification(value: unknown): InterviewClassification | null {
   const statuses: InterviewClassificationStatus[] = ['matched', 'suggested', 'needs_confirmation', 'unmatched'];
+  const categoryId = isRecord(value) ? (value.category_id ?? null) : null;
+  const categoryName = isRecord(value) ? (value.name ?? null) : null;
   if (!isRecord(value) || !hasOnlyKeys(value, ['category_id', 'name', 'confidence', 'status'])
-    || !(value.category_id === null || boundedString(value.category_id, 1, 160))
-    || !(value.name === null || boundedString(value.name, 1, 300))
+    || !(categoryId === null || boundedString(categoryId, 1, 160))
+    || !(categoryName === null || boundedString(categoryName, 1, 300))
     || !confidence(value.confidence)
     || !statuses.includes(value.status as InterviewClassificationStatus)) return null;
   if ((value.status === 'matched' || value.status === 'suggested')
-    && (value.category_id === null || value.name === null)) return null;
+    && (categoryId === null || categoryName === null)) return null;
   return {
-    category_id: value.category_id,
-    name: value.name,
+    category_id: categoryId,
+    name: categoryName,
     confidence: value.confidence,
     status: value.status as InterviewClassificationStatus,
   };
@@ -969,6 +1023,30 @@ function fallbackNotice(code: 'UNSUPPORTED_BLOCK' | 'INVALID_BLOCK', index: numb
     code,
     message: '请刷新后重试，或改用手工流程继续。',
     actions: [],
+  };
+}
+
+function blockParseFailure(
+  code: 'UNSUPPORTED_BLOCK' | 'INVALID_BLOCK',
+  value: unknown,
+  index: number,
+): StructuredBlockParseResult {
+  const record = isRecord(value) ? value : null;
+  return {
+    block: fallbackNotice(code, index),
+    diagnostic: {
+      code,
+      block_index: Math.max(0, index),
+      schema_version: record && typeof record.schema_version === 'string'
+        ? record.schema_version.slice(0, 32)
+        : null,
+      block_type: record && typeof record.type === 'string'
+        ? record.type.slice(0, 80)
+        : null,
+      block_id: record && typeof record.block_id === 'string'
+        ? record.block_id.slice(0, 160)
+        : null,
+    },
   };
 }
 

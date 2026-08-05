@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from app.platform_assistant.adaptive_planning import PlanningGap
+from app.platform_assistant.category_matching import CategoryCandidate
 from app.platform_assistant.orchestrator import RequirementWorkflowOrchestrator
 
 
@@ -155,3 +156,87 @@ def test_prompt_injection_in_adaptive_answer_never_reaches_model() -> None:
     assert result.facts == ()
     assert result.degradation_code == "PROMPT_INJECTION_GUARD"
     assert gateway.calls == []
+
+
+def test_unified_adaptive_round_repairs_schema_once_and_keeps_hard_facts_unconfirmed() -> None:
+    gateway = RecordingGateway(
+        {"facts": "not-an-array"},
+        {
+            "facts": [
+                {
+                    "field": "schedule",
+                    "value": {
+                        "kind": "duration",
+                        "duration": 14,
+                        "unit": "calendar_day",
+                        "timezone": "Asia/Shanghai",
+                    },
+                    "confidence": 0.95,
+                    "evidence_quote": "两周后",
+                    "inferred": False,
+                }
+            ],
+            "classification": {
+                "category_id": "presentation-design",
+                "confidence": 0.94,
+                "reason_code": "ai_category_match",
+                "alternative_category_ids": [],
+            },
+            "questions": [
+                {
+                    "field_key": "deliverables",
+                    "question": "最终希望收到哪些交付文件？",
+                    "help_text": "例如 PPTX 和 PDF。",
+                    "input_type": "long_text",
+                    "options": [],
+                    "allow_custom": True,
+                    "allow_uncertain": False,
+                    "reason_code": "HIGHEST_INFORMATION_GAIN",
+                }
+            ],
+        },
+    )
+    orchestrator = RequirementWorkflowOrchestrator(gateway)
+    result = orchestrator.analyze_adaptive_round(
+        "两周后要用。",
+        allowed_fields=["schedule", "deliverables"],
+        confirmed_facts={"goal": "制作融资路演PPT"},
+        missing_information=[
+            {
+                "field_key": "schedule",
+                "label": "交付时间",
+                "reason": "尚未确认",
+                "priority": 50,
+                "hard_fact": True,
+            },
+            {
+                "field_key": "deliverables",
+                "label": "交付物",
+                "reason": "尚未确认",
+                "priority": 30,
+                "hard_fact": False,
+            },
+        ],
+        classification_candidates=[
+            CategoryCandidate(
+                category_id="presentation-design",
+                name="演示文稿设计",
+                parent_id=None,
+                description="融资路演演示文稿设计",
+                aliases=("PPT设计",),
+                example_tasks=("制作融资路演PPT",),
+                required_facets=(),
+                sort_order=10,
+            )
+        ],
+        context_summary="已确认字段：goal；当前缺口：schedule,deliverables",
+    )
+
+    assert result.model_calls == 2
+    assert len(gateway.calls) == 2
+    assert "JSON 结构修复器" in gateway.calls[1][0]
+    assert gateway.calls[1][1]["original_payload"]["latest_user_message"] == "两周后要用。"
+    assert len(result.facts) == 1
+    assert result.facts[0].field == "schedule"
+    assert result.facts[0].confirmed_by_user is False
+    assert result.facts[0].needs_confirmation is True

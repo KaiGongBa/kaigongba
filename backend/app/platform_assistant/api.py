@@ -93,6 +93,7 @@ class TurnRequest(ContextRequest):
     client_request_id: str = Field(min_length=8, max_length=160)
     session_id: str | None = Field(default=None, max_length=160)
     message: str = Field(min_length=1, max_length=20_000)
+    entrypoint: Literal["requirement.create"] | None = None
 
 
 class AnswerRunRequest(StrictRequest):
@@ -176,6 +177,15 @@ def create_turn(
             payload.page_context,
             projection=projection,
         )
+        if (
+            payload.entrypoint == "requirement.create"
+            and context.underlying_route_id != "enterprise.requirement.create"
+        ):
+            raise ContextResolutionError(
+                "CONTEXT_FORBIDDEN",
+                "requirement analysis entrypoint is unavailable on the current route",
+                status_code=403,
+            )
         scope = _ensure_platform_assistant_scope(db, current_user, payload.session_id)
         feature = _feature_decision(db, current_user)
         repository = PlatformAssistantRepository(db)
@@ -203,7 +213,13 @@ def create_turn(
                 route_id=context.underlying_route_id,
             )
             return _feature_stage_turn_payload(
-                db, scope, context, feature, payload.client_request_id, request
+                db,
+                scope,
+                context,
+                feature,
+                payload.client_request_id,
+                request,
+                protocol_version=payload.protocol_version,
             )
         if is_guidance_request(payload.message):
             _authorize_action(
@@ -231,6 +247,7 @@ def create_turn(
                 guidance.assistant_text,
                 guidance_blocks(guidance, request_id=payload.client_request_id),
                 request,
+                protocol_version=payload.protocol_version,
             )
         if not feature.requirement_draft_write_allowed:
             _record_feature_blocked(
@@ -242,7 +259,13 @@ def create_turn(
                 route_id=context.underlying_route_id,
             )
             return _feature_stage_turn_payload(
-                db, scope, context, feature, payload.client_request_id, request
+                db,
+                scope,
+                context,
+                feature,
+                payload.client_request_id,
+                request,
+                protocol_version=payload.protocol_version,
             )
         _authorize_action(
             db,
@@ -271,6 +294,7 @@ def create_turn(
             authorized_organization_ids=projection.organization_ids,
             initial_user_message=initial_user_message,
             protocol_version=payload.protocol_version,
+            entrypoint=payload.entrypoint,
         )
         _link_runtime_usage(db, current_user, scope, result)
         user_message.metadata_json = {
@@ -332,7 +356,10 @@ def create_run(
             organization_id=context.organization_id,
             context_snapshot=context.as_contract(),
         )
-        return _run_payload(PlatformAssistantRepository(db).get_run_snapshot(scope, run.id))
+        return _run_payload(
+            PlatformAssistantRepository(db).get_run_snapshot(scope, run.id),
+            protocol_version=payload.protocol_version,
+        )
     except Exception as exc:
         return _error_response(request, exc)
 
@@ -343,6 +370,7 @@ def get_latest_run(
     request: Request,
     current_user: CurrentUser,
     db: DatabaseSession,
+    protocol_version: Literal["1.0", "2.0"] = "1.0",
 ) -> dict[str, Any] | JSONResponse:
     try:
         scope = _run_scope(db, current_user, session_id)
@@ -350,7 +378,10 @@ def get_latest_run(
         run = repository.get_latest_active_run(scope)
         if run is None:
             raise RunNotFound("active platform assistant workflow was not found")
-        return _run_payload(repository.get_run_snapshot(scope, run.id))
+        return _run_payload(
+            repository.get_run_snapshot(scope, run.id),
+            protocol_version=protocol_version,
+        )
     except Exception as exc:
         return _error_response(request, exc)
 
@@ -362,11 +393,12 @@ def get_run(
     request: Request,
     current_user: CurrentUser,
     db: DatabaseSession,
+    protocol_version: Literal["1.0", "2.0"] = "1.0",
 ) -> dict[str, Any] | JSONResponse:
     try:
         scope = _run_scope(db, current_user, session_id)
         snapshot = PlatformAssistantRepository(db).get_run_snapshot(scope, run_id)
-        return _run_payload(snapshot)
+        return _run_payload(snapshot, protocol_version=protocol_version)
     except Exception as exc:
         return _error_response(request, exc)
 
@@ -441,7 +473,10 @@ def submit_answers(
                 request,
                 protocol_version=payload.protocol_version,
             )
-        return _run_payload(repository.get_run_snapshot(scope, run_id))
+        return _run_payload(
+            repository.get_run_snapshot(scope, run_id),
+            protocol_version=payload.protocol_version,
+        )
     except Exception as exc:
         return _error_response(request, exc)
 
@@ -458,7 +493,10 @@ def cancel_run(
         scope = _run_scope(db, current_user, payload.session_id)
         repository = PlatformAssistantRepository(db)
         repository.cancel_run(scope, run_id)
-        return _run_payload(repository.get_run_snapshot(scope, run_id))
+        return _run_payload(
+            repository.get_run_snapshot(scope, run_id),
+            protocol_version=payload.protocol_version,
+        )
     except Exception as exc:
         return _error_response(request, exc)
 
@@ -475,7 +513,10 @@ def resume_run(
         scope = _run_scope(db, current_user, payload.session_id)
         repository = PlatformAssistantRepository(db)
         repository.resume_run(scope, run_id)
-        return _run_payload(repository.get_run_snapshot(scope, run_id))
+        return _run_payload(
+            repository.get_run_snapshot(scope, run_id),
+            protocol_version=payload.protocol_version,
+        )
     except Exception as exc:
         return _error_response(request, exc)
 
@@ -855,6 +896,8 @@ def _guidance_turn_payload(
     assistant_text: str,
     blocks: list[dict[str, Any]],
     request: Request,
+    *,
+    protocol_version: Literal["1.0", "2.0"] = "1.0",
 ) -> dict[str, Any]:
     assistant_message = _store_assistant_message(
         db,
@@ -871,7 +914,7 @@ def _guidance_turn_payload(
         context.as_contract() if hasattr(context, "as_contract") else dict(context)
     )
     return {
-        "protocol_version": "1.0",
+        "protocol_version": protocol_version,
         "request_id": getattr(request.state, "request_id", None) or uuid4().hex,
         "server_time": datetime.now(UTC).isoformat(),
         "session_id": scope.session_id,
@@ -892,6 +935,8 @@ def _feature_stage_turn_payload(
     feature: FeatureFlagDecision,
     client_request_id: str,
     request: Request,
+    *,
+    protocol_version: Literal["1.0", "2.0"] = "1.0",
 ) -> dict[str, Any]:
     blocks = feature_stage_blocks(
         feature.effective_stage,
@@ -904,6 +949,7 @@ def _feature_stage_turn_payload(
         blocks[0]["message"],
         blocks,
         request,
+        protocol_version=protocol_version,
     )
 
 
@@ -930,10 +976,14 @@ def _workflow_payload(result: RuntimeResult) -> dict[str, Any]:
     }
 
 
-def _run_payload(snapshot) -> dict[str, Any]:
+def _run_payload(
+    snapshot,
+    *,
+    protocol_version: Literal["1.0", "2.0"] = "1.0",
+) -> dict[str, Any]:
     run = snapshot.run
     return {
-        "protocol_version": "1.0",
+        "protocol_version": protocol_version,
         "run": {
             "run_id": run.id,
             "session_id": run.session_id,

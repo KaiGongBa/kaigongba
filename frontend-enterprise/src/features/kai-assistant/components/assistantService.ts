@@ -6,11 +6,13 @@ import type {
   PlatformAssistantErrorEnvelope,
   PlatformAssistantTurnResponse,
   PlatformAssistantV2StructuredBlock,
+  StructuredBlockParseDiagnostic,
 } from '../protocol';
 import {
+  collectStructuredBlockDiagnostics,
+  parseStructuredBlockBySchema,
   safeParseErrorEnvelope,
   safeParseAnyTurnResponse,
-  safeParseStructuredBlock,
 } from '../protocol';
 
 export type AssistantTurnInput = Readonly<{
@@ -18,6 +20,7 @@ export type AssistantTurnInput = Readonly<{
   sessionId: string | null;
   agentId: string;
   message: string;
+  entrypoint?: 'requirement.create';
 }>;
 
 export type AssistantTurnResult = Readonly<{
@@ -26,11 +29,13 @@ export type AssistantTurnResult = Readonly<{
   messageId: string;
   assistantText: string;
   blocks: PlatformAssistantV2StructuredBlock[];
+  blockDiagnostics?: StructuredBlockParseDiagnostic[];
   workflow: PlatformAssistantTurnResponse['workflow'];
+  runState?: string | null;
 }>;
 
 export type AssistantRunSnapshot = Readonly<{
-  protocol_version: '1.0';
+  protocol_version: '1.0' | '2.0';
   run: {
     run_id: string;
     session_id: string;
@@ -62,20 +67,13 @@ export function createDefaultKaiAssistantService(): KaiAssistantService {
         session_id: input.sessionId,
         message: input.message,
         page_context: input.pageContext,
+        ...(input.entrypoint ? { entrypoint: input.entrypoint } : {}),
       };
-      let response: unknown;
-      try {
-        response = await api.post<unknown>('/api/platform-assistant/turns', {
-          protocol_version: '2.0',
-          ...request,
-        });
-      } catch (error) {
-        if (!isProtocolVersionRejection(error)) throw error;
-        response = await api.post<unknown>('/api/platform-assistant/turns', {
-          protocol_version: '1.0',
-          ...request,
-        });
-      }
+      const response = await postWithProtocolNegotiation(
+        '/api/platform-assistant/turns',
+        request,
+        '2.0',
+      );
       return normalizeAssistantResult(response, {
         sessionId: input.sessionId || '',
         assistantText: '开小花暂时无法回复。',
@@ -83,9 +81,11 @@ export function createDefaultKaiAssistantService(): KaiAssistantService {
     },
 
     async submitAnswers(submission) {
-      const response = await api.post<unknown>(
+      const { protocol_version: preferredVersion, ...request } = submission;
+      const response = await postWithProtocolNegotiation(
         `/api/platform-assistant/runs/${encodeURIComponent(submission.run_id)}/answers`,
-        submission,
+        request,
+        preferredVersion,
       );
       return normalizeAssistantResult(response, {
         sessionId: submission.session_id,
@@ -95,9 +95,10 @@ export function createDefaultKaiAssistantService(): KaiAssistantService {
     },
 
     async resumeRun(sessionId, runId) {
-      const response = await api.post<unknown>(
+      const response = await postWithProtocolNegotiation(
         `/api/platform-assistant/runs/${encodeURIComponent(runId)}/resume`,
-        { protocol_version: '1.0', session_id: sessionId },
+        { session_id: sessionId },
+        '2.0',
       );
       return normalizeAssistantResult(response, {
         sessionId,
@@ -107,9 +108,10 @@ export function createDefaultKaiAssistantService(): KaiAssistantService {
     },
 
     async cancelRun(sessionId, runId) {
-      const response = await api.post<unknown>(
+      const response = await postWithProtocolNegotiation(
         `/api/platform-assistant/runs/${encodeURIComponent(runId)}/cancel`,
-        { protocol_version: '1.0', session_id: sessionId },
+        { session_id: sessionId },
+        '2.0',
       );
       return normalizeAssistantResult(response, {
         sessionId,
@@ -124,6 +126,10 @@ export function normalizeAssistantResult(
   value: unknown,
   fallback: { sessionId: string; runId?: string | null; assistantText: string },
 ): AssistantTurnResult {
+  const unsafeBlocks = rawUiBlocks(value);
+  const blockDiagnostics = unsafeBlocks
+    ? collectStructuredBlockDiagnostics(unsafeBlocks)
+    : [];
   const turn = safeParseAnyTurnResponse(value);
   if (turn) {
     return {
@@ -132,7 +138,9 @@ export function normalizeAssistantResult(
       messageId: turn.message_id,
       assistantText: turn.assistant_text,
       blocks: turn.ui_blocks,
+      blockDiagnostics,
       workflow: turn.workflow,
+      runState: turn.workflow?.state ?? null,
     };
   }
   if (isRunSnapshot(value)) {
@@ -141,8 +149,10 @@ export function normalizeAssistantResult(
       runId: value.run.run_id,
       messageId: `run_${value.run.row_version}`,
       assistantText: fallback.assistantText,
-      blocks: value.ui_blocks.map((block, index) => safeParseStructuredBlock(block, index)),
+      blocks: value.ui_blocks.map((block, index) => parseStructuredBlockBySchema(block, index).block),
+      blockDiagnostics,
       workflow: null,
+      runState: value.run.state,
     };
   }
   if (isLegacyChatTurn(value)) {
@@ -152,7 +162,9 @@ export function normalizeAssistantResult(
       messageId: `legacy_${crypto.randomUUID()}`,
       assistantText: value.reply,
       blocks: [],
+      blockDiagnostics: [],
       workflow: null,
+      runState: null,
     };
   }
   throw new Error('开小花返回了无法安全显示的内容');
@@ -165,6 +177,27 @@ function isProtocolVersionRejection(error: unknown): boolean {
   return (status === 400 || status === 422)
     && body.includes('protocol_version')
     && (body.includes('2.0') || body.includes('literal'));
+}
+
+async function postWithProtocolNegotiation(
+  path: string,
+  request: Record<string, unknown>,
+  preferredVersion: '1.0' | '2.0',
+): Promise<unknown> {
+  try {
+    return await api.post<unknown>(path, {
+      protocol_version: preferredVersion,
+      ...request,
+    });
+  } catch (error) {
+    if (preferredVersion !== '2.0' || !isProtocolVersionRejection(error)) throw error;
+    const legacyRequest = { ...request };
+    delete legacyRequest.entrypoint;
+    return api.post<unknown>(path, {
+      protocol_version: '1.0',
+      ...legacyRequest,
+    });
+  }
 }
 
 export function parseAssistantError(error: unknown): PlatformAssistantErrorEnvelope['error'] {
@@ -191,12 +224,16 @@ function isLegacyChatTurn(value: unknown): value is LegacyChatTurnResponse {
 }
 
 function isRunSnapshot(value: unknown): value is AssistantRunSnapshot {
-  if (!isRecord(value) || value.protocol_version !== '1.0' || !isRecord(value.run)
+  if (!isRecord(value) || !['1.0', '2.0'].includes(String(value.protocol_version)) || !isRecord(value.run)
     || !Array.isArray(value.ui_blocks)) return false;
   return typeof value.run.run_id === 'string'
     && typeof value.run.session_id === 'string'
     && typeof value.run.state === 'string'
     && Number.isInteger(value.run.row_version);
+}
+
+function rawUiBlocks(value: unknown): unknown[] | null {
+  return isRecord(value) && Array.isArray(value.ui_blocks) ? value.ui_blocks : null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
