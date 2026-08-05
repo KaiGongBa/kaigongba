@@ -34,6 +34,8 @@ class OrderObjectStore(Protocol):
 
     def read(self, key: str) -> bytes: ...
 
+    def iter_keys(self) -> list[str]: ...
+
     def download_target(self, key: str, filename: str, content_type: str) -> DownloadTarget: ...
 
     def healthcheck(self) -> bool: ...
@@ -64,6 +66,17 @@ class LocalOrderObjectStore:
             raise ObjectNotFoundError(key)
         return path.read_bytes()
 
+    def iter_keys(self) -> list[str]:
+        if not self.root.exists():
+            return []
+        keys: list[str] = []
+        for path in sorted(self.root.rglob("*")):
+            if path.is_symlink():
+                raise ValueError(f"对象存储根目录禁止包含符号链接：{path}")
+            if path.is_file():
+                keys.append(path.relative_to(self.root).as_posix())
+        return keys
+
     def download_target(self, key: str, filename: str, content_type: str) -> DownloadTarget:
         del filename, content_type
         path = self._path(key)
@@ -93,22 +106,33 @@ class S3OrderObjectStore:
         endpoint_url: str,
         access_key: str,
         secret_key: str,
+        session_token: str,
         bucket: str,
         region: str,
+        addressing_style: str,
         signed_url_seconds: int,
     ) -> None:
         import boto3
 
         self.bucket = bucket
         self.signed_url_seconds = signed_url_seconds
-        self.client = boto3.client(
-            "s3",
-            endpoint_url=endpoint_url,
-            aws_access_key_id=access_key,
-            aws_secret_access_key=secret_key,
-            region_name=region,
-            config=Config(signature_version="s3v4", s3={"addressing_style": "path"}),
-        )
+        client_options = {
+            "service_name": "s3",
+            "endpoint_url": endpoint_url,
+            "region_name": region,
+            "config": Config(
+                signature_version="s3v4",
+                s3={"addressing_style": addressing_style},
+            ),
+        }
+        if access_key and secret_key:
+            client_options.update(
+                aws_access_key_id=access_key,
+                aws_secret_access_key=secret_key,
+            )
+            if session_token:
+                client_options["aws_session_token"] = session_token
+        self.client = boto3.client(**client_options)
 
     def put(self, key: str, data: bytes, content_type: str) -> None:
         try:
@@ -137,6 +161,16 @@ class S3OrderObjectStore:
                 raise ObjectNotFoundError(key) from exc
             raise
         return response["Body"].read()
+
+    def iter_keys(self) -> list[str]:
+        keys: list[str] = []
+        paginator = self.client.get_paginator("list_objects_v2")
+        for page in paginator.paginate(Bucket=self.bucket):
+            for item in page.get("Contents", []):
+                key = item.get("Key")
+                if isinstance(key, str) and key:
+                    keys.append(key)
+        return sorted(keys)
 
     def download_target(self, key: str, filename: str, content_type: str) -> DownloadTarget:
         try:
@@ -176,8 +210,10 @@ def get_order_object_store(provider_name: str | None = None) -> OrderObjectStore
             endpoint_url=settings.order_object_storage_endpoint_url,
             access_key=settings.order_object_storage_access_key,
             secret_key=settings.order_object_storage_secret_key,
+            session_token=settings.order_object_storage_session_token,
             bucket=settings.order_object_storage_bucket,
             region=settings.order_object_storage_region,
+            addressing_style=settings.order_object_storage_addressing_style,
             signed_url_seconds=settings.order_object_storage_signed_url_seconds,
         )
     raise ValueError(f"不支持的订单对象存储 Provider：{selected}")

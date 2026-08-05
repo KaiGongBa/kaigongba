@@ -8,6 +8,7 @@ Type=oneshot
 User=kgbapp
 Group=kgbapp
 EnvironmentFile=-/opt/kaigongba-app/shared/backup.env
+Environment=KGB_PROJECT_DIR=/opt/kaigongba-app/current
 ExecStart=/opt/kaigongba-app/bin/backup.sh
 Nice=10
 IOSchedulingClass=best-effort

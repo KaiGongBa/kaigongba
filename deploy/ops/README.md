@@ -23,6 +23,8 @@ python3 scripts/ops_preflight.py \
 脚本将数据库、订单文件、元数据和 SHA-256 清单写入同一个时间戳目录，完成格式检查后
 才原子更新 `latest`。当隔离的 `backup.env` 配置 `REDIS_BACKUP_URL` 时，备份服务会同时
 生成并强制校验 `redis/dump.rdb`；API 的 `REDIS_URL` 不需要、也不应拥有复制权限。
+当 `KGB_ORDER_OBJECT_STORAGE_PROVIDER=s3` 时，脚本改为将私有 Bucket 下载到
+`objects/order-objects` 并逐文件加入校验清单，不依赖本地旧目录。
 
 ```bash
 KGB_DATABASE_TARGET=kgbapp \

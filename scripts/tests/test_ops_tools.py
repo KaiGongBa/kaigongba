@@ -29,6 +29,66 @@ def load_script(name: str):
 
 backup_verify = load_script("ops_backup_verify.py")
 ops_preflight = load_script("ops_preflight.py")
+ops_order_objects = load_script("ops_order_objects.py")
+
+
+class _MemoryObjectStore:
+    provider_name = "memory_private"
+
+    def __init__(self, objects: dict[str, bytes] | None = None) -> None:
+        self.objects = dict(objects or {})
+
+    def put(self, key: str, data: bytes, _content_type: str) -> None:
+        if key in self.objects:
+            raise ops_order_objects.ObjectAlreadyExistsError(key)
+        self.objects[key] = data
+
+    def read(self, key: str) -> bytes:
+        try:
+            return self.objects[key]
+        except KeyError as exc:
+            raise ops_order_objects.ObjectNotFoundError(key) from exc
+
+    def iter_keys(self) -> list[str]:
+        return sorted(self.objects)
+
+
+class OrderObjectOperationsTests(unittest.TestCase):
+    def test_migration_is_dry_run_idempotent_and_never_overwrites_conflicts(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "source"
+            source.mkdir()
+            (source / "same.txt").write_bytes(b"same")
+            (source / "new.txt").write_bytes(b"new")
+            store = _MemoryObjectStore({"same.txt": b"same"})
+
+            report = ops_order_objects.migrate_local_objects(source, store, execute=False)
+            self.assertTrue(report["passed"])
+            self.assertEqual(report["statusCounts"], {"planned": 1, "unchanged": 1})
+            self.assertNotIn("new.txt", store.objects)
+
+            report = ops_order_objects.migrate_local_objects(source, store, execute=True)
+            self.assertTrue(report["passed"])
+            self.assertEqual(store.objects["new.txt"], b"new")
+
+            (source / "new.txt").write_bytes(b"changed-local")
+            report = ops_order_objects.migrate_local_objects(source, store, execute=True)
+            self.assertFalse(report["passed"])
+            self.assertEqual(store.objects["new.txt"], b"new")
+
+    def test_snapshot_rejects_unsafe_keys_and_writes_exact_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "snapshot"
+            report = ops_order_objects.snapshot_objects(
+                _MemoryObjectStore({"tenant/order/file.txt": b"evidence"}), target
+            )
+            self.assertTrue(report["passed"])
+            self.assertEqual((target / "tenant/order/file.txt").read_bytes(), b"evidence")
+
+            with self.assertRaisesRegex(ValueError, "不安全"):
+                ops_order_objects.snapshot_objects(
+                    _MemoryObjectStore({"../outside.txt": b"unsafe"}), Path(directory) / "unsafe"
+                )
 
 
 class BackupVerificationTests(unittest.TestCase):

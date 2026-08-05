@@ -17,6 +17,7 @@ from app.transaction.object_storage import (
 def test_local_object_storage_roundtrip_and_path_isolation(tmp_path) -> None:
     store = LocalOrderObjectStore(tmp_path)
     store.put("tenant/order/file.txt", b"local-object", "text/plain")
+    assert store.iter_keys() == ["tenant/order/file.txt"]
 
     target = store.download_target("tenant/order/file.txt", "file.txt", "text/plain")
     assert target.local_path is not None
@@ -49,8 +50,10 @@ def test_minio_object_storage_roundtrip_and_presigned_download() -> None:
         endpoint_url=os.environ["KGB_MINIO_TEST_ENDPOINT"],
         access_key=os.getenv("KGB_MINIO_ACCESS_KEY", "kaigongba"),
         secret_key=os.getenv("KGB_MINIO_SECRET_KEY", "kaigongba-dev-only"),
+        session_token="",
         bucket=os.getenv("KGB_MINIO_BUCKET", "kaigongba-order-files"),
         region="us-east-1",
+        addressing_style="path",
         signed_url_seconds=300,
     )
     key = f"integration-test/{uuid4().hex}/evidence.txt"
@@ -68,6 +71,7 @@ def test_minio_object_storage_roundtrip_and_presigned_download() -> None:
         assert response.status_code == 200
         assert response.content == b"private-minio-object"
         assert store.read(key) == b"private-minio-object"
+        assert key in store.iter_keys()
     finally:
         store.delete(key)
 

@@ -27,8 +27,12 @@ fi
 
 database_dump="${KGB_RESTORE_SET}/postgres/kgbapp.dump"
 files_archive="${KGB_RESTORE_SET}/files/order-objects.tar.gz"
+objects_snapshot="${KGB_RESTORE_SET}/objects/order-objects"
 test -f "${database_dump}"
-test -f "${files_archive}"
+if [[ ! -f "${files_archive}" && ! -d "${objects_snapshot}" ]]; then
+    printf 'Backup set contains neither a local archive nor an object snapshot.\n' >&2
+    exit 1
+fi
 
 pg_restore --clean --if-exists --no-owner --no-acl \
     --dbname="${RESTORE_DATABASE_URL}" "${database_dump}"
@@ -42,7 +46,11 @@ if [[ -z "${alembic_revision}" ]] || ! [[ "${table_count}" =~ ^[0-9]+$ ]] || (( 
 fi
 
 install -d -m 0750 "${RESTORE_FILES_DIR}"
-tar -C "${RESTORE_FILES_DIR}" --strip-components=1 -xzf "${files_archive}"
+if [[ -f "${files_archive}" ]]; then
+    tar -C "${RESTORE_FILES_DIR}" --strip-components=1 -xzf "${files_archive}"
+else
+    cp -a "${objects_snapshot}"/. "${RESTORE_FILES_DIR}"/
+fi
 restored_file_count="$(find "${RESTORE_FILES_DIR}" -type f | wc -l | tr -d ' ')"
 
 printf 'All-in-one isolated restore drill passed. revision=%s tables=%s files=%s target=%s\n' \

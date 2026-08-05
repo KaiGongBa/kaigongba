@@ -30,7 +30,9 @@ class Settings(BaseSettings):
     order_object_storage_endpoint_url: str = ""
     order_object_storage_access_key: str = ""
     order_object_storage_secret_key: str = ""
+    order_object_storage_session_token: str = ""
     order_object_storage_region: str = "us-east-1"
+    order_object_storage_addressing_style: Literal["auto", "path", "virtual"] = "path"
     order_object_storage_signed_url_seconds: int = 300
     order_file_max_bytes: int = 52_428_800
     skill_package_max_bytes: int = 20_971_520
@@ -100,11 +102,17 @@ class Settings(BaseSettings):
                     "ORDER_OBJECT_STORAGE_ACCESS_KEY": self.order_object_storage_access_key,
                     "ORDER_OBJECT_STORAGE_SECRET_KEY": self.order_object_storage_secret_key,
                     "ORDER_OBJECT_STORAGE_BUCKET": self.order_object_storage_bucket,
+                    "ORDER_OBJECT_STORAGE_REGION": self.order_object_storage_region,
                 }.items()
                 if not value.strip()
             ]
             if missing:
                 raise ValueError(f"S3 对象存储缺少配置：{', '.join(missing)}")
+            _validate_object_storage_endpoint(
+                self.order_object_storage_endpoint_url,
+                runtime_environment=self.runtime_environment,
+                addressing_style=self.order_object_storage_addressing_style,
+            )
         if not 60 <= self.order_object_storage_signed_url_seconds <= 3600:
             raise ValueError("对象存储签名地址有效期必须在 60～3600 秒之间")
         if self.skill_package_max_bytes <= 0:
@@ -219,3 +227,30 @@ def _is_loopback_host(hostname: str) -> bool:
         return ipaddress.ip_address(hostname).is_loopback
     except ValueError:
         return False
+
+
+def _validate_object_storage_endpoint(
+    value: str,
+    *,
+    runtime_environment: str,
+    addressing_style: str,
+) -> None:
+    parsed = urlsplit(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("对象存储 Endpoint 必须是有效的 HTTP(S) URL")
+    if parsed.username or parsed.password or parsed.query or parsed.fragment:
+        raise ValueError("对象存储 Endpoint 不能包含凭证、query 或 fragment")
+    if parsed.path not in {"", "/"}:
+        raise ValueError("对象存储 Endpoint 不能包含路径")
+    if (
+        runtime_environment in {"staging", "production"}
+        and parsed.scheme != "https"
+        and not _is_loopback_host(parsed.hostname)
+    ):
+        raise ValueError("预发和生产环境的远程对象存储必须使用 HTTPS")
+    hostname = parsed.hostname.lower()
+    if hostname.endswith(".aliyuncs.com"):
+        if not hostname.startswith(("s3.oss-", "s3.oss-accelerate.")):
+            raise ValueError("阿里云 OSS 必须使用 s3.oss- 格式的 S3 兼容 Endpoint")
+        if addressing_style != "virtual":
+            raise ValueError("阿里云 OSS S3 兼容 Endpoint 必须使用 virtual-hosted 寻址")

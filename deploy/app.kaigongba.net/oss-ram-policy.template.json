@@ -1,0 +1,26 @@
+{
+  "Version": "1",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "oss:GetBucketInfo",
+        "oss:ListObjects"
+      ],
+      "Resource": [
+        "acs:oss:*:*:__OSS_BUCKET__"
+      ]
+    },
+    {
+      "Effect": "Allow",
+      "Action": [
+        "oss:GetObject",
+        "oss:PutObject",
+        "oss:DeleteObject"
+      ],
+      "Resource": [
+        "acs:oss:*:*:__OSS_BUCKET__/*"
+      ]
+    }
+  ]
+}

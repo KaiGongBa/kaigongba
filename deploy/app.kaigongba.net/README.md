@@ -112,3 +112,53 @@ ACL URL in `app.env.template`.
 For a later remote/shared Redis, use `rediss://` with certificate and hostname
 verification. A remote plaintext `redis://` URL is rejected in staging and
 production.
+
+## Alibaba Cloud OSS transition
+
+The application uses the S3-compatible API so MinIO remains available in test
+environments. Alibaba Cloud OSS accepts only virtual-hosted requests through
+that interface; production therefore must set
+`ORDER_OBJECT_STORAGE_ADDRESSING_STYLE=virtual` and an HTTPS regional endpoint.
+
+1. Create a private bucket in the same region as the ECS. Keep Block Public
+   Access enabled, enable versioning and server-side encryption, and do not
+   configure anonymous access.
+2. Create a dedicated programmatic RAM user and attach the least-privilege
+   policy in `oss-ram-policy.template.json`. Replace `__OSS_BUCKET__` before
+   attaching it. Never use the Alibaba Cloud account AccessKey. If a temporary
+   STS credential is used, provide all three AccessKey, Secret and Session Token
+   values only through the protected environment file. Automatic ECS RAM-role
+   refresh is not provided by the current boto3 adapter and must not be assumed.
+3. Configure the OSS variables from `app.env.template`, restart neither service
+   yet, and run a non-mutating inventory first:
+
+   ```sh
+   /opt/kaigongba-app/venv/bin/python \
+     /opt/kaigongba-app/current/scripts/ops_order_objects.py migrate \
+     --source-dir /opt/kaigongba-app/shared/order-objects \
+     --output /opt/kaigongba-app/backups/oss-migration-dry-run.json
+   ```
+
+4. Review the report. Execute only when there are no conflicts. The operation
+   uploads missing objects, verifies their SHA-256 content and never overwrites
+   or deletes either side:
+
+   ```sh
+   /opt/kaigongba-app/venv/bin/python \
+     /opt/kaigongba-app/current/scripts/ops_order_objects.py migrate \
+     --source-dir /opt/kaigongba-app/shared/order-objects --execute \
+     --output /opt/kaigongba-app/backups/oss-migration-executed.json
+   ```
+
+5. Set both `KGB_ORDER_OBJECT_STORAGE_PROVIDER=s3` and the same `ORDER_*` OSS
+   variables in the isolated backup environment. Run one backup and one isolated
+   restore drill before changing the API/Worker environment.
+6. Switch the API and Worker together, require `/api/ready` to report
+   `object_storage=ok`, then exercise one upload and one signed download. Keep
+   the local directory read-only for at least one retention window as rollback
+   evidence; do not delete it during cutover.
+
+Rollback changes the provider back to `local`, restarts API and Worker and
+rechecks readiness. Objects written only after the OSS cutover must first be
+copied back with a reviewed reverse-migration procedure; the automated migration
+tool intentionally has no destructive or reverse-sync mode.

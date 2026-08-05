@@ -50,6 +50,7 @@ from app.transaction.outbox_worker import (
     start_transaction_outbox_worker,
     stop_transaction_outbox_worker,
 )
+from app.transaction.object_storage import get_order_object_store
 
 
 @asynccontextmanager
@@ -72,7 +73,11 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         shutdown_async_jobs()
 
 
-app = create_api_app("all-in-one", lifespan=lifespan)
+app = create_api_app(
+    "all-in-one",
+    lifespan=lifespan,
+    readiness_checks={"object_storage": lambda: get_order_object_store().healthcheck()},
+)
 
 
 app.include_router(chat.router)
