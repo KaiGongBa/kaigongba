@@ -22,6 +22,15 @@
 .transaction-ai-composer textarea:focus { border: 0; box-shadow: inset 0 0 0 2px rgb(37 42 52 / 6%); }
 .transaction-ai-analyze-button { min-width: 118px; margin: 13px; border: 0; border-radius: 7px; padding: 0 18px; background: #16191f; color: #fff; font-size: 13px; font-weight: 650; white-space: nowrap; }
 .transaction-ai-analyze-button:disabled { cursor: not-allowed; opacity: .35; }
+.transaction-ai-new-analysis { display: flex; align-items: center; gap: 11px; margin-top: 10px; border: 1px solid #d9d5ff; border-radius: 9px; padding: 11px 14px; background: #f8f7ff; }
+.transaction-ai-new-analysis > svg { width: 18px; flex: none; color: #6b64d8; animation: transaction-ai-pulse 1.4s ease-in-out infinite; }
+.transaction-ai-new-analysis strong { color: #302d61; font-size: 12px; }
+.transaction-ai-new-analysis p { margin: 3px 0 0; color: #77738d; font-size: 11px; }
+.transaction-ai-previous-draft { display: flex; align-items: center; gap: 9px; margin-top: 8px; border-left: 3px solid #c9cdd5; padding: 6px 10px; color: #777f8d; font-size: 11px; }
+.transaction-ai-previous-draft span { border-radius: 999px; padding: 3px 7px; background: #eff1f4; color: #596170; font-weight: 650; }
+.transaction-ai-previous-draft strong { overflow: hidden; color: #4e5561; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.transaction-ai-previous-draft small { margin-left: auto; white-space: nowrap; }
+@keyframes transaction-ai-pulse { 50% { opacity: .45; transform: scale(.92); } }
 .transaction-ai-readiness { display: grid; grid-template-columns: minmax(270px, 1.25fr) minmax(260px, 1fr) minmax(120px, .45fr) minmax(170px, .55fr); margin-top: 12px; border: 1px solid #dfe3ea; border-radius: 10px; background: #fff; }
 .transaction-ai-result-group { min-width: 0; padding: 15px 16px; }
 .transaction-ai-result-group + .transaction-ai-result-group { border-left: 1px solid #e4e7ec; }

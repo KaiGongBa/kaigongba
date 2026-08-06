@@ -2,7 +2,15 @@ import importlib
 from pathlib import Path
 
 # 渠道(微信/企微)打包必需依赖:PyInstaller hiddenimports 防回归删漏
-REQUIRED_MODULES = ("aibot", "websockets", "aiohttp", "pyee", "dotenv", "cryptography")
+REQUIRED_MODULES = (
+    "aibot",
+    "websockets",
+    "aiohttp",
+    "pyee",
+    "dotenv",
+    "cryptography",
+    "alibabacloud_dysmsapi20170525",
+)
 
 
 def test_packaging_dependencies_importable() -> None:

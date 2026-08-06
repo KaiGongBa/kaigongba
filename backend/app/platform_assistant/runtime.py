@@ -2,8 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
+import logging
+import re
 from typing import Any, Iterable, Mapping
 
+from pydantic import ValidationError
 from sqlmodel import Session, select
 
 from app.db.models import User
@@ -38,6 +41,9 @@ from app.platform_assistant.requirement_facts import (
     FactLedgerScope,
     RequirementFactLedger,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 class PlatformAssistantRuntimeError(RuntimeError):
@@ -368,14 +374,37 @@ class PlatformAssistantRuntime:
             for candidate in expansion.expansion.fields:
                 if content.get(candidate.field) not in (None, "", []):
                     continue
-                tentative = {**content, candidate.field: candidate.value}
+                candidate_value = _draft_fact_value(candidate.field, candidate.value)
+                tentative = {**content, candidate.field: candidate_value}
                 try:
                     RequirementDraftContent.model_validate(tentative)
-                except Exception:
-                    # Model text is advisory. A malformed candidate is omitted
-                    # rather than breaking the deterministic workflow.
-                    continue
-                content[candidate.field] = candidate.value
+                except ValidationError as error:
+                    logger.warning(
+                        "Assistant expansion did not match the draft schema; applying degraded conversion",
+                        extra={
+                            "run_id": run_id,
+                            "fact_field": candidate.field,
+                            "validation_error_count": error.error_count(),
+                        },
+                    )
+                    candidate_value = _degraded_draft_fact_value(
+                        candidate.field,
+                        candidate.value,
+                    )
+                    tentative = {**content, candidate.field: candidate_value}
+                    try:
+                        RequirementDraftContent.model_validate(tentative)
+                    except ValidationError as fallback_error:
+                        logger.error(
+                            "Assistant expansion could not be projected after degraded conversion",
+                            extra={
+                                "run_id": run_id,
+                                "fact_field": candidate.field,
+                                "validation_error_count": fallback_error.error_count(),
+                            },
+                        )
+                        continue
+                content[candidate.field] = candidate_value
                 sources[candidate.field] = DraftFieldSourceInput(
                     source="ai_expansion",
                     source_ref=f"runtime:{client_request_id}",
@@ -724,8 +753,36 @@ class PlatformAssistantRuntime:
             tentative = {**content, fact.field: candidate_value}
             try:
                 RequirementDraftContent.model_validate(tentative)
-            except Exception:
-                continue
+            except ValidationError as error:
+                logger.warning(
+                    "Assistant fact did not match the requirement draft schema; applying degraded conversion",
+                    extra={
+                        "draft_id": draft.draft.id,
+                        "fact_id": fact.id,
+                        "fact_field": fact.field,
+                        "fact_source": fact.source,
+                        "validation_error_count": error.error_count(),
+                    },
+                )
+                candidate_value = _degraded_draft_fact_value(
+                    fact.field,
+                    fact.value_json,
+                )
+                tentative = {**content, fact.field: candidate_value}
+                try:
+                    RequirementDraftContent.model_validate(tentative)
+                except ValidationError as fallback_error:
+                    logger.error(
+                        "Assistant fact could not be projected after degraded conversion",
+                        extra={
+                            "draft_id": draft.draft.id,
+                            "fact_id": fact.id,
+                            "fact_field": fact.field,
+                            "fact_source": fact.source,
+                            "validation_error_count": fallback_error.error_count(),
+                        },
+                    )
+                    continue
             content[fact.field] = candidate_value
             sources[fact.field] = DraftFieldSourceInput(
                 source=fact.source,
@@ -838,9 +895,6 @@ class PlatformAssistantRuntime:
         seed: str,
     ) -> tuple[dict[str, Any], ...]:
         review_ready = _adaptive_draft_review_ready(draft)
-        if not turn.readiness.handoff.ready and not review_ready:
-            return turn.blocks
-        preview = _draft_preview(draft)
         deep_link = validate_structured_block(
             {
                 "schema_version": "1.0",
@@ -849,12 +903,22 @@ class PlatformAssistantRuntime:
                 "type": "deep_link",
                 "status": "pending",
                 "title": "AI 已扩写并填入需求",
-                "description": "已结合服务行业、内容要求与常见规范生成草稿；请在真实发布页直接确认或修改。",
+                "description": (
+                    "已结合服务行业、内容要求与常见规范生成草稿；请在真实发布页直接确认或修改。"
+                    if review_ready
+                    else "新的需求草稿已创建，AI 解析结果会继续填入；你可以立即打开查看。"
+                ),
                 "route_id": "enterprise.requirement.create",
                 "route_params": {"draftId": draft.draft.id},
                 "label": "检查并修改 AI 草稿",
             }
         )
+        if not turn.readiness.handoff.ready and not review_ready:
+            # Surface the new draft id as soon as the server creates it. This
+            # lets the form switch away from an older draft while the adaptive
+            # interview continues to enrich the new version.
+            return (*turn.blocks, deep_link)
+        preview = _draft_preview(draft)
         # Once a useful AI draft exists, the real form becomes the review
         # surface. Do not keep presenting soft-field questions that would make
         # the user re-enter content the model has already drafted.
@@ -1076,31 +1140,203 @@ def _draft_fact_value(field: str, value: Any) -> Any:
         "dependencies",
         "acceptance_criteria",
     }:
-        if isinstance(value, str):
-            return _split_lines(value)
-        return value
+        return _normalize_string_list(value, acceptance=field == "acceptance_criteria")
     if field == "deliverables":
-        if isinstance(value, str):
-            values = _split_lines(value)
-        elif isinstance(value, list):
-            values = value
-        else:
-            values = [value]
-        return [
-            item
-            if isinstance(item, dict)
-            else {
-                "name": str(item),
-                "format": _detect_deliverable_format(str(item)),
-                "required": True,
-            }
-            for item in values
-        ]
+        return _normalize_deliverables(value)
     if field in {"budget_min", "budget_max"}:
         return str(value)
     if field == "invite_limit":
         return int(value)
     return value
+
+
+def _normalize_deliverables(value: Any) -> list[dict[str, Any]]:
+    """Convert common model output shapes into RequirementDeliverable items."""
+
+    context_suffix = ""
+    if isinstance(value, Mapping) and not any(
+        key in value for key in ("name", "title", "label")
+    ):
+        raw_items = (
+            value.get("deliverables")
+            or value.get("content")
+            or value.get("items")
+            or value.get("outputs")
+        )
+        if raw_items is not None:
+            product_count = _positive_int(value.get("product_count"))
+            colors_per_product = _positive_int(value.get("colors_per_product"))
+            context_parts = []
+            if product_count:
+                context_parts.append(f"{product_count}套产品")
+            if colors_per_product:
+                context_parts.append(f"每个产品{colors_per_product}色")
+            if context_parts:
+                context_suffix = f"（{'，'.join(context_parts)}）"
+            value = raw_items
+
+    if isinstance(value, str):
+        values: list[Any] = _split_lines(value)
+    elif isinstance(value, (list, tuple, set)):
+        values = list(value)
+    else:
+        values = [value]
+
+    normalized: list[dict[str, Any]] = []
+    for item in values:
+        if item is None:
+            continue
+        if isinstance(item, Mapping):
+            nested = (
+                item.get("deliverables")
+                or item.get("content")
+                or item.get("items")
+            )
+            if nested is not None and not any(
+                key in item for key in ("name", "title", "label")
+            ):
+                normalized.extend(_normalize_deliverables(item))
+                continue
+            raw_name = item.get("name") or item.get("title") or item.get("label")
+            if raw_name is None:
+                raw_name = _acceptance_criterion_text(item)
+            name = str(raw_name or "待确认的交付物").strip()[:200]
+            raw_format = item.get("format") or item.get("file_format") or item.get("type")
+            item_format = str(raw_format or _detect_deliverable_format(name)).strip()[:120]
+            normalized.append(
+                {
+                    "name": f"{name}{context_suffix}"[:200],
+                    "format": item_format or "待确认",
+                    "required": _coerce_bool(item.get("required"), default=True),
+                }
+            )
+            continue
+        name = str(item).strip()
+        if not name:
+            continue
+        normalized.append(
+            {
+                "name": f"{name}{context_suffix}"[:200],
+                "format": _detect_deliverable_format(name),
+                "required": True,
+            }
+        )
+    return normalized
+
+
+def _normalize_string_list(value: Any, *, acceptance: bool = False) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return _split_lines(value)
+    if isinstance(value, Mapping):
+        values: list[Any] = [value]
+    elif isinstance(value, (list, tuple, set)):
+        values = list(value)
+    else:
+        values = [value]
+    result: list[str] = []
+    for item in values:
+        if item is None:
+            continue
+        if isinstance(item, str):
+            result.extend(_split_lines(item))
+            continue
+        if isinstance(item, Mapping):
+            text = (
+                _acceptance_criterion_text(item)
+                if acceptance
+                else _mapping_text(item)
+            )
+        else:
+            text = str(item).strip()
+        if text:
+            result.append(text)
+    return result
+
+
+def _acceptance_criterion_text(value: Mapping[str, Any]) -> str:
+    criterion = value.get("criterion") or value.get("name") or value.get("title")
+    standard = (
+        value.get("standard")
+        or value.get("description")
+        or value.get("requirement")
+        or value.get("value")
+    )
+    criterion_text = str(criterion).strip() if criterion is not None else ""
+    standard_text = str(standard).strip() if standard is not None else ""
+    if criterion_text and standard_text:
+        return f"{criterion_text}：{standard_text}"[:1000]
+    return (criterion_text or standard_text or _mapping_text(value))[:1000]
+
+
+def _mapping_text(value: Mapping[str, Any]) -> str:
+    parts = [
+        f"{key}：{item}"
+        for key, item in value.items()
+        if item is not None and str(item).strip()
+    ]
+    return "；".join(parts)
+
+
+def _degraded_draft_fact_value(field: str, value: Any) -> Any:
+    """Return a schema-safe best effort instead of silently dropping a fact."""
+
+    if field == "deliverables":
+        return _normalize_deliverables(value)
+    if field in {
+        "service_scope",
+        "exclusions",
+        "risks",
+        "dependencies",
+        "acceptance_criteria",
+    }:
+        return _normalize_string_list(value, acceptance=field == "acceptance_criteria")
+    if field in {"budget_min", "budget_max"}:
+        match = re.search(r"\d+(?:\.\d{1,2})?", str(value))
+        return match.group(0) if match else None
+    if field == "invite_limit":
+        parsed = _positive_int(value)
+        return min(parsed, 20) if parsed else None
+    if field == "schedule":
+        return value if isinstance(value, Mapping) and value.get("kind") else None
+    if field == "visibility":
+        return value if value in {"public", "enterprise", "invited_providers"} else None
+    if field == "confidentiality_level":
+        return value if value in {"standard", "confidential", "highly_confidential"} else None
+    if value is None:
+        return None
+    limits = {
+        "title": 100,
+        "category": 80,
+        "background": 2000,
+        "goal": 2000,
+        "target_audience": 1000,
+        "use_scenario": 1000,
+        "change_summary": 500,
+        "organization_id": 160,
+    }
+    return str(value).strip()[: limits.get(field, 2000)] or None
+
+
+def _positive_int(value: Any) -> int | None:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _coerce_bool(value: Any, *, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        lowered = value.strip().casefold()
+        if lowered in {"false", "no", "0", "否", "非必需"}:
+            return False
+        if lowered in {"true", "yes", "1", "是", "必需"}:
+            return True
+    return default
 
 
 def _detect_deliverable_format(value: str) -> str:
@@ -1111,6 +1347,11 @@ def _detect_deliverable_format(value: str) -> str:
         ("pdf", ".pdf"),
         ("docx", ".docx"),
         ("xlsx", ".xlsx"),
+        ("psd", ".psd"),
+        ("ai源文件", ".ai"),
+        ("主图", "JPG/PNG"),
+        ("详情页", "JPG/PNG"),
+        ("图片", "JPG/PNG"),
         ("在线链接", "链接"),
         ("链接", "链接"),
     ):
@@ -1241,14 +1482,43 @@ def _content_from_candidates(candidates: Iterable[Any]) -> tuple[
     for candidate in candidates:
         if candidate.field not in allowed:
             continue
+        candidate_value = _draft_fact_value(candidate.field, candidate.value)
         candidate_content = {
             **parsed.model_dump(mode="python"),
-            candidate.field: candidate.value,
+            candidate.field: candidate_value,
         }
         try:
             parsed = RequirementDraftContent.model_validate(candidate_content)
-        except Exception:
-            continue
+        except ValidationError as error:
+            logger.warning(
+                "Initial assistant fact did not match the draft schema; applying degraded conversion",
+                extra={
+                    "fact_field": candidate.field,
+                    "fact_source": candidate.source,
+                    "validation_error_count": error.error_count(),
+                },
+            )
+            candidate_value = _degraded_draft_fact_value(
+                candidate.field,
+                candidate.value,
+            )
+            try:
+                parsed = RequirementDraftContent.model_validate(
+                    {
+                        **parsed.model_dump(mode="python"),
+                        candidate.field: candidate_value,
+                    }
+                )
+            except ValidationError as fallback_error:
+                logger.error(
+                    "Initial assistant fact could not be projected after degraded conversion",
+                    extra={
+                        "fact_field": candidate.field,
+                        "fact_source": candidate.source,
+                        "validation_error_count": fallback_error.error_count(),
+                    },
+                )
+                continue
         sources[candidate.field] = DraftFieldSourceInput(
             source=candidate.source,
             source_ref="initial_user_message",

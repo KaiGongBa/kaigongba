@@ -1196,6 +1196,8 @@ def list_requirements(
     perspective: str,
 ) -> list[RequirementSummaryRead]:
     _require_member(db, current_user, organization_id)
+    if perspective not in {"buyer", "provider", "market"}:
+        raise HTTPException(status_code=422, detail="需求视角不正确")
     if perspective == "provider":
         invitation_rows = db.exec(
             select(TransactionProviderInvitation).where(
@@ -1209,6 +1211,15 @@ def list_requirements(
             for requirement_id in requirement_ids
             if (row := db.get(TransactionRequirement, requirement_id)) is not None
         ]
+    elif perspective == "market":
+        rows = db.exec(
+            select(TransactionRequirement).where(
+                TransactionRequirement.tenant_id == current_user.tenant_id,
+                TransactionRequirement.visibility == "public",
+                TransactionRequirement.status.in_(["published", "matching", "quoting"]),
+                TransactionRequirement.buyer_organization_id != organization_id,
+            )
+        ).all()
     else:
         rows = db.exec(
             select(TransactionRequirement).where(
@@ -1217,7 +1228,14 @@ def list_requirements(
             )
         ).all()
     rows.sort(key=lambda item: item.updated_at, reverse=True)
-    return [_requirement_summary(db, row) for row in rows]
+    return [
+        _requirement_summary(
+            db,
+            row,
+            match_organization_id=(organization_id if perspective == "market" else None),
+        )
+        for row in rows
+    ]
 
 
 def create_requirement(
@@ -1411,7 +1429,28 @@ def get_requirement(
         )
     ).first()
     is_provider = invitation is not None and membership is not None
-    if not (is_buyer or is_provider or platform_access):
+    provider_profile = (
+        db.exec(
+            select(MarketplaceProviderProfile).where(
+                MarketplaceProviderProfile.organization_id == organization_id,
+                MarketplaceProviderProfile.status == "active",
+            )
+        ).first()
+        if membership is not None and not is_buyer
+        else None
+    )
+    is_market_provider = bool(
+        provider_profile
+        and requirement.visibility == "public"
+        and requirement.status in {"published", "matching", "quoting"}
+    )
+    is_market_viewer = bool(
+        membership
+        and not is_buyer
+        and requirement.visibility == "public"
+        and requirement.status in {"published", "matching", "quoting"}
+    )
+    if not (is_buyer or is_provider or is_market_viewer or platform_access):
         raise HTTPException(status_code=403, detail="当前企业无权访问该需求")
     if invitation and invitation.status == "invited":
         invitation.status = "viewed"
@@ -1419,7 +1458,11 @@ def get_requirement(
         invitation.updated_at = utc_now()
         db.add(invitation)
         db.commit()
-    summary = _requirement_summary(db, requirement)
+    summary = _requirement_summary(
+        db,
+        requirement,
+        match_organization_id=(organization_id if is_provider or is_market_provider else None),
+    )
     match_rows = (
         db.exec(
             select(TransactionMatchRecommendation)
@@ -1434,7 +1477,7 @@ def get_requirement(
         .where(TransactionClarification.requirement_id == requirement.id)
         .order_by(TransactionClarification.created_at.desc())
     ).all()
-    if is_provider:
+    if is_provider or is_market_viewer:
         clarification_rows = [
             item
             for item in clarification_rows
@@ -1458,7 +1501,7 @@ def get_requirement(
         can_run_match=is_buyer
         and requirement.status in {"published", "matching", "quoting"}
         and _is_manager(membership),
-        can_quote=is_provider
+        can_quote=(is_provider or is_market_provider)
         and requirement.status in {"matching", "quoting"}
         and _is_manager(membership),
     )
@@ -1481,7 +1524,19 @@ def create_clarification(
             if not _is_manager(membership):
                 raise HTTPException(status_code=403, detail="需要需求负责人权限")
         else:
-            _require_provider_invitation(db, requirement.id, acting_org_id)
+            invitation = db.exec(
+                select(TransactionProviderInvitation).where(
+                    TransactionProviderInvitation.requirement_id == requirement.id,
+                    TransactionProviderInvitation.provider_organization_id == acting_org_id,
+                )
+            ).first()
+            if not invitation:
+                if not (
+                    requirement.visibility == "public"
+                    and requirement.status in {"published", "matching", "quoting"}
+                ):
+                    raise HTTPException(status_code=403, detail="当前企业未获邀参与该需求")
+                _active_provider(db, acting_org_id)
             provider_org_id = acting_org_id
     elif not is_admin_user(current_user):
         raise HTTPException(status_code=422, detail="请选择提问企业")
@@ -1623,13 +1678,19 @@ def generate_quote(
         raise HTTPException(status_code=404, detail="需求不存在")
     if requirement.status not in {"matching", "quoting"}:
         raise HTTPException(status_code=409, detail="当前需求不接受报价")
-    invitation = _require_provider_invitation(db, requirement.id, request.organization_id)
     service = db.get(MarketplaceAIService, request.service_id)
     if not service or service.status != "published" or service.provider_id != provider.id:
         raise HTTPException(status_code=403, detail="请选择当前企业已上架的服务")
     service_version = db.get(MarketplaceAIServiceVersion, service.current_version_id or "")
     if not service_version:
         raise HTTPException(status_code=409, detail="服务缺少已发布版本")
+    invitation = _market_quote_invitation(
+        db,
+        current_user,
+        requirement,
+        request.organization_id,
+        service,
+    )
     generator_skill_version = _validate_generator_skill(
         db,
         request.generator_skill_id,
@@ -3300,6 +3361,8 @@ milestones 最多 3 项；金额由交易系统计算，不要输出金额。草
 def _requirement_summary(
     db: Session,
     requirement: TransactionRequirement,
+    *,
+    match_organization_id: str | None = None,
 ) -> RequirementSummaryRead:
     buyer = db.get(Organization, requirement.buyer_organization_id)
     quote_count = len(
@@ -3316,6 +3379,11 @@ def _requirement_summary(
                 TransactionProviderInvitation.requirement_id == requirement.id
             )
         ).all()
+    )
+    market_match = (
+        _best_market_match(db, requirement, match_organization_id)
+        if match_organization_id
+        else None
     )
     return RequirementSummaryRead(
         id=requirement.id,
@@ -3335,7 +3403,67 @@ def _requirement_summary(
         quote_count=quote_count,
         invitation_count=invitation_count,
         updated_at=requirement.updated_at,
+        match_score=market_match[0] if market_match else None,
+        match_reasons=market_match[2] if market_match else [],
+        risk_flags=market_match[3] if market_match else [],
+        matched_service_id=market_match[1].id if market_match else None,
+        matched_service_name=market_match[1].name if market_match else None,
     )
+
+
+def _best_market_match(
+    db: Session,
+    requirement: TransactionRequirement,
+    organization_id: str,
+) -> tuple[int, MarketplaceAIService, list[str], list[str]] | None:
+    stored = db.exec(
+        select(TransactionMatchRecommendation)
+        .where(
+            TransactionMatchRecommendation.requirement_id == requirement.id,
+            TransactionMatchRecommendation.provider_organization_id == organization_id,
+        )
+        .order_by(TransactionMatchRecommendation.score.desc())
+    ).first()
+    if stored:
+        service = db.get(MarketplaceAIService, stored.service_id)
+        if service and service.status == "published":
+            return (
+                stored.score,
+                service,
+                list(stored.reasons_json),
+                list(stored.risk_flags_json),
+            )
+
+    provider = db.exec(
+        select(MarketplaceProviderProfile).where(
+            MarketplaceProviderProfile.organization_id == organization_id,
+            MarketplaceProviderProfile.status == "active",
+        )
+    ).first()
+    if not provider:
+        return None
+    services = db.exec(
+        select(MarketplaceAIService).where(
+            MarketplaceAIService.tenant_id == requirement.tenant_id,
+            MarketplaceAIService.provider_id == provider.id,
+            MarketplaceAIService.status == "published",
+        )
+    ).all()
+    requirement_version = _requirement_version(db, requirement)
+    candidates: list[tuple[int, MarketplaceAIService, list[str], list[str]]] = []
+    for service in services:
+        decision = evaluate_service_candidate(db, requirement, requirement_version, service)
+        if not decision.eligible:
+            continue
+        candidates.append(
+            (
+                decision.score,
+                service,
+                list(decision.reasons),
+                list(decision.risk_flags),
+            )
+        )
+    return max(candidates, key=lambda item: (item[0], item[1].id)) if candidates else None
 
 
 def _requirement_version_read(
@@ -4336,6 +4464,90 @@ def _require_provider_invitation(
     ).first()
     if not invitation or invitation.status == "declined":
         raise HTTPException(status_code=403, detail="当前企业未获邀参与该需求")
+    return invitation
+
+
+def _market_quote_invitation(
+    db: Session,
+    current_user: User,
+    requirement: TransactionRequirement,
+    organization_id: str,
+    service: MarketplaceAIService,
+) -> TransactionProviderInvitation:
+    """Return an invitation, creating an audited opt-in for a public demand."""
+
+    invitation = db.exec(
+        select(TransactionProviderInvitation).where(
+            TransactionProviderInvitation.requirement_id == requirement.id,
+            TransactionProviderInvitation.provider_organization_id == organization_id,
+        )
+    ).first()
+    if invitation:
+        if invitation.status == "declined":
+            raise HTTPException(status_code=403, detail="当前企业已拒绝参与该需求")
+        return invitation
+    if not (
+        requirement.visibility == "public"
+        and requirement.status in {"published", "matching", "quoting"}
+    ):
+        raise HTTPException(status_code=403, detail="当前企业未获邀参与该需求")
+
+    decision = evaluate_service_candidate(
+        db,
+        requirement,
+        _requirement_version(db, requirement),
+        service,
+    )
+    reasons = list(decision.reasons) or ["服务方通过公开需求市场主动参与"]
+    recommendation = db.exec(
+        select(TransactionMatchRecommendation).where(
+            TransactionMatchRecommendation.requirement_id == requirement.id,
+            TransactionMatchRecommendation.service_id == service.id,
+        )
+    ).first()
+    if not recommendation:
+        recommendation = TransactionMatchRecommendation(
+            tenant_id=current_user.tenant_id,
+            requirement_id=requirement.id,
+            service_id=service.id,
+            provider_organization_id=organization_id,
+            score=decision.score if decision.eligible else 0,
+            reasons_json=reasons,
+            risk_flags_json=list(decision.risk_flags),
+            status="invited",
+            generation_engine=MATCH_ENGINE,
+        )
+    else:
+        recommendation.provider_organization_id = organization_id
+        recommendation.score = decision.score if decision.eligible else 0
+        recommendation.reasons_json = reasons
+        recommendation.risk_flags_json = list(decision.risk_flags)
+        recommendation.status = "invited"
+        recommendation.generated_at = utc_now()
+    db.add(recommendation)
+    db.flush()
+    now = utc_now()
+    invitation = TransactionProviderInvitation(
+        tenant_id=current_user.tenant_id,
+        requirement_id=requirement.id,
+        recommendation_id=recommendation.id,
+        provider_organization_id=organization_id,
+        status="viewed",
+        invitation_reason="；".join(reasons),
+        viewed_at=now,
+        updated_at=now,
+    )
+    db.add(invitation)
+    db.flush()
+    _record_event(
+        db,
+        current_user,
+        organization_id,
+        "requirement.market.opted_in",
+        "requirement",
+        requirement.id,
+        {"service_id": service.id, "recommendation_id": recommendation.id},
+    )
     return invitation
 
 

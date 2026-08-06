@@ -21,6 +21,7 @@ export type AssistantTurnInput = Readonly<{
   agentId: string;
   message: string;
   entrypoint?: 'requirement.create';
+  clientRequestId?: string;
 }>;
 
 export type AssistantTurnResult = Readonly<{
@@ -61,7 +62,7 @@ type LegacyChatTurnResponse = {
 export function createDefaultKaiAssistantService(): KaiAssistantService {
   return {
     async sendTurn(input) {
-      const requestId = crypto.randomUUID();
+      const requestId = input.clientRequestId || crypto.randomUUID();
       const request = {
         client_request_id: requestId,
         session_id: input.sessionId,

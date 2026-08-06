@@ -57,6 +57,32 @@ All of these transitions write Marketplace audit records.
 sets the local single-port origin by default and can add a public tunnel origin with
 `PUBLIC_APP_ORIGIN`.
 
+## 手机号与短信验证登录
+
+管理员先在「账号管理」为用户绑定手机号。默认登录流程为「手机号 →
+短信验证码 → 密码」；找回密码使用独立用途的短信验证码。旧账号在绑定前
+仍可从登录页的「使用账号密码登录」进入。
+
+本地开发默认 `SMS_PROVIDER=console`，验证码只会在开发环境的 API 响应中以
+`debug_code` 返回，不写入日志。预发和生产环境的 `console` 投递会被拒绝，
+需要配置已审核的阿里云短信签名和两个验证码模板（模板变量名均为 `code`）：
+
+```dotenv
+SMS_PROVIDER="aliyun"
+SMS_ALIYUN_ACCESS_KEY_ID="<RAM 用户 AccessKey ID>"
+SMS_ALIYUN_ACCESS_KEY_SECRET="<RAM 用户 AccessKey Secret>"
+SMS_ALIYUN_SIGN_NAME="开工吧"
+SMS_ALIYUN_LOGIN_TEMPLATE_CODE="SMS_xxx"
+SMS_ALIYUN_RESET_TEMPLATE_CODE="SMS_yyy"
+```
+
+正式部署前执行数据库迁移，为 `users` 补充手机号唯一绑定，并创建验证码
+挑战表：
+
+```bash
+.venv/bin/python -m app.db.migrate
+```
+
 ## General Skill Code Runtime
 
 通用技能生成的 Python/Bash runner 不直接依赖系统 Python。运行时按以下顺序选择环境：

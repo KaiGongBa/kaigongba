@@ -104,12 +104,36 @@ describe('demand create assistant handoff', () => {
     await user.click(screen.getByRole('button', { name: 'AI 解析' }));
 
     expect(openRequest).toHaveBeenCalledTimes(1);
-    const event = openRequest.mock.calls[0]?.[0] as CustomEvent<{ prompt: string; autoSend: boolean; startNewWorkflow: boolean }>;
+    const event = openRequest.mock.calls[0]?.[0] as CustomEvent<{ prompt: string; autoSend: boolean; startNewWorkflow: boolean; analysisRequestId: string }>;
     expect(event.detail.prompt).toContain('融资路演PPT');
     expect(event.detail.prompt).toContain('主动扩写为完整可编辑草稿并填入需求表单');
     expect(event.detail.prompt).toContain('不要让我重复填写');
     expect(event.detail.autoSend).toBe(true);
     expect(event.detail.startNewWorkflow).toBe(true);
+    expect(event.detail.analysisRequestId).toMatch(/^requirement-analysis-1-/);
+    window.removeEventListener(OPEN_KAI_ASSISTANT_EVENT, openRequest);
+  });
+
+  it('freezes the previous draft and resets every form merge guard for a new analysis', async () => {
+    mocks.getDraft.mockResolvedValue(draftResponse());
+    const user = userEvent.setup();
+    const openRequest = vi.fn();
+    window.addEventListener(OPEN_KAI_ASSISTANT_EVENT, openRequest);
+    renderPage(`/enterprise/demands/new?draftId=${DRAFT_ID}`);
+    await screen.findByText('开小花需求草稿 v2');
+
+    await user.type(screen.getByLabelText('自然语言描述需求'), '为淘宝服装商品设计20套主图和详情页，每款3个颜色');
+    await user.click(screen.getByRole('button', { name: 'AI 解析' }));
+
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/enterprise/demands/new'));
+    expect(input('需求标题 *').value).toBe('');
+    expect(input('详细描述 *').value).toBe('');
+    expect(screen.queryByText('开小花需求草稿 v2')).toBeNull();
+    expect(screen.getByText('上一份草稿')).toBeTruthy();
+    expect(screen.getByText('招聘流程诊断与岗位说明书优化')).toBeTruthy();
+    expect(screen.getByText(/正在创建全新的解析/)).toBeTruthy();
+    const event = openRequest.mock.calls[0]?.[0] as CustomEvent<{ analysisRequestId: string }>;
+    expect(event.detail.analysisRequestId).toMatch(/^requirement-analysis-1-/);
     window.removeEventListener(OPEN_KAI_ASSISTANT_EVENT, openRequest);
   });
 

@@ -51,6 +51,7 @@ from app.db.models import (
     TransactionOutboxEvent,
     TransactionPaymentEvent,
     TransactionPaymentOrder,
+    TransactionProviderInvitation,
     TransactionQuote,
     TransactionQuoteVersion,
     TransactionRequirement,
@@ -1011,6 +1012,77 @@ def test_incomplete_requirement_can_be_saved_but_not_published(
         headers=headers,
     )
     assert empty.status_code == 422, empty.text
+
+
+def test_public_requirement_market_supports_discovery_detail_and_provider_opt_in(
+    transaction_app: tuple[TestClient, object, User],
+) -> None:
+    client, engine, user = transaction_app
+    headers = _auth(user)
+    created = client.post(
+        "/api/transactions/requirements",
+        json={**_requirement_payload(), "visibility": "public"},
+        headers=headers,
+    )
+    assert created.status_code == 200, created.text
+    requirement_id = created.json()["id"]
+    published = client.post(
+        f"/api/transactions/requirements/{requirement_id}/publish",
+        params={"organizationId": "org_demo_buyer"},
+        headers=headers,
+    )
+    assert published.status_code == 200, published.text
+
+    market = client.get(
+        "/api/transactions/requirements",
+        params={"organizationId": "org_youfu", "perspective": "market"},
+        headers=headers,
+    )
+    assert market.status_code == 200, market.text
+    market_item = next(item for item in market.json() if item["id"] == requirement_id)
+    assert "matchScore" in market_item
+    assert "matchReasons" in market_item
+
+    buyer_market = client.get(
+        "/api/transactions/requirements",
+        params={"organizationId": "org_demo_buyer", "perspective": "market"},
+        headers=headers,
+    )
+    assert all(item["id"] != requirement_id for item in buyer_market.json())
+
+    detail = client.get(
+        f"/api/transactions/requirements/{requirement_id}",
+        params={"organizationId": "org_youfu"},
+        headers=headers,
+    )
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["canQuote"] is True
+    assert detail.json()["matches"] == []
+
+    with Session(engine) as db:
+        assert not db.exec(
+            select(TransactionProviderInvitation).where(
+                TransactionProviderInvitation.requirement_id == requirement_id,
+                TransactionProviderInvitation.provider_organization_id == "org_youfu",
+            )
+        ).first()
+
+    quote = client.post(
+        f"/api/transactions/requirements/{requirement_id}/quotes/generate",
+        json={"organization_id": "org_youfu", "service_id": "after-sales"},
+        headers=headers,
+    )
+    assert quote.status_code == 200, quote.text
+    assert quote.json()["providerOrganizationId"] == "org_youfu"
+    with Session(engine) as db:
+        invitation = db.exec(
+            select(TransactionProviderInvitation).where(
+                TransactionProviderInvitation.requirement_id == requirement_id,
+                TransactionProviderInvitation.provider_organization_id == "org_youfu",
+            )
+        ).first()
+        assert invitation is not None
+        assert invitation.status == "viewed"
 
 
 def test_ai_draft_requires_invited_provider_manager_and_is_tenant_isolated(

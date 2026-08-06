@@ -370,11 +370,14 @@ def test_turn_endpoint_protocol_v2_returns_interview_state_then_dynamic_question
     assert [item["type"] for item in payload["ui_blocks"]] == [
         "interview_state",
         "question_group",
+        "deep_link",
     ]
     assert payload["ui_blocks"][0]["classification"]["category_id"] == (
         "recruiting-process"
     )
     assert payload["ui_blocks"][1]["allow_free_text"] is True
+    assert payload["ui_blocks"][2]["route_id"] == "enterprise.requirement.create"
+    assert isinstance(payload["ui_blocks"][2]["route_params"]["draftId"], str)
 
     restored = client.get(
         f"/api/platform-assistant/runs/{payload['run_id']}",
@@ -385,13 +388,15 @@ def test_turn_endpoint_protocol_v2_returns_interview_state_then_dynamic_question
     )
     assert restored.status_code == 200
     assert restored.json()["protocol_version"] == "2.0"
-    assert [item["type"] for item in restored.json()["ui_blocks"][-2:]] == [
+    assert [item["type"] for item in restored.json()["ui_blocks"][-3:]] == [
         "interview_state",
         "question_group",
+        "deep_link",
     ]
-    assert [item["schema_version"] for item in restored.json()["ui_blocks"][-2:]] == [
+    assert [item["schema_version"] for item in restored.json()["ui_blocks"][-3:]] == [
         "2.0",
         "2.0",
+        "1.0",
     ]
 
     reopened = client.get(
@@ -400,9 +405,10 @@ def test_turn_endpoint_protocol_v2_returns_interview_state_then_dynamic_question
     )
     assert reopened.status_code == 200, reopened.text
     assert reopened.json()["protocol_version"] == "2.0"
-    assert [item["type"] for item in reopened.json()["ui_blocks"][-2:]] == [
+    assert [item["type"] for item in reopened.json()["ui_blocks"][-3:]] == [
         "interview_state",
         "question_group",
+        "deep_link",
     ]
 
     resumed = client.post(
@@ -411,9 +417,10 @@ def test_turn_endpoint_protocol_v2_returns_interview_state_then_dynamic_question
     )
     assert resumed.status_code == 200, resumed.text
     assert resumed.json()["protocol_version"] == "2.0"
-    assert [item["type"] for item in resumed.json()["ui_blocks"][-2:]] == [
+    assert [item["type"] for item in resumed.json()["ui_blocks"][-3:]] == [
         "interview_state",
         "question_group",
+        "deep_link",
     ]
 
     question_block = payload["ui_blocks"][1]

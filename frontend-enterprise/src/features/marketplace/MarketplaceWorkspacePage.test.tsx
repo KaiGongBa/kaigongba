@@ -119,5 +119,6 @@ describe('marketplace workspace route compatibility', () => {
     expect(selectedMarketplaceRoute('/enterprise/provider?view=workbench')).toBe('/enterprise/publishing');
     expect(selectedMarketplaceRoute('/enterprise/publishing/services/service-1')).toBe('/enterprise/publishing');
     expect(selectedMarketplaceRoute('/enterprise/market/skills')).toBe('/enterprise/market/skills');
+    expect(selectedMarketplaceRoute('/enterprise/market/demands')).toBe('/enterprise/market/demands');
   });
 });

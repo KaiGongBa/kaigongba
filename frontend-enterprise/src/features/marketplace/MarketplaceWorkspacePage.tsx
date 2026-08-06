@@ -14,6 +14,7 @@ import SkillMarketPage from './SkillMarketPage';
 const AgreementConfirmPage = lazy(() => import('./AgreementConfirmPage'));
 const ConfirmationCenterPage = lazy(() => import('./ConfirmationCenterPage'));
 const DemandCreatePage = lazy(() => import('./DemandCreatePage'));
+const DemandMarketPage = lazy(() => import('./DemandMarketPage'));
 const DemoPaymentPage = lazy(() => import('./DemoPaymentPage'));
 const DirectServiceCheckoutPage = lazy(() => import('./DirectServiceCheckoutPage'));
 const DeliverableAcceptancePage = lazy(() => import('./DeliverableAcceptancePage'));
@@ -50,6 +51,7 @@ export function isMarketplaceWorkspacePath(pathname: string): boolean {
 export function selectedMarketplaceRoute(pathname: string): string {
   if (pathname.startsWith(EnterpriseRoute.AiEmployeeMarket)) return EnterpriseRoute.AiEmployeeMarket;
   if (pathname.startsWith(EnterpriseRoute.SkillMarket)) return EnterpriseRoute.SkillMarket;
+  if (pathname.startsWith(EnterpriseRoute.DemandMarket)) return EnterpriseRoute.DemandMarket;
   if (pathname.startsWith(EnterpriseRoute.Transactions)) return EnterpriseRoute.Transactions;
   if (pathname.startsWith(EnterpriseRoute.Orders)) return EnterpriseRoute.Transactions;
   if (pathname.startsWith('/enterprise/disputes')) return EnterpriseRoute.Transactions;
@@ -74,6 +76,10 @@ export default function MarketplaceWorkspacePage() {
           <Route path="/enterprise/market/agents/:employeeId" element={<AiEmployeeDetailPage />} />
           <Route path="/enterprise/market/skills" element={<SkillMarketPage />} />
           <Route path="/enterprise/market/skills/:skillId" element={<SkillDetailPage />} />
+          <Route
+            path="/enterprise/market/demands"
+            element={<Suspense fallback={<MarketplaceRouteLoading />}><DemandMarketPage /></Suspense>}
+          />
           <Route
             path="/enterprise/services/:serviceId/order"
             element={<Suspense fallback={<MarketplaceRouteLoading />}><DirectServiceCheckoutPage /></Suspense>}

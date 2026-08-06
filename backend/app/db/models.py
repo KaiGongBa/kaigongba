@@ -28,7 +28,15 @@ class Tenant(SQLModel, table=True):
 
 class User(SQLModel, table=True):
     __tablename__ = "users"
-    __table_args__ = (UniqueConstraint("tenant_id", "username", name="uq_user_tenant_username"),)
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "username", name="uq_user_tenant_username"),
+        Index(
+            "uq_users_tenant_phone_e164",
+            "tenant_id",
+            "phone_e164",
+            unique=True,
+        ),
+    )
 
     id: str = Field(default_factory=lambda: new_id("user"), primary_key=True)
     tenant_id: str = Field(index=True)
@@ -41,9 +49,43 @@ class User(SQLModel, table=True):
     platform_role: Optional[str] = Field(default=None, index=True)
     # 账号来源:web=网页端创建;wechat 等=渠道懒建(用户管理列表默认隐藏)
     source: str = Field(default="web", index=True)
+    # 登录手机号统一保存为 E.164；旧账号允许为空，由管理员逐步绑定。
+    phone_e164: Optional[str] = Field(default=None, index=True)
     password_hash: str
     created_at: datetime = Field(default_factory=utc_now)
     updated_at: datetime = Field(default_factory=utc_now)
+
+
+class SmsVerificationChallenge(SQLModel, table=True):
+    """短信验证码挑战。
+
+    只落库 HMAC，不存明文验证码；verified_at 表示短信码已一次性核验，
+    grant_consumed_at 表示后续的登录/重置密码动作已消费该授权。
+    """
+
+    __tablename__ = "sms_verification_challenges"
+    __table_args__ = (
+        Index(
+            "ix_sms_challenge_tenant_phone_purpose_created",
+            "tenant_id",
+            "phone_e164",
+            "purpose",
+            "created_at",
+        ),
+    )
+
+    id: str = Field(default_factory=lambda: new_id("sms"), primary_key=True)
+    tenant_id: str = Field(index=True)
+    phone_e164: str = Field(index=True)
+    purpose: str = Field(index=True)
+    code_hash: str
+    expires_at: datetime = Field(index=True)
+    resend_available_at: datetime
+    attempt_count: int = Field(default=0)
+    grant_attempt_count: int = Field(default=0)
+    verified_at: Optional[datetime] = Field(default=None, index=True)
+    grant_consumed_at: Optional[datetime] = Field(default=None, index=True)
+    created_at: datetime = Field(default_factory=utc_now, index=True)
 
 
 class UserAvatar(SQLModel, table=True):

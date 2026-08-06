@@ -372,6 +372,7 @@ def test_protocol_v2_uses_adaptive_state_and_question_blocks(
     assert [item["type"] for item in selected.ui_blocks] == [
         "interview_state",
         "question_group",
+        "deep_link",
     ]
     assert selected.ui_blocks[0]["classification"]["category_id"] == (
         "recruiting-process"
@@ -434,7 +435,7 @@ def test_protocol_v2_uses_adaptive_state_and_question_blocks(
 
     result = continued
     for index in range(2, 9):
-        if any(item["type"] == "deep_link" for item in result.ui_blocks):
+        if any(item["type"] == "draft_preview" for item in result.ui_blocks):
             break
         snapshot = PlatformAssistantRepository(db).get_run_snapshot(
             scope, selected.snapshot.run.id
@@ -1034,4 +1035,39 @@ def test_presentation_deliverable_keeps_its_editable_file_format() -> None:
             "format": ".pptx",
             "required": True,
         }
+    ]
+
+
+def test_commerce_deliverable_object_is_normalized_to_standard_items() -> None:
+    assert _draft_fact_value(
+        "deliverables",
+        {
+            "content": ["商品主图", "详情页套图"],
+            "product_count": 20,
+            "colors_per_product": 3,
+        },
+    ) == [
+        {
+            "name": "商品主图（20套产品，每个产品3色）",
+            "format": "JPG/PNG",
+            "required": True,
+        },
+        {
+            "name": "详情页套图（20套产品，每个产品3色）",
+            "format": "JPG/PNG",
+            "required": True,
+        },
+    ]
+
+
+def test_acceptance_criterion_objects_are_normalized_to_strings() -> None:
+    assert _draft_fact_value(
+        "acceptance_criteria",
+        [
+            {"criterion": "图片尺寸", "standard": "主图 800×800 像素"},
+            {"criterion": "源文件", "standard": "提供可编辑 PSD"},
+        ],
+    ) == [
+        "图片尺寸：主图 800×800 像素",
+        "源文件：提供可编辑 PSD",
     ]

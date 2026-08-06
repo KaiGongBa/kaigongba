@@ -148,6 +148,65 @@ describe('Kai Xiaohua isolated assistant drawer', () => {
     expect(await screen.findByText('AI 已扩写并填入需求')).toBeTruthy();
   });
 
+  it('ignores an older analysis response after a newer request sequence starts', async () => {
+    let resolveFirst!: (result: AssistantTurnResult) => void;
+    let resolveSecond!: (result: AssistantTurnResult) => void;
+    const service = mockAssistantService(directDraftResult());
+    vi.mocked(service.sendTurn)
+      .mockReset()
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve; }))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveSecond = resolve; }));
+    renderDrawer('/enterprise/demands/new', service);
+
+    window.dispatchEvent(new CustomEvent(OPEN_KAI_ASSISTANT_EVENT, {
+      detail: {
+        view: 'chat', prompt: '第一份旧需求', autoSend: true, startNewWorkflow: true,
+        entrypoint: 'requirement.create', analysisRequestId: 'requirement-analysis-1-old',
+      },
+    }));
+    await waitFor(() => expect(service.sendTurn).toHaveBeenCalledTimes(1));
+    window.dispatchEvent(new CustomEvent(OPEN_KAI_ASSISTANT_EVENT, {
+      detail: {
+        view: 'chat', prompt: '第二份最新需求', autoSend: true, startNewWorkflow: true,
+        entrypoint: 'requirement.create', analysisRequestId: 'requirement-analysis-2-new',
+      },
+    }));
+
+    resolveFirst(directDraftResult('reqdraft_stale_result_001'));
+    await waitFor(() => expect(service.sendTurn).toHaveBeenCalledTimes(2));
+    expect(screen.getByTestId('location').textContent).toBe('/enterprise/demands/new');
+    resolveSecond(directDraftResult('reqdraft_latest_result_002'));
+
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe(
+      '/enterprise/demands/new?draftId=reqdraft_latest_result_002',
+    ));
+    expect(service.sendTurn).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      clientRequestId: 'requirement-analysis-1-old',
+    }));
+    expect(service.sendTurn).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      clientRequestId: 'requirement-analysis-2-new',
+    }));
+  });
+
+  it('opens restored chat history at the newest message and follows new replies', async () => {
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    });
+    renderDrawer('/enterprise/transactions');
+    fireEvent.click(await screen.findByRole('button', { name: /打开开小花/ }));
+
+    await screen.findByText('平台总助真实会话消息');
+    await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
+    const previousCalls = scrollIntoView.mock.calls.length;
+    const composer = screen.getByRole('textbox', { name: '给开小花发送消息' });
+    fireEvent.change(composer, { target: { value: '请显示最新状态' } });
+    fireEvent.keyDown(composer, { key: 'Enter' });
+    await screen.findByText('我可以帮你定位真实业务页面，但不会代替你确认或验收。');
+    await waitFor(() => expect(scrollIntoView.mock.calls.length).toBeGreaterThan(previousCalls));
+  });
+
   it('archives an existing assistant workflow before a demand-page new-requirement launch', async () => {
     const service = mockAssistantService(v2InterviewResult());
     renderDrawer('/enterprise/demands/new', service);
@@ -625,7 +684,7 @@ function guidanceResult(): AssistantTurnResult {
   };
 }
 
-function directDraftResult(): AssistantTurnResult {
+function directDraftResult(draftId = 'reqdraft_auto_fill_001'): AssistantTurnResult {
   return {
     sessionId: 'session_structured', runId: 'run_requirement', messageId: `message_direct_${crypto.randomUUID()}`,
     assistantText: '我已扩写需求并自动填入发布表单。',
@@ -633,7 +692,7 @@ function directDraftResult(): AssistantTurnResult {
       schema_version: '1.0', block_id: 'block_requirement_auto_fill', block_version: 1,
       type: 'deep_link', status: 'pending', title: 'AI 已扩写并填入需求',
       description: '请在真实需求页确认或修改。', route_id: 'enterprise.requirement.create',
-      route_params: { draftId: 'reqdraft_auto_fill_001' }, label: '检查并修改 AI 草稿',
+      route_params: { draftId }, label: '检查并修改 AI 草稿',
     }],
     workflow: {
       capability_id: 'requirement.create', capability_version: '2.0.0', state: 'reviewing', row_version: 3,

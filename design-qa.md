@@ -1,65 +1,68 @@
-# Design QA — AI 需求解析 UI（方案 3）
+# Design QA — 需求市场与需求详情（方案 2）
 
 ## Comparison target
 
-- Source visual truth: `/Users/albert/.codex/generated_images/019fd4f1-02eb-7e90-afd1-12a0c6ff337b/exec-fb95ca29-8b54-476c-ab56-f3335a3258a9.png`
-- Browser-rendered implementation: `/Users/albert/Documents/开工吧复刻/kaigongba/.artifacts/design-qa/option3-implementation-final.png`
-- Responsive evidence: `/Users/albert/Documents/开工吧复刻/kaigongba/.artifacts/design-qa/option3-responsive-1180.png`
-- Route: `http://127.0.0.1:5173/enterprise/demands/new?draftId=reqdraft_6c31163470374eed`
-- Viewport: 1672 × 941 CSS px; responsive check at 1180 × 900 CSS px
-- Pixel dimensions: source 1672 × 941; implementation 1672 × 941
-- Density normalization: 1:1 pixel comparison at the same viewport; no scaling or density conversion was required.
-- State: authenticated enterprise demand creation page, reviewing AI draft v5, AI composer populated, result ribbon ready, assistant drawer open.
+- Source visual truth: `/Users/albert/.codex/generated_images/019fd4f1-02eb-7e90-afd1-12a0c6ff337b/exec-52a8211b-1705-47f1-8267-4c10a88ca650.png`
+- Final market capture: `/Users/albert/Documents/开工吧复刻/kaigongba/.artifacts/demand-market-option2-desktop-aligned.png`
+- Final detail capture: `/Users/albert/Documents/开工吧复刻/kaigongba/.artifacts/demand-detail-option2-desktop-final.png`
+- Combined comparison input: `/Users/albert/Documents/开工吧复刻/kaigongba/.artifacts/demand-market-option2-comparison-final.png`
+- Responsive evidence: `/Users/albert/Documents/开工吧复刻/kaigongba/.artifacts/demand-market-option2-mobile-final.png`
+- Routes: `http://127.0.0.1:5173/enterprise/market/demands` and `http://127.0.0.1:5173/enterprise/demands/req_0b02af6c4f864f3b?source=market`
+- Desktop viewport: 1440 × 900 CSS px; narrow-screen check: 390 × 844 CSS px.
 
 ## Full-view comparison evidence
 
-The source and final browser capture were opened together in the same comparison input at identical pixel dimensions. The requested top experience preserves the source hierarchy and composition: compact white AI composer, left sparkle affordance, black analysis CTA, four-part result ribbon, red state labels, editable recognized facts, amber hard-information confirmation, red review CTA, and the real editable requirement form immediately below.
+The approved source and both final browser renders were placed together in one 2103 × 1496 comparison image. The implementation preserves the selected direction: compact enterprise header, search plus three filters, recommended/all/saved tabs, warm best-match treatment, structured budget and deadline columns, explicit match score, matching-preference rail, compact requirement body, match explanation, and a sticky quote-preparation panel.
 
-The surrounding production shell is intentionally retained. Its navigation rail, header, form component density, and assistant drawer differ slightly from the generated concept because the requested scope was the upper AI parsing UI, not a replacement of the application shell or assistant conversation.
-
-## Focused region comparison evidence
-
-The top composer and result ribbon were inspected at readable scale in both images. Typography hierarchy, one-pixel borders, 7–10 px corner radii, cell separators, chip treatment, CTA contrast, spacing, and the transition into the form are visibly aligned. No additional crop was required because the full-resolution 1672 × 941 comparison keeps every label and control in the target region legible.
+The production application shell is intentionally retained. It was captured with the real collapsed navigation rail instead of the expanded conceptual sidebar shown in the source. Requirement counts, scores, dates and capability warnings are real API results rather than copied concept values.
 
 ## Required fidelity surfaces
 
-- Fonts and typography: production sans-serif stack is retained; weights, sizes, line heights, wrapping, truncation, and red/neutral hierarchy match the compact enterprise target. No overflow or illegible small text was found.
-- Spacing and layout rhythm: composer height, ribbon density, padding, borders, cell divisions, and vertical handoff to the form match the source pattern. The 1180 px check correctly reflows the ribbon to two columns without horizontal overflow.
-- Colors and visual tokens: white/gray surfaces, neutral black CTA, product red labels/action, amber confirmation, and subtle blue-purple sparkle reuse the application's existing palette and preserve source contrast.
-- Image and icon fidelity: existing production logo/avatar assets remain intact. Standard UI glyphs use the project's Lucide Sparkles and PencilLine icons; no placeholder, CSS drawing, emoji, or fake asset was introduced.
-- Copy and content: labels follow the approved design (`AI 已识别`, `AI 已扩写`, `仍需确认`). The action copy intentionally says `已自动填入` and `检查已填表单`, because the product now auto-fills immediately instead of making the user click a second gate.
-
-## Findings
-
-- No actionable P0, P1, or P2 visual or interaction findings remain.
-- Accepted contextual difference: the generated source shows a simplified success summary in the assistant drawer, while the implementation keeps the real production drawer and existing conversation state. This is outside the requested upper-input redesign scope.
-- Accepted contextual difference: the exact number of filled fields and pending facts is data-driven; the inspected draft reports six filled fields and one relative-time confirmation.
+- Typography and density: compact production sans-serif hierarchy, restrained weights, small metadata and readable headings match the enterprise reference.
+- Layout: market cards now place core content first, budget/deadline second, match score near the action, and matching preferences in a right rail. Detail uses the approved match-summary/body/right-quote composition.
+- Color and borders: white surfaces, one-pixel gray dividers, amber best-match border, green capability states and red primary quote actions align with the source and existing product tokens.
+- Icons and assets: existing logo and Kai Xiaohua assets are retained; controls use the project Lucide icon set. No placeholder or hand-drawn asset was introduced.
+- Responsive behavior: at 390 px, filters stack, cards become a two-column content/score layout with a full-width action row, and no label is forced into vertical single-character wrapping.
+- Data integrity: a genuine 0% mismatch remains visible for an offline, out-of-scope service. The UI does not fake the source's 92 score when persisted capability evidence says otherwise.
 
 ## Comparison history
 
-1. Initial implementation capture: `.artifacts/design-qa/option3-implementation-v1.png`.
-   - [P2] `AI 已识别` favored long acceptance text and internal values over the source's concise title/category/audience/time facts.
-   - [P2] the pending area could say `无需补充` while the real form still required a concrete delivery date, and a raw `desired_delivery_at` blocker leaked into the note row.
-   - Fixes: reordered recognized facts to title/category/audience/time; merged warning and handoff fields into a clickable user-facing pending item; mapped the internal delivery field to `期望完成时间`; removed raw handoff validation text; corrected responsive cell borders to target semantic classes instead of fragile child indices.
-2. Post-fix browser capture: `.artifacts/design-qa/option3-implementation-final.png`.
-   - Evidence: four concise editable facts are visible; `期望完成时间` is the only amber confirmation; internal field names are absent; 1672 px and 1180 px layouts have no horizontal overflow; no P0/P1/P2 differences remain in the requested region.
+1. Initial market implementation used a custom hero and a less compact card hierarchy.
+   - [P1] Above-the-fold structure did not match the approved market reference.
+   - Fix: removed the hero, restored the compact subtitle/filter/tabs hierarchy, added the best-match border, preference rail and source-like row density.
+2. Initial detail implementation reused the transaction workspace hero, progress steps and three-column discussion view.
+   - [P1] The page did not express the selected match-first detail design.
+   - Fix: replaced the market-view variant with match reasons, risks, structured requirement sections and sticky quote preparation.
+3. Historical marketplace service snapshots could make the quote service selector fail with HTTP 500.
+   - [P0] A deliverable missing `size` blocked the core quote path.
+   - Fix: normalize legacy/model-generated deliverables and acceptance criteria, log malformed shapes and provide explicit fallback values.
+4. The first 390 px render kept desktop card columns.
+   - [P1] Titles and tags wrapped into narrow vertical strips.
+   - Fix: added a dedicated small-screen card grid and full-width action row.
+5. Final combined comparison and responsive inspection found no remaining actionable P0, P1 or P2 visual defects.
 
 ## Primary interactions tested
 
-- Composer accepts natural-language input and enables `AI 解析`.
-- Clicking a recognized AI fact focuses the corresponding real form field.
-- Clicking `检查已填表单` focuses the first populated field for review.
-- Pending `期望完成时间` is rendered as an actionable control leading to the deadline field.
-- Responsive layout tested at 1180 × 900 with `scrollWidth === clientWidth`.
+- Search/filter controls and recommendation tabs render from the live market API.
+- Saving a requirement changes the control to `已收藏`; the saved tab filters to that requirement.
+- Opening a public demand loads the selected design detail page.
+- `先提问题` targets the clarification section; clarification submission remains explicit.
+- `开始报价` creates an auditable public-market participation record, generates a private AI quote draft and navigates to the human review page.
+- The generated quote is not sent automatically; confirmation remains disabled until the service provider explicitly checks the authorization box.
 
 ## Runtime checks
 
-- Browser console errors/warnings after the final render: none.
-- Focused tests: 33 passed.
+- Browser market/detail API calls: successful after normalization fix.
+- Public-market quote generation: successful and navigated to a real private quote draft.
+- Backend focused regression suite: 44 passed.
+- Frontend focused regression suite: 60 passed.
 - Production TypeScript/Vite build: passed.
+- Browser console errors during the inspected final market/detail states: none observed.
 
-## Follow-up polish
+## Final findings
 
-- No required P3 follow-up for the approved upper-input scope.
+- No actionable P0, P1 or P2 visual, responsive or core-interaction findings remain.
+- Accepted contextual difference: source has an expanded conceptual sidebar; the real application retains the user's collapsed production shell state.
+- Accepted contextual difference: scores and quote counts are data-driven. They intentionally differ from static concept copy when the current enterprise's published services do not semantically cover the demand.
 
 final result: passed

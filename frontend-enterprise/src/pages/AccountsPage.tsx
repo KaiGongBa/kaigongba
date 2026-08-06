@@ -44,6 +44,7 @@ type EmployeeAccount = {
   tenant_id: string;
   username: string;
   display_name?: string;
+  phone_masked?: string;
   role: 'admin' | 'member';
   created_at?: string;
   updated_at?: string;
@@ -51,6 +52,7 @@ type EmployeeAccount = {
 
 type AccountDraft = {
   displayName: string;
+  phone: string;
   password: string;
   role: 'admin' | 'member';
 };
@@ -58,6 +60,7 @@ type AccountDraft = {
 type AccountCreateDraft = {
   username: string;
   displayName: string;
+  phone: string;
   password: string;
   role: 'admin' | 'member';
 };
@@ -77,12 +80,13 @@ export default function AccountsPage({
   const [loading, setLoading] = useState(false);
   const [searchText, setSearchText] = useState('');
   const [editing, setEditing] = useState<EmployeeAccount | null>(null);
-  const [draft, setDraft] = useState<AccountDraft>({ displayName: '', password: '', role: 'member' });
+  const [draft, setDraft] = useState<AccountDraft>({ displayName: '', phone: '', password: '', role: 'member' });
   const [saving, setSaving] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [createDraft, setCreateDraft] = useState<AccountCreateDraft>({
     username: '',
     displayName: '',
+    phone: '',
     password: '',
     role: 'member',
   });
@@ -110,7 +114,7 @@ export default function AccountsPage({
     const keyword = searchText.trim().toLowerCase();
     if (!keyword) return rows;
     return rows.filter((row) =>
-      [row.username, row.display_name || '', row.role === 'admin' ? '管理员' : '普通成员']
+      [row.username, row.display_name || '', row.phone_masked || '', row.role === 'admin' ? '管理员' : '普通成员']
         .some((value) => value.toLowerCase().includes(keyword)),
     );
   }, [rows, searchText]);
@@ -119,19 +123,26 @@ export default function AccountsPage({
 
   function openEdit(row: EmployeeAccount) {
     setEditing(row);
-    setDraft({ displayName: row.display_name || row.username, password: '', role: row.role });
+    setDraft({ displayName: row.display_name || row.username, phone: '', password: '', role: row.role });
   }
 
   function openCreate() {
-    setCreateDraft({ username: '', displayName: '', password: '', role: 'member' });
+    setCreateDraft({ username: '', displayName: '', phone: '', password: '', role: 'member' });
     setCreateOpen(true);
   }
 
   async function saveCreate() {
     const username = createDraft.username.trim();
+    const phone = createDraft.phone.replace(/\D/g, '');
     const password = createDraft.password.trim();
-    if (!username || !password) {
-      notify.error('请填写账号和密码');
+    if (!username || !/^1[3-9]\d{9}$/.test(phone) || !password) {
+      notify.error('请填写账号、正确的手机号和密码');
+      return;
+    }
+    const passwordCategories = [/[A-Za-z]/.test(password), /\d/.test(password), /[^A-Za-z\d]/.test(password)]
+      .filter(Boolean).length;
+    if (password.length < 8 || password.length > 64 || passwordCategories < 2) {
+      notify.error('初始密码需为 8–64 位，且包含字母、数字或符号中的两类');
       return;
     }
     setCreating(true);
@@ -139,6 +150,7 @@ export default function AccountsPage({
       await api.post('/api/auth/users', {
         tenant_id: TENANT_ID,
         username,
+        phone,
         password,
         display_name: createDraft.displayName.trim() || username,
         role: createDraft.role,
@@ -160,6 +172,7 @@ export default function AccountsPage({
       await api.put(`/api/auth/users/${editing.id}`, {
         tenant_id: TENANT_ID,
         display_name: draft.displayName.trim() || editing.username,
+        phone: draft.phone.replace(/\D/g, '') || undefined,
         password: draft.password.trim() || undefined,
         role: draft.role,
       });
@@ -241,6 +254,12 @@ export default function AccountsPage({
       render: (row) => <span className="block truncate">{row.display_name || row.username}</span>,
     },
     {
+      key: 'phone',
+      title: '登录手机号',
+      width: 160,
+      render: (row) => <span>{row.phone_masked || '未绑定'}</span>,
+    },
+    {
       key: 'role',
       title: '角色',
       width: 120,
@@ -267,6 +286,7 @@ export default function AccountsPage({
           <span className="min-w-0">
             <strong className="block truncate text-[14px] font-semibold text-[#18181a]">{row.username}</strong>
             <span className="mt-[2px] block truncate text-[12px] text-[#858b9c]">{row.display_name || row.username}</span>
+            <span className="mt-[2px] block text-[12px] text-[#a0a6b5]">{row.phone_masked || '未绑定手机号'}</span>
           </span>
         </span>
         {renderActions(row)}
@@ -371,6 +391,7 @@ export default function AccountsPage({
         username={{ value: createDraft.username, onChange: (value) => setCreateDraft((prev) => ({ ...prev, username: value })) }}
         displayName={createDraft.displayName}
         onDisplayNameChange={(value) => setCreateDraft((prev) => ({ ...prev, displayName: value }))}
+        phone={{ value: createDraft.phone, onChange: (value) => setCreateDraft((prev) => ({ ...prev, phone: value })) }}
         password={createDraft.password}
         onPasswordChange={(value) => setCreateDraft((prev) => ({ ...prev, password: value }))}
         role={createDraft.role}
@@ -388,6 +409,11 @@ export default function AccountsPage({
         username={null}
         displayName={draft.displayName}
         onDisplayNameChange={(value) => setDraft((prev) => ({ ...prev, displayName: value }))}
+        phone={{
+          value: draft.phone,
+          onChange: (value) => setDraft((prev) => ({ ...prev, phone: value })),
+          placeholder: editing?.phone_masked ? `已绑定 ${editing.phone_masked}，输入可更换` : '输入手机号完成绑定',
+        }}
         password={draft.password}
         onPasswordChange={(value) => setDraft((prev) => ({ ...prev, password: value }))}
         role={draft.role}
@@ -419,6 +445,7 @@ function AccountDialog({
   username,
   displayName,
   onDisplayNameChange,
+  phone,
   password,
   onPasswordChange,
   role,
@@ -436,6 +463,7 @@ function AccountDialog({
   username: { value: string; onChange: (value: string) => void } | null;
   displayName: string;
   onDisplayNameChange: (value: string) => void;
+  phone: { value: string; onChange: (value: string) => void; placeholder?: string };
   password: string;
   onPasswordChange: (value: string) => void;
   role: 'admin' | 'member';
@@ -474,6 +502,15 @@ function AccountDialog({
               value={displayName}
               placeholder="例如 张三"
               onChange={(event) => onDisplayNameChange(event.target.value)}
+            />
+          </LabeledField>
+          <LabeledField label="登录手机号">
+            <Input
+              inputMode="numeric"
+              autoComplete="tel"
+              value={phone.value}
+              placeholder={phone.placeholder || '请输入 11 位手机号'}
+              onChange={(event) => phone.onChange(event.target.value.replace(/\D/g, '').slice(0, 11))}
             />
           </LabeledField>
           <LabeledField label={passwordLabel}>

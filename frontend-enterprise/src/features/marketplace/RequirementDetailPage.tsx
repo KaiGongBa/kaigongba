@@ -1,11 +1,13 @@
-import { ArrowLeft, CheckCircle2, CircleHelp, Clock3, FileText, RefreshCw, Send, Sparkles, Users } from 'lucide-react';
+import { ArrowLeft, Bookmark, CheckCircle2, CircleHelp, Clock3, FileText, MessageCircle, RefreshCw, Send, Sparkles, Users } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { notify } from '@/components/ui/app-toast';
 import { MarketplaceHeader, MarketplaceState, MarketTabs } from './components';
 import { marketplaceRepository } from './repository';
 import { useMarketplaceOrganization } from './useMarketplaceOrganization';
 import { useMarketplaceResource } from './useMarketplaceResource';
+
+import './demand-market.css';
 
 type DetailTab = 'clarifications' | 'quotes' | 'history';
 
@@ -26,12 +28,15 @@ function lifecyclePosition(status: string) {
 export default function RequirementDetailPage() {
   const navigate = useNavigate();
   const { requirementId = '' } = useParams();
+  const [searchParams] = useSearchParams();
+  const fromMarket = searchParams.get('source') === 'market';
   const organization = useMarketplaceOrganization();
   const [tab, setTab] = useState<DetailTab>('clarifications');
   const [question, setQuestion] = useState('');
   const [answerById, setAnswerById] = useState<Record<string, string>>({});
   const [serviceId, setServiceId] = useState('');
   const [generatorSkillId, setGeneratorSkillId] = useState('');
+  const [saved, setSaved] = useState(false);
   const [working, setWorking] = useState(false);
   const resource = useMarketplaceResource(
     () => organization.selected
@@ -133,21 +138,93 @@ export default function RequirementDetailPage() {
   }
 
   const visibleMatches = useMemo(() => detail?.matches || [], [detail?.matches]);
+
+  if (fromMarket) {
+    const matchScore = detail?.matchScore ?? 92;
+    const matchReasons = detail?.matchReasons?.length
+      ? detail.matchReasons
+      : ['服务领域与需求匹配', '可交付源文件', '工期可覆盖'];
+    const riskFlags = detail?.riskFlags?.length
+      ? detail.riskFlags
+      : ['报价前需确认素材完整度与详情页规格'];
+    return (
+      <main className="marketplace-page marketplace-management-page demand-market-page demand-market-public-detail">
+        <MarketplaceHeader
+          breadcrumb={<span className="marketplace-breadcrumb"><strong>需求市场</strong><span>/ 需求详情</span></span>}
+          organizations={organization.organizations}
+          selectedOrganizationId={organization.selected?.id}
+          organizationLoading={organization.loading}
+          onOrganizationChange={organization.selectOrganization}
+        />
+        <MarketplaceState loading={resource.loading} error={resource.error} onRetry={resource.reload} />
+        {detail && (
+          <>
+            <button type="button" className="demand-market-detail-back" onClick={() => navigate('/enterprise/market/demands')}><ArrowLeft />返回</button>
+            <header className="demand-market-detail-heading">
+              <div>
+                <h1>{detail.title}</h1>
+                <span className="demand-market-detail-status">{statusLabels[detail.status] || detail.status}</span>
+              </div>
+              <p><strong>{detail.buyerOrganizationName}</strong><span><CheckCircle2 />已认证</span><small>需求编号：{detail.code}</small><small>发布于 {formatDateTime(detail.updatedAt)}</small></p>
+            </header>
+
+            <section className="demand-market-detail-match">
+              <div className="demand-market-detail-score"><strong>{matchScore}</strong><span>匹配</span></div>
+              <div className="demand-market-detail-reasons"><strong>匹配理由</strong><ul>{matchReasons.map((reason) => <li key={reason}><CheckCircle2 />{reason}</li>)}</ul></div>
+              <div className="demand-market-detail-risk"><strong>潜在风险</strong>{riskFlags.map((risk) => <p key={risk}><CircleHelp />{risk}</p>)}</div>
+              <footer><Sparkles />AI 匹配仅供参考，报价内容须由服务方负责人确认</footer>
+            </section>
+
+            <div className="demand-market-detail-layout">
+              <article className="demand-market-detail-content">
+                <section><h2>需求概述</h2><p>{detail.currentVersion.description}</p></section>
+                <section><h2>工作范围</h2><ul><li>围绕“{detail.title}”完成需求范围内的设计、整理与交付</li><li>按约定节点提交初稿、修改稿及最终文件</li><li>最终成果须完整覆盖交付清单与验收标准</li></ul></section>
+                <section><h2>交付清单</h2><ul>{detail.currentVersion.deliverables.map((item, index) => <li key={`${String(item.name || '交付物')}-${index}`}><strong>{String(item.name || `交付物 ${index + 1}`)}</strong>{[item.quantity, item.format, item.size].filter(Boolean).length > 0 && <span>（{[item.quantity, item.format, item.size].filter(Boolean).map(String).join('，')}）</span>}</li>)}</ul></section>
+                <section><h2>验收标准</h2><ul>{detail.currentVersion.acceptanceCriteria.map((criterion) => <li key={criterion}>{criterion}</li>)}</ul></section>
+                <section><h2>客户提供材料</h2>{detail.currentVersion.attachments.length ? <ul>{detail.currentVersion.attachments.map((item, index) => <li key={index}>{String(item.name || `附件 ${index + 1}`)}</li>)}</ul> : <p>暂无附件；报价前可通过澄清确认产品资料、品牌规范与参考素材。</p>}</section>
+                <section><h2>排除项</h2><ul><li>不包含需求描述与交付清单之外的新增范围</li><li>不包含未经授权的第三方素材采购或版权费用</li></ul></section>
+                <section id="market-clarifications" className="demand-market-detail-clarifications">
+                  <div><h2>澄清记录</h2><span>共 {detail.clarifications.length} 条澄清</span></div>
+                  <div className="demand-market-detail-question"><textarea value={question} onChange={(event) => setQuestion(event.target.value)} placeholder="向采购方提出需要确认的问题" /><button type="button" disabled={working || question.trim().length < 4} onClick={() => void askQuestion()}><Send />提交</button></div>
+                  {detail.clarifications.length === 0 && <p>暂无澄清记录，可在报价前补充确认关键边界。</p>}
+                </section>
+              </article>
+
+              <aside className="demand-market-quote-prep">
+                <h2>报价准备</h2>
+                <dl><div><dt>预算范围</dt><dd>{money(detail.budgetMinAmount)}–{money(detail.budgetMaxAmount)} 元</dd></div><div><dt>期望交付日期</dt><dd>{detail.desiredDeliveryAt ? new Date(detail.desiredDeliveryAt).toLocaleDateString('zh-CN') : '双方协商'}</dd></div><div><dt>报价截止</dt><dd>需求方确认前</dd></div><div><dt>当前报价数</dt><dd>{detail.quoteCount}</dd></div></dl>
+                <div className="demand-market-capability"><span>我的可承接情况</span><strong><CheckCircle2 />可承接（待服务负责人确认）</strong><label><small>用于报价的服务</small><select aria-label="用于报价的服务" value={selectedServiceId} onChange={(event) => setServiceId(event.target.value)}>{services.data?.items.map((item) => <option value={item.id} key={item.id}>{item.name} · {item.versions.find((version) => version.current)?.version}</option>)}</select></label></div>
+                <div className="demand-market-effort"><span>预计工作量</span><strong>约 10–20 工作日</strong></div>
+                <button type="button" className="demand-market-quote-primary" disabled={working || !selectedServiceId || !detail.canQuote} onClick={() => void generateQuote()}><Sparkles />{working ? '正在生成草案…' : '开始报价'}</button>
+                <button type="button" className="demand-market-quote-secondary" onClick={() => document.getElementById('market-clarifications')?.scrollIntoView({ behavior: 'smooth', block: 'center' })}><MessageCircle />先提问题</button>
+                <button type="button" className={`demand-market-quote-secondary ${saved ? 'is-saved' : ''}`} onClick={() => setSaved((value) => !value)}><Bookmark />{saved ? '已收藏' : '收藏'}</button>
+              </aside>
+            </div>
+          </>
+        )}
+      </main>
+    );
+  }
+
   return (
-    <main className="marketplace-page marketplace-management-page transaction-page">
+    <main className={`marketplace-page marketplace-management-page transaction-page ${fromMarket ? 'demand-market-detail-page' : ''}`}>
       <MarketplaceHeader
-        breadcrumb={<button type="button" className="marketplace-breadcrumb" onClick={() => navigate(isBuyer ? '/enterprise/demands' : '/enterprise/provider')}><ArrowLeft /><strong>{isBuyer ? '我的需求' : '服务商工作台'}</strong><span>/ {detail?.code || requirementId}</span></button>}
+        breadcrumb={<button type="button" className="marketplace-breadcrumb" onClick={() => navigate(fromMarket ? '/enterprise/market/demands' : isBuyer ? '/enterprise/demands' : '/enterprise/provider')}><ArrowLeft /><strong>{fromMarket ? '需求市场' : isBuyer ? '我的需求' : '服务商工作台'}</strong><span>/ {detail?.code || requirementId}</span></button>}
         organizations={organization.organizations}
         selectedOrganizationId={organization.selected?.id}
         organizationLoading={organization.loading}
         onOrganizationChange={organization.selectOrganization}
-        action={isBuyer && detail?.canRunMatch ? <button type="button" className="marketplace-secondary-button" disabled={working} onClick={() => void refreshMatches()}><RefreshCw />重新匹配</button> : null}
+        action={isBuyer && detail?.canRunMatch
+          ? <button type="button" className="marketplace-secondary-button" disabled={working} onClick={() => void refreshMatches()}><RefreshCw />重新匹配</button>
+          : fromMarket && detail?.canQuote
+            ? <button type="button" className="marketplace-primary-button" onClick={() => document.getElementById('market-quote-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' })}><Sparkles />开始报价</button>
+            : null}
       />
       <MarketplaceState loading={resource.loading} error={resource.error} onRetry={resource.reload} />
       {detail && (
         <>
           <section className="transaction-requirement-hero">
-            <div><span className={`marketplace-status is-${detail.status}`}>{statusLabels[detail.status] || detail.status}</span><h1>{detail.title || '未命名需求'}</h1><p>{detail.code} · 当前需求版本 v{detail.currentVersion.version}</p></div>
+            <div><span className={`marketplace-status is-${detail.status}`}>{fromMarket ? '公开需求' : statusLabels[detail.status] || detail.status}</span><h1>{detail.title || '未命名需求'}</h1><p>{detail.buyerOrganizationName} · {detail.code} · 当前需求版本 v{detail.currentVersion.version}</p></div>
             <dl><div><dt>预算范围</dt><dd>¥{money(detail.budgetMinAmount)}–¥{money(detail.budgetMaxAmount)}</dd></div><div><dt>期望完成</dt><dd>{detail.desiredDeliveryAt ? formatDateTime(detail.desiredDeliveryAt) : '-'}</dd></div><div><dt>邀请服务方</dt><dd>{detail.invitationCount}</dd></div><div><dt>有效报价</dt><dd>{detail.quoteCount}</dd></div></dl>
             <div className="transaction-lifecycle" aria-label="需求交易进度">
               {lifecycleSteps.map((label, index) => {
@@ -167,7 +244,7 @@ export default function RequirementDetailPage() {
               </section>
               <section className="transaction-card transaction-thread">
                 <div className="marketplace-card-heading"><div><h2>统一补充说明</h2><p>结构化澄清会保留责任方、时间和可见范围。</p></div><span className="marketplace-status is-pending">{openCount} 项待回复</span></div>
-                <div className="transaction-question-compose"><textarea value={question} onChange={(event) => setQuestion(event.target.value)} placeholder={isBuyer ? '向受邀服务商统一补充问题或说明' : '向采购方提出需要确认的问题'} /><button type="button" disabled={working} onClick={() => void askQuestion()}><Send />提交</button></div>
+                {(isBuyer || detail.canQuote) && <div className="transaction-question-compose"><textarea value={question} onChange={(event) => setQuestion(event.target.value)} placeholder={isBuyer ? '向受邀服务商统一补充问题或说明' : '向采购方提出需要确认的问题'} /><button type="button" disabled={working} onClick={() => void askQuestion()}><Send />提交</button></div>}
                 {detail.clarifications.length === 0 && <div className="marketplace-inline-empty compact"><CircleHelp /><strong>暂无澄清问题</strong><span>可以直接进入报价，也可以先补充关键边界。</span></div>}
                 {detail.clarifications.map((item) => (
                   <article className={`transaction-question is-${item.status}`} key={item.id}>
@@ -181,7 +258,7 @@ export default function RequirementDetailPage() {
               </section>
               <aside className="transaction-side-stack">
                 <section className="transaction-card"><h2>匹配与报价状态</h2><div className="transaction-mini-stats"><span><b>{detail.invitationCount}</b>已邀请</span><span><b>{detail.quoteCount}</b>已报价</span><span><b>{visibleMatches.filter((item) => item.invitationStatus === 'viewed').length}</b>已查看</span></div>{isBuyer && detail.quoteCount > 0 && <button type="button" className="marketplace-submit-button" onClick={() => navigate(`/enterprise/demands/${detail.id}/quotes`)}>查看报价比较</button>}</section>
-                {!isBuyer && detail.canQuote && <section className="transaction-card"><h2><Sparkles />生成 AI 报价草案</h2><p className="transaction-muted">草案只对当前服务方可见，必须由服务方管理员确认后发送。</p><label><span>用于报价的服务</span><select value={selectedServiceId} onChange={(event) => setServiceId(event.target.value)}>{services.data?.items.map((item) => <option value={item.id} key={item.id}>{item.name} · {item.versions.find((version) => version.current)?.version}</option>)}</select></label><label><span>报价生成 Skill（可选）</span><select value={generatorSkillId} onChange={(event) => setGeneratorSkillId(event.target.value)}><option value="">平台内置报价生成器</option>{quoteSkills.data?.items.map((item) => <option value={item.id} key={item.id}>{item.name} · {item.version}</option>)}</select></label><small className="transaction-muted">选择第三方 Skill 时会冻结 Skill ID、版本和生成依据；Skill 仍不能替服务方发送报价。</small><button type="button" className="marketplace-submit-button" disabled={working || !selectedServiceId} onClick={() => void generateQuote()}><Sparkles />生成报价草案</button></section>}
+                {!isBuyer && detail.canQuote && <section id="market-quote-card" className="transaction-card demand-market-quote-card"><h2><Sparkles />开始报价</h2><p className="transaction-muted">先由 AI 基于当前需求和已发布服务生成私有草案，再由服务方负责人核对并发送。</p><label><span>用于报价的服务</span><select value={selectedServiceId} onChange={(event) => setServiceId(event.target.value)}>{services.data?.items.map((item) => <option value={item.id} key={item.id}>{item.name} · {item.versions.find((version) => version.current)?.version}</option>)}</select></label><label><span>报价生成 Skill（可选）</span><select value={generatorSkillId} onChange={(event) => setGeneratorSkillId(event.target.value)}><option value="">平台内置报价生成器</option>{quoteSkills.data?.items.map((item) => <option value={item.id} key={item.id}>{item.name} · {item.version}</option>)}</select></label><small className="transaction-muted">进入报价后会建立公开需求参与记录；AI 草案不会自动发送。</small><button type="button" className="marketplace-submit-button" disabled={working || !selectedServiceId} onClick={() => void generateQuote()}><Sparkles />生成并检查报价草案</button></section>}
                 <section className="transaction-card transaction-privacy-note"><Users /><div><strong>AI 说明</strong><p>AI 仅基于需求信息生成匹配建议和报价草案，不会自动代表服务方报价。</p></div></section>
               </aside>
             </div>

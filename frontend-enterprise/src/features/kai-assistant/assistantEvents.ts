@@ -8,6 +8,7 @@ export type OpenKaiAssistantDetail = {
   autoSend?: boolean;
   startNewWorkflow?: boolean;
   entrypoint?: 'requirement.create';
+  analysisRequestId?: string;
 };
 
 export function openKaiAssistant(detail: OpenKaiAssistantDetail = {}) {

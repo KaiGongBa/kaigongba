@@ -21,6 +21,7 @@ export enum EnterpriseRoute {
   AIUsage = '/enterprise/ai-usage',
   AiEmployeeMarket = '/enterprise/market/agents',
   SkillMarket = '/enterprise/market/skills',
+  DemandMarket = '/enterprise/market/demands',
   Transactions = '/enterprise/transactions',
   Orders = '/enterprise/orders',
   Confirmations = '/enterprise/confirmations',

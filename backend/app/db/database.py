@@ -118,6 +118,20 @@ def _migrate_sqlite_skill_schema() -> None:
                 conn.execute(text("ALTER TABLE users ADD COLUMN role VARCHAR NOT NULL DEFAULT 'member'"))
             if "source" not in user_columns:
                 conn.execute(text("ALTER TABLE users ADD COLUMN source VARCHAR NOT NULL DEFAULT 'web'"))
+            if "phone_e164" not in user_columns:
+                conn.execute(text("ALTER TABLE users ADD COLUMN phone_e164 VARCHAR"))
+            conn.execute(
+                text(
+                    "CREATE INDEX IF NOT EXISTS ix_users_phone_e164 "
+                    "ON users(phone_e164)"
+                )
+            )
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS uq_users_tenant_phone_e164 "
+                    "ON users(tenant_id, phone_e164)"
+                )
+            )
             _migrate_user_source_backfill(conn)
 
         if "sessions" in tables:

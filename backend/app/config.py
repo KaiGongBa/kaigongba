@@ -16,6 +16,13 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./skill_agent_loop.db"
     database_startup_mode: Literal["legacy", "migrate", "validate"] = "legacy"
     app_secret: str = "change-me-in-development"
+    sms_provider: Literal["console", "aliyun"] = "console"
+    sms_aliyun_access_key_id: str = ""
+    sms_aliyun_access_key_secret: str = ""
+    sms_aliyun_sign_name: str = ""
+    sms_aliyun_login_template_code: str = ""
+    sms_aliyun_reset_template_code: str = ""
+    sms_http_timeout_seconds: float = 5.0
     internal_service_secret: str = ""
     identity_internal_base_url: str = ""
     identity_internal_timeout_seconds: float = 5.0
@@ -94,6 +101,22 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_runtime_safety(self) -> Self:
+        if not 1 <= self.sms_http_timeout_seconds <= 30:
+            raise ValueError("短信服务超时必须在 1–30 秒之间")
+        if self.sms_provider == "aliyun":
+            missing_sms_settings = [
+                name
+                for name, value in {
+                    "SMS_ALIYUN_ACCESS_KEY_ID": self.sms_aliyun_access_key_id,
+                    "SMS_ALIYUN_ACCESS_KEY_SECRET": self.sms_aliyun_access_key_secret,
+                    "SMS_ALIYUN_SIGN_NAME": self.sms_aliyun_sign_name,
+                    "SMS_ALIYUN_LOGIN_TEMPLATE_CODE": self.sms_aliyun_login_template_code,
+                    "SMS_ALIYUN_RESET_TEMPLATE_CODE": self.sms_aliyun_reset_template_code,
+                }.items()
+                if not value.strip()
+            ]
+            if missing_sms_settings:
+                raise ValueError(f"阿里云短信缺少配置：{', '.join(missing_sms_settings)}")
         if self.order_object_storage_provider == "s3":
             missing = [
                 name

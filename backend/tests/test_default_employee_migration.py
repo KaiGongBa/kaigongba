@@ -69,7 +69,7 @@ def test_0015_backfills_web_accounts_without_cross_account_or_replay_duplicates(
         db.commit()
 
     command.upgrade(config, "head")
-    assert _revision(engine) == "20260804_0029"
+    assert _revision(engine) == "20260806_0030"
     defaults = _visible_defaults(engine)
     assert {row["owner_user_id"] for row in defaults} == {"user_new", "user_existing"}
     assert len([row for row in defaults if row["owner_user_id"] == "user_new"]) == 1
@@ -122,7 +122,7 @@ def test_0020_hides_acceptance_defaults_without_deleting_evidence_accounts(
         db.commit()
 
     command.upgrade(config, "head")
-    assert _revision(engine) == "20260804_0029"
+    assert _revision(engine) == "20260806_0030"
     with Session(engine) as db:
         user = db.get(User, acceptance_user_id)
         agent = db.get(AgentProfile, acceptance_agent_id)

@@ -33,6 +33,9 @@ hiddenimports = (
     collect_submodules("uvicorn")
     + collect_submodules("sqlmodel")
     + collect_submodules("lark_channel")
+    + collect_submodules("alibabacloud_dysmsapi20170525")
+    + collect_submodules("alibabacloud_tea_openapi")
+    + collect_submodules("alibabacloud_tea_util")
     + collect_submodules("app")
     + [
         # 顶层单文件模块：uvicorn 用字符串 "single_port_app:app" 运行时动态 import

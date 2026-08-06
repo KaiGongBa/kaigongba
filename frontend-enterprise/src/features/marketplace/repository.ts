@@ -416,7 +416,7 @@ export const marketplaceRepository = {
 
   async listRequirements(
     organizationId: string,
-    perspective: 'buyer' | 'provider' = 'buyer',
+    perspective: 'buyer' | 'provider' | 'market' = 'buyer',
   ): Promise<RequirementSummary[]> {
     return api.get<RequirementSummary[]>(
       `/api/transactions/requirements${queryString({ organizationId, perspective })}`,

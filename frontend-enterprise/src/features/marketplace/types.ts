@@ -339,6 +339,11 @@ export type RequirementSummary = {
   quoteCount: number;
   invitationCount: number;
   updatedAt: string;
+  matchScore?: number;
+  matchReasons?: string[];
+  riskFlags?: string[];
+  matchedServiceId?: string;
+  matchedServiceName?: string;
 };
 
 export type RequirementVersion = {

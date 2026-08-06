@@ -5,6 +5,7 @@ export type EnterpriseAuthUser = {
   display_name?: string;
   role: 'admin' | 'member';
   platform_role?: 'super_admin' | 'model_admin' | 'operations' | 'finance' | 'dispute_reviewer';
+  phone_masked?: string;
   avatar_url?: string;
 };
 

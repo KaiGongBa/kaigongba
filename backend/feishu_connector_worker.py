@@ -407,6 +407,10 @@ def run_sdk_contract_runtime(
         domain=str(config["endpoint_domain"]),
         auto_reconnect=bool(config.get("auto_reconnect", False)),
         handshake_timeout=1.0,
+        # The contract endpoint is an isolated localhost server. Inherited
+        # HTTP(S)_PROXY values can otherwise route that handshake through a
+        # corporate proxy and turn a deterministic test into a 502 failure.
+        trust_env_proxy=False,
     )
 
     def request_stop() -> None:

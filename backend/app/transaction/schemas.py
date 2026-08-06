@@ -115,6 +115,11 @@ class RequirementSummaryRead(MarketplaceReadModel):
     quote_count: int
     invitation_count: int
     updated_at: datetime
+    match_score: int | None = None
+    match_reasons: list[str] = Field(default_factory=list)
+    risk_flags: list[str] = Field(default_factory=list)
+    matched_service_id: str | None = None
+    matched_service_name: str | None = None
 
 
 class RequirementVersionRead(MarketplaceReadModel):

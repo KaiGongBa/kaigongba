@@ -87,6 +87,7 @@ export default function KaiAssistantDrawer({
     prompt: string;
     startNewWorkflow: boolean;
     entrypoint?: 'requirement.create';
+    analysisRequestId?: string;
   } | null>(null);
   const [sending, setSending] = useState(false);
   const [completedBlocks, setCompletedBlocks] = useState<Set<string>>(() => new Set());
@@ -100,6 +101,8 @@ export default function KaiAssistantDrawer({
   const closeRef = useRef<HTMLButtonElement>(null);
   const wasOpenRef = useRef(false);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   const lastUserMessageRef = useRef('');
   const routeKeyRef = useRef('');
   const pageInstanceIdRef = useRef(createPageInstanceId());
@@ -110,7 +113,9 @@ export default function KaiAssistantDrawer({
     answers: AnswerSubmission['answers'];
   }>());
   const submittingBlocksRef = useRef(new Set<string>());
+  const latestRequirementAnalysisIdRef = useRef('');
   const launchInProgressRef = useRef(false);
+  const pendingLaunchPromptRef = useRef<typeof pendingLaunchPrompt>(null);
   const user = getEnterpriseAuthSession()?.user;
 
   useEffect(() => {
@@ -258,13 +263,19 @@ export default function KaiAssistantDrawer({
       openDrawer(detail.view || 'chat');
       if (detail.prompt?.trim()) {
         const prompt = detail.prompt.trim();
+        if (detail.entrypoint === 'requirement.create' && detail.analysisRequestId) {
+          latestRequirementAnalysisIdRef.current = detail.analysisRequestId;
+        }
         setDraft(prompt);
         if (detail.autoSend) {
-          setPendingLaunchPrompt({
+          const launch = {
             prompt,
             startNewWorkflow: Boolean(detail.startNewWorkflow),
             entrypoint: detail.entrypoint,
-          });
+            analysisRequestId: detail.analysisRequestId,
+          };
+          pendingLaunchPromptRef.current = launch;
+          setPendingLaunchPrompt(launch);
         }
         else requestAnimationFrame(() => composerRef.current?.focus());
       }
@@ -284,8 +295,9 @@ export default function KaiAssistantDrawer({
       || !pendingLaunchPrompt
       || launchInProgressRef.current
     ) return;
-    const launch = pendingLaunchPrompt;
+    const launch = pendingLaunchPromptRef.current || pendingLaunchPrompt;
     launchInProgressRef.current = true;
+    pendingLaunchPromptRef.current = null;
     setPendingLaunchPrompt(null);
     void (async () => {
       try {
@@ -299,19 +311,28 @@ export default function KaiAssistantDrawer({
           setActiveWorkflow(null);
           setSending(false);
         }
-        await sendMessage(launch.prompt, launch.entrypoint);
+        await sendMessage(launch.prompt, launch.entrypoint, launch.analysisRequestId);
       } catch (error) {
           setChatError(parseAssistantError(error));
       } finally {
-        setSending(false);
         launchInProgressRef.current = false;
+        setSending(false);
+        // A newer launch may have arrived while this request was awaiting the
+        // backend. Re-emit the ref-backed queue after releasing the guard.
+        if (pendingLaunchPromptRef.current) {
+          setPendingLaunchPrompt({ ...pendingLaunchPromptRef.current });
+        }
       }
     })();
   // sendMessage intentionally consumes the latest assistant/session state.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeWorkflow, assistant, assistantService, chatLoading, pendingLaunchPrompt, sending, state.open]);
 
-  async function sendMessage(value?: string, entrypoint?: 'requirement.create') {
+  async function sendMessage(
+    value?: string,
+    entrypoint?: 'requirement.create',
+    analysisRequestId?: string,
+  ) {
     const message = (value ?? draft).trim();
     if (!message || !assistant || sending) return;
     const now = new Date().toISOString();
@@ -337,8 +358,9 @@ export default function KaiAssistantDrawer({
         agentId: assistant.id,
         message,
         entrypoint,
+        clientRequestId: analysisRequestId,
       });
-      appendAssistantResult(result);
+      appendAssistantResult(result, { analysisRequestId });
     } catch (error) {
       setChatError(parseAssistantError(error));
     } finally {
@@ -346,7 +368,10 @@ export default function KaiAssistantDrawer({
     }
   }
 
-  function appendAssistantResult(result: AssistantTurnResult) {
+  function appendAssistantResult(
+    result: AssistantTurnResult,
+    options: { analysisRequestId?: string } = {},
+  ) {
     setAssistantSessionId(result.sessionId);
     const messageId = result.messageId || `local-assistant-${crypto.randomUUID()}`;
     const nextMessage: AssistantUiMessage = {
@@ -363,16 +388,23 @@ export default function KaiAssistantDrawer({
       if (existingIndex < 0) return [...current, nextMessage];
       return current.map((message, index) => (index === existingIndex ? nextMessage : message));
     });
-    if (isTerminalAssistantResult(result)) {
-      setActiveWorkflow(null);
-    } else if (result.runId) {
-      setActiveWorkflow({ sessionId: result.sessionId, runId: result.runId, workflow: result.workflow });
+    const staleRequirementAnalysis = Boolean(
+      options.analysisRequestId
+      && latestRequirementAnalysisIdRef.current
+      && options.analysisRequestId !== latestRequirementAnalysisIdRef.current,
+    );
+    if (!staleRequirementAnalysis) {
+      if (isTerminalAssistantResult(result)) {
+        setActiveWorkflow(null);
+      } else if (result.runId) {
+        setActiveWorkflow({ sessionId: result.sessionId, runId: result.runId, workflow: result.workflow });
+      }
     }
     const requirementLink = result.blocks.find((block) => (
       block.type === 'deep_link'
       && block.route_id === 'enterprise.requirement.create'
     ));
-    if (location.pathname === '/enterprise/demands/new' && requirementLink?.type === 'deep_link') {
+    if (!staleRequirementAnalysis && location.pathname === '/enterprise/demands/new' && requirementLink?.type === 'deep_link') {
       const url = buildSafePlatformAssistantUrl(requirementLink.route_id, requirementLink.route_params);
       if (url && `${location.pathname}${location.search}` !== url) {
         // The user started this workflow from the real requirement form. Keep
@@ -382,6 +414,17 @@ export default function KaiAssistantDrawer({
       }
     }
   }
+
+  useEffect(() => {
+    if (!state.open || state.view !== 'chat') return;
+    const scroll = () => {
+      const container = chatScrollRef.current;
+      if (container) container.scrollTop = container.scrollHeight;
+      messagesEndRef.current?.scrollIntoView?.({ block: 'end', behavior: 'auto' });
+    };
+    const frame = requestAnimationFrame(scroll);
+    return () => cancelAnimationFrame(frame);
+  }, [chatError, chatLoading, messages.length, sending, state.open, state.view, supportPreparationMessage]);
 
   async function submitStructuredAnswers(
     message: AssistantUiMessage,
@@ -575,7 +618,7 @@ export default function KaiAssistantDrawer({
 
           {state.view === 'chat' && (
             <section className="kai-assistant-panel kai-assistant-chat" role="tabpanel" aria-label="开小花对话">
-              <div className="kai-assistant-scroll">
+              <div ref={chatScrollRef} className="kai-assistant-scroll">
                 <div className="kai-assistant-intro">
                   <Sparkles />
                   <div><h2>{greeting(user?.display_name || user?.username)}</h2><p>我可以帮你找项目、查待办和解释平台功能，但不会进入数字员工私有会话或替你完成结构化确认。</p></div>
@@ -613,6 +656,7 @@ export default function KaiAssistantDrawer({
                   {sending && <article className="is-assistant"><small>开小花 · 正在回复</small><p className="kai-assistant-thinking"><i /><i /><i /></p></article>}
                 </div>
                 {chatError && <AssistantErrorCard error={chatError} hasWorkflow={Boolean(activeWorkflow)} onRetry={() => void retryLastTurn()} onResume={() => void resumeWorkflow()} />}
+                <div ref={messagesEndRef} className="kai-assistant-messages-end" aria-hidden="true" />
               </div>
               <form className="kai-assistant-composer" onSubmit={(event) => { event.preventDefault(); void sendMessage(); }}>
                 <textarea

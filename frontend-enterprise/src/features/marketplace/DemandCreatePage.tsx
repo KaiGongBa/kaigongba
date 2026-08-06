@@ -13,21 +13,27 @@ import { useMarketplaceOrganization } from './useMarketplaceOrganization';
 
 type DraftLoadState = 'idle' | 'loading' | 'ready' | 'error';
 type CategoryLoadState = 'loading' | 'ready' | 'error';
+type AnalysisState = 'idle' | 'analyzing' | 'updating' | 'ready';
 type EditableField = keyof DemandFormState;
 type PublishField = 'title' | 'category' | 'description' | 'budgetMax' | 'deadline' | 'deliverables' | 'criteria';
 type PublishError = { field: PublishField; label: string; message: string };
 const REQUIREMENT_DRAFT_ID = /^reqdraft_[A-Za-z0-9_-]{8,120}$/;
+type PreviousDraftSnapshot = { id: string; title: string; version: number | null };
+
+function freshDemandForm(): DemandFormState {
+  return {
+    ...EMPTY_DEMAND_FORM,
+    deliverables: [],
+    criteria: [],
+    attachments: [],
+  };
+}
 
 export default function DemandCreatePage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const organization = useMarketplaceOrganization();
-  const [form, setForm] = useState<DemandFormState>(() => ({
-    ...EMPTY_DEMAND_FORM,
-    deliverables: [],
-    criteria: [],
-    attachments: [],
-  }));
+  const [form, setForm] = useState<DemandFormState>(freshDemandForm);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [draftLoadState, setDraftLoadState] = useState<DraftLoadState>('idle');
@@ -38,9 +44,12 @@ export default function DemandCreatePage() {
   const [serviceCategories, setServiceCategories] = useState<ServiceCategory[]>([]);
   const [categoryLoadState, setCategoryLoadState] = useState<CategoryLoadState>('loading');
   const [aiBrief, setAiBrief] = useState('');
+  const [analysisState, setAnalysisState] = useState<AnalysisState>('idle');
+  const [previousDraft, setPreviousDraft] = useState<PreviousDraftSnapshot | null>(null);
   const [validationErrors, setValidationErrors] = useState<PublishError[]>([]);
   const editedFields = useRef(new Set<EditableField>());
-  const appliedDraftIds = useRef(new Set<string>());
+  const appliedDraftVersions = useRef(new Map<string, number>());
+  const analysisRequestSequence = useRef(0);
   const draftId = searchParams.get('draftId')?.trim() || '';
   const {
     title,
@@ -99,7 +108,9 @@ export default function DemandCreatePage() {
       return;
     }
     let active = true;
+    let pollTimer: ReturnType<typeof setTimeout> | undefined;
     setDraftLoadState('loading');
+    setAnalysisState((current) => current === 'analyzing' ? 'updating' : current);
     setDraftError('');
     void marketplaceRepository.getAssistantRequirementDraft(draftId)
       .then((response) => {
@@ -109,14 +120,23 @@ export default function DemandCreatePage() {
         }
         setDraftResponse(response);
         setDraftLoadState('ready');
-        if (appliedDraftIds.current.has(draftId)) return;
-        appliedDraftIds.current.add(draftId);
-        setAppliedDraftVersion(response.draft.draft_version);
-        setForm((current) => preserveUserEdits(
-          current,
-          mergeNonEmptyRequirementSeed(current, response.form_seed),
-          editedFields.current,
-        ));
+        const responseVersion = response.draft.draft_version;
+        const previousVersion = appliedDraftVersions.current.get(draftId) || 0;
+        if (responseVersion > previousVersion) {
+          appliedDraftVersions.current.set(draftId, responseVersion);
+          setAppliedDraftVersion(responseVersion);
+          setForm((current) => preserveUserEdits(
+            current,
+            mergeNonEmptyRequirementSeed(current, response.form_seed),
+            editedFields.current,
+          ));
+        }
+        if (response.draft_meta.status === 'collecting' && loadAttempt < 24) {
+          setAnalysisState('updating');
+          pollTimer = setTimeout(() => setLoadAttempt((value) => value + 1), 2200);
+        } else {
+          setAnalysisState('ready');
+        }
       })
       .catch((error: unknown) => {
         if (!active) return;
@@ -125,8 +145,47 @@ export default function DemandCreatePage() {
       });
     return () => {
       active = false;
+      if (pollTimer) clearTimeout(pollTimer);
     };
   }, [draftId, loadAttempt]);
+
+  function startAiAnalysis() {
+    const brief = aiBrief.trim();
+    if (!brief) return;
+    const previousTitle = draftResponse?.form_seed.title?.trim() || title.trim();
+    if (draftId || previousTitle) {
+      setPreviousDraft({
+        id: draftId || `local-${Date.now()}`,
+        title: previousTitle || '未命名需求草稿',
+        version: draftResponse?.draft.draft_version ?? appliedDraftVersion,
+      });
+    }
+    analysisRequestSequence.current += 1;
+    const analysisRequestId = `requirement-analysis-${analysisRequestSequence.current}-${crypto.randomUUID()}`;
+
+    // A new click represents a new logical draft. Clear all merge guards from
+    // the previous draft before any network response can arrive.
+    editedFields.current.clear();
+    appliedDraftVersions.current.clear();
+    setForm(freshDemandForm());
+    setDraftResponse(null);
+    setAppliedDraftVersion(null);
+    setDraftLoadState('idle');
+    setDraftError('');
+    setValidationErrors([]);
+    setLoadAttempt(0);
+    setAnalysisState('analyzing');
+    if (draftId) navigate('/enterprise/demands/new', { replace: true });
+
+    openKaiAssistant({
+      view: 'chat',
+      autoSend: true,
+      startNewWorkflow: true,
+      entrypoint: 'requirement.create',
+      analysisRequestId,
+      prompt: `我想发布一个需求：${brief}。请直接分析所属行业、内容要求、交付规范和验收标准，主动扩写为完整可编辑草稿并填入需求表单。不要让我重复填写已能合理生成的软性内容；只对无法安全推断的硬信息保留待确认。`,
+    });
+  }
 
   function editField<K extends EditableField>(field: K, value: DemandFormState[K]) {
     editedFields.current.add(field);
@@ -295,15 +354,22 @@ export default function DemandCreatePage() {
             type="button"
             className="transaction-ai-analyze-button"
             disabled={!aiBrief.trim()}
-            onClick={() => openKaiAssistant({
-              view: 'chat',
-              autoSend: true,
-              startNewWorkflow: true,
-              entrypoint: 'requirement.create',
-              prompt: `我想发布一个需求：${aiBrief.trim()}。请直接分析所属行业、内容要求、交付规范和验收标准，主动扩写为完整可编辑草稿并填入需求表单。不要让我重复填写已能合理生成的软性内容；只对无法安全推断的硬信息保留待确认。`,
-            })}
+            onClick={startAiAnalysis}
           >AI 解析</button>
         </div>
+        {analysisState === 'analyzing' && !draftId ? (
+          <section className="transaction-ai-new-analysis" aria-live="polite">
+            <Sparkles />
+            <div><strong>正在创建全新的解析</strong><p>旧表单已重置；新草稿创建后会立即切换并逐步填入。</p></div>
+          </section>
+        ) : null}
+        {previousDraft ? (
+          <div className="transaction-ai-previous-draft">
+            <span>上一份草稿</span>
+            <strong>{previousDraft.title}</strong>
+            {previousDraft.version ? <small>v{previousDraft.version} · 已冻结</small> : <small>已冻结</small>}
+          </div>
+        ) : null}
         {draftId ? (
           <AssistantDraftStatus
             state={draftLoadState}

@@ -12,6 +12,7 @@ from uuid import uuid4
 
 import httpx
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
 from sqlmodel import Session, select
 
 from app.channels.adapters.base import (
@@ -41,6 +42,12 @@ RECONCILE_SECONDS = 30.0
 RECOVERY_COOLDOWN_SECONDS = 3600.0
 # 连续恢复失败达上限才判真过期(expired + 清游标 + 线程退出)
 RECOVERY_MAX_FAILURES = 5
+# SQLite shared-cache tests and single-node deployments can briefly lock this
+# runtime row while a polling observer reads it.  Retrying connector-owned
+# patches keeps a transient lock from turning a recoverable session into a
+# permanently stale state.  The total wait remains bounded (< 0.2s).
+RUNTIME_PATCH_LOCK_RETRIES = 5
+RUNTIME_PATCH_LOCK_RETRY_SECONDS = 0.01
 
 # 腾讯官方接入域名:业务请求携带 bot_token,redirect/baseurl 必须限制在官方域内
 WECHAT_ALLOWED_HOSTS = ("ilinkai.weixin.qq.com",)
@@ -93,16 +100,26 @@ def _patch_runtime_config(
             f"json_extract(config_json, :expected_path_{index}) = :expected_value_{index}"
         )
 
-    with Session(db_engine) as db:
-        result = db.exec(
-            text(
-                f"UPDATE channel_bindings SET {', '.join(assignments)} "
-                f"WHERE {' AND '.join(predicates)}"
-            ),
-            params=params,
-        )
-        db.commit()
-        return result.rowcount == 1
+    statement = text(
+        f"UPDATE channel_bindings SET {', '.join(assignments)} "
+        f"WHERE {' AND '.join(predicates)}"
+    )
+    for attempt in range(RUNTIME_PATCH_LOCK_RETRIES):
+        try:
+            with Session(db_engine) as db:
+                result = db.exec(statement, params=params)
+                db.commit()
+                return result.rowcount == 1
+        except OperationalError as exc:
+            message = str(exc).lower()
+            is_sqlite_lock = (
+                db_engine.dialect.name == "sqlite"
+                and ("database is locked" in message or "database table is locked" in message)
+            )
+            if not is_sqlite_lock or attempt + 1 >= RUNTIME_PATCH_LOCK_RETRIES:
+                raise
+            time.sleep(RUNTIME_PATCH_LOCK_RETRY_SECONDS * (2**attempt))
+    return False
 
 
 def validate_wechat_host(host: str) -> bool:

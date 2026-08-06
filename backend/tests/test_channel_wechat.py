@@ -12,6 +12,7 @@ from app.channels.adapters.wechat import (
     WeChatAdapter,
     WeChatClient,
     WeChatPollManager,
+    _patch_runtime_config,
     is_self_message,
     normalize_wechat_message,
     random_wechat_uin,
@@ -661,6 +662,44 @@ def test_recovery_success_clears_state_and_resumes_polling() -> None:
         assert "cur" in client.cursors
     finally:
         assert manager.stop(timeout_seconds=5.0)
+
+
+def test_runtime_patch_retries_a_transient_sqlite_table_lock() -> None:
+    engine = _test_engine()
+    binding_id = _seed_poll_binding(engine)
+    lock_acquired = threading.Event()
+    release_lock = threading.Event()
+
+    def hold_write_lock() -> None:
+        with engine.connect() as connection:
+            connection.exec_driver_sql("BEGIN IMMEDIATE")
+            connection.exec_driver_sql(
+                "UPDATE channel_bindings SET connected = connected WHERE id = ?",
+                (binding_id,),
+            )
+            lock_acquired.set()
+            assert release_lock.wait(timeout=2.0)
+            connection.commit()
+
+    locker = threading.Thread(target=hold_write_lock)
+    locker.start()
+    assert lock_acquired.wait(timeout=2.0)
+    threading.Timer(0.04, release_lock.set).start()
+
+    assert _patch_runtime_config(
+        engine,
+        binding_id,
+        set_values={"session_expired": True, "recovery_failures": 1},
+        binding_values={"connected": False},
+    )
+    locker.join(timeout=2.0)
+    assert not locker.is_alive()
+
+    with Session(engine) as db:
+        binding = db.get(ChannelBinding, binding_id)
+        assert binding.connected is False
+        assert binding.config_json["session_expired"] is True
+        assert binding.config_json["recovery_failures"] == 1
 
 
 def test_repeated_minus_14_marks_expired_at_cap() -> None:

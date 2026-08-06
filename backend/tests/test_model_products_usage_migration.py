@@ -52,7 +52,7 @@ def test_model_product_usage_migration_and_append_only_guards(tmp_path) -> None:
             )
         )
     command.upgrade(config, "head")
-    assert _revision(engine) == "20260804_0029"
+    assert _revision(engine) == "20260806_0030"
     assert TABLES.issubset(inspect(engine).get_table_names())
     assert "platform_role" in {
         column["name"] for column in inspect(engine).get_columns("users")
@@ -116,7 +116,7 @@ def test_model_product_usage_migration_and_append_only_guards(tmp_path) -> None:
     assert _revision(engine) == "20260803_0016"
     assert not TABLES.intersection(inspect(engine).get_table_names())
     command.upgrade(config, "head")
-    assert _revision(engine) == "20260804_0029"
+    assert _revision(engine) == "20260806_0030"
     engine.dispose()
 
 

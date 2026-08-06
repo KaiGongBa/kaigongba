@@ -13,6 +13,7 @@ from app.db import get_session
 from app.db.models import (
     AgentResourceBinding,
     MarketplaceAIService,
+    MarketplaceAIServiceVersion,
     MarketplaceAuditLog,
     MarketplaceSkillInstallation,
     MarketplaceSkillListing,
@@ -21,6 +22,7 @@ from app.db.models import (
     Tenant,
     User,
 )
+from app.marketplace import service as marketplace_service
 from app.marketplace.seed import seed_marketplace_development_data
 from app.security.auth import create_access_token
 
@@ -142,6 +144,60 @@ def test_marketplace_reads_persisted_services_with_camel_case_contract(
     assert contract["responseMinutes"] == 0
     assert mine.json()["total"] == 1
     assert subscribed.json()["total"] == 3
+
+
+def test_marketplace_normalizes_legacy_service_snapshot_without_failing_listing(
+    marketplace_app: tuple[TestClient, object, User],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, engine, user = marketplace_app
+    with Session(engine) as db:
+        service = db.get(MarketplaceAIService, "it-ops")
+        assert service is not None and service.current_version_id is not None
+        version = db.get(MarketplaceAIServiceVersion, service.current_version_id)
+        assert version is not None
+        snapshot = dict(version.snapshot_json or {})
+        snapshot["deliverables"] = [
+            {"name": "运维报告", "format": "PDF"},
+            {
+                "content": ["主图", "详情页套图"],
+                "product_count": 20,
+                "colors_per_product": 3,
+            },
+        ]
+        snapshot["acceptance_criteria"] = [
+            {"criterion": "文件完整性", "standard": "所有图片均可正常打开"}
+        ]
+        version.snapshot_json = snapshot
+        db.add(version)
+        db.commit()
+
+    warning_templates: list[str] = []
+
+    def record_warning(message: str, *_args: object, **_kwargs: object) -> None:
+        warning_templates.append(message)
+
+    monkeypatch.setattr(marketplace_service.logger, "warning", record_warning)
+    response = client.get(
+        "/api/marketplace/ai-services",
+        params={"scope": "mine", "organizationId": "org_cloud_ops"},
+        headers=_auth_headers(user),
+    )
+
+    assert response.status_code == 200
+    service_payload = response.json()["items"][0]
+    assert service_payload["deliverables"] == [
+        {"name": "运维报告", "format": "PDF", "size": "按需求交付"},
+        {"name": "主图", "format": "文件", "size": "20 个产品；每个产品 3 个颜色"},
+        {"name": "详情页套图", "format": "文件", "size": "20 个产品；每个产品 3 个颜色"},
+    ]
+    assert service_payload["acceptanceCriteria"] == [
+        "文件完整性：所有图片均可正常打开"
+    ]
+    assert any(
+        "marketplace_deliverable_legacy_shape" in message
+        for message in warning_templates
+    )
 
 
 def test_marketplace_skill_metrics_use_real_installations_and_no_seeded_reviews(

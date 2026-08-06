@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import logging
+from collections.abc import Mapping
 from decimal import Decimal
+from typing import Any
 
 from fastapi import HTTPException
+from pydantic import ValidationError
 from sqlalchemy import func, or_
 from sqlmodel import Session, select
 
@@ -41,6 +45,9 @@ from app.marketplace.schemas import (
     SkillSchemaFieldRead,
 )
 from app.security.permissions import is_admin_user
+
+
+logger = logging.getLogger(__name__)
 
 
 def list_user_organizations(db: Session, current_user: User) -> list[OrganizationRead]:
@@ -416,6 +423,146 @@ def _can_view_skill(
     return bool(provider and provider.organization_id in organization_ids)
 
 
+def _snapshot_deliverables(raw: Any, *, service_id: str) -> list[DeliverableRead]:
+    """Normalize legacy/model-generated deliverables without dropping malformed rows."""
+    candidates = raw if isinstance(raw, list) else ([] if raw is None else [raw])
+    normalized: list[DeliverableRead] = []
+
+    for index, candidate in enumerate(candidates):
+        expanded = _expand_snapshot_deliverable(
+            candidate,
+            index=index,
+            service_id=service_id,
+        )
+        for expanded_index, item in enumerate(expanded):
+            try:
+                normalized.append(DeliverableRead.model_validate(item))
+            except ValidationError:
+                logger.warning(
+                    "marketplace_deliverable_normalization_failed service_id=%s index=%s expanded_index=%s value=%r",
+                    service_id,
+                    index,
+                    expanded_index,
+                    candidate,
+                    exc_info=True,
+                )
+                normalized.append(
+                    DeliverableRead(
+                        name=_snapshot_text(candidate) or f"交付物 {index + 1}",
+                        format="文件",
+                        size="按需求交付",
+                    )
+                )
+    return normalized
+
+
+def _expand_snapshot_deliverable(
+    candidate: Any,
+    *,
+    index: int,
+    service_id: str,
+) -> list[dict[str, str]]:
+    if isinstance(candidate, Mapping):
+        content = candidate.get("content")
+        if (
+            isinstance(content, list)
+            or not candidate.get("name")
+            or not candidate.get("format")
+            or not candidate.get("size")
+        ):
+            logger.warning(
+                "marketplace_deliverable_legacy_shape service_id=%s index=%s value=%r",
+                service_id,
+                index,
+                candidate,
+            )
+        if isinstance(content, list) and content:
+            names = [_snapshot_text(item) or f"交付物 {index + 1}" for item in content]
+        else:
+            names = [
+                _snapshot_text(
+                    candidate.get("name")
+                    or candidate.get("title")
+                    or (content if isinstance(content, str) else None)
+                )
+                or f"交付物 {index + 1}"
+            ]
+
+        default_format = _snapshot_text(candidate.get("format")) or "文件"
+        default_size = _snapshot_text(candidate.get("size"))
+        if not default_size:
+            quantity_parts: list[str] = []
+            product_count = candidate.get("product_count") or candidate.get("productCount")
+            colors = candidate.get("colors_per_product") or candidate.get("colorsPerProduct")
+            if product_count:
+                quantity_parts.append(f"{product_count} 个产品")
+            if colors:
+                quantity_parts.append(f"每个产品 {colors} 个颜色")
+            default_size = "；".join(quantity_parts) or "按需求交付"
+
+        return [
+            {"name": name, "format": default_format, "size": default_size}
+            for name in names
+        ]
+
+    if isinstance(candidate, str):
+        return [{"name": candidate.strip() or f"交付物 {index + 1}", "format": "文件", "size": "按需求交付"}]
+
+    logger.warning(
+        "marketplace_deliverable_degraded service_id=%s index=%s value=%r",
+        service_id,
+        index,
+        candidate,
+    )
+    return [
+        {
+            "name": _snapshot_text(candidate) or f"交付物 {index + 1}",
+            "format": "文件",
+            "size": "按需求交付",
+        }
+    ]
+
+
+def _snapshot_acceptance_criteria(raw: Any, *, service_id: str) -> list[str]:
+    candidates = raw if isinstance(raw, list) else ([] if raw is None else [raw])
+    normalized: list[str] = []
+    for index, candidate in enumerate(candidates):
+        if isinstance(candidate, Mapping):
+            criterion = _snapshot_text(candidate.get("criterion") or candidate.get("name"))
+            standard = _snapshot_text(candidate.get("standard") or candidate.get("description"))
+            text = "：".join(part for part in (criterion, standard) if part)
+        else:
+            text = _snapshot_text(candidate)
+        if not text:
+            logger.warning(
+                "marketplace_acceptance_criterion_degraded service_id=%s index=%s value=%r",
+                service_id,
+                index,
+                candidate,
+            )
+            text = "按需求说明完成并经双方确认"
+        normalized.append(text)
+    return normalized
+
+
+def _snapshot_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, (int, float, bool, Decimal)):
+        return str(value)
+    if isinstance(value, Mapping):
+        return "；".join(
+            f"{key}：{_snapshot_text(item)}"
+            for key, item in value.items()
+            if _snapshot_text(item)
+        )
+    if isinstance(value, list):
+        return "、".join(part for item in value if (part := _snapshot_text(item)))
+    return str(value).strip()
+
+
 def _ai_service_read(
     db: Session,
     service: MarketplaceAIService,
@@ -484,11 +631,15 @@ def _ai_service_read(
         delivery_format=current.delivery_format,
         service_scope=list(snapshot.get("service_scope") or []),
         exclusions=list(snapshot.get("exclusions") or []),
-        deliverables=[
-            DeliverableRead.model_validate(item) for item in snapshot.get("deliverables") or []
-        ],
+        deliverables=_snapshot_deliverables(
+            snapshot.get("deliverables"),
+            service_id=service.id,
+        ),
         process=[ProcessStepRead.model_validate(item) for item in snapshot.get("process") or []],
-        acceptance_criteria=list(snapshot.get("acceptance_criteria") or []),
+        acceptance_criteria=_snapshot_acceptance_criteria(
+            snapshot.get("acceptance_criteria"),
+            service_id=service.id,
+        ),
         versions=[
             ServiceVersionRead(
                 version=row.version,
