@@ -77,6 +77,23 @@ def create_enrollment(
 
 
 @enterprise_router.get(
+    "/external-agent-enrollments", response_model=list[EnrollmentRead]
+)
+def list_enrollments(
+    current_user: CurrentUser,
+    db: DatabaseSession,
+    organization_id: str | None = Query(default=None, alias="organizationId"),
+    status: str | None = None,
+) -> list[EnrollmentRead]:
+    return service.list_enrollments(
+        db,
+        current_user,
+        organization_id,
+        status=status,
+    )
+
+
+@enterprise_router.get(
     "/external-agent-enrollments/{enrollment_id}", response_model=EnrollmentRead
 )
 def get_enrollment(
@@ -122,9 +139,42 @@ def register_external_agent(
 def list_external_agents(
     current_user: CurrentUser,
     db: DatabaseSession,
-    organization_id: str = Query(alias="organizationId"),
+    organization_id: str | None = Query(default=None, alias="organizationId"),
+    status: str | None = None,
 ) -> list[ExternalAgentConnectionRead]:
-    return service.list_connections(db, current_user, organization_id)
+    return service.list_connections(
+        db,
+        current_user,
+        organization_id,
+        status=status,
+    )
+
+
+@enterprise_router.get(
+    "/external-agents/{connection_id}/enrollment", response_model=EnrollmentRead
+)
+def get_external_agent_enrollment(
+    connection_id: str,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+) -> EnrollmentRead:
+    return service.get_enrollment_for_connection(db, current_user, connection_id)
+
+
+@enterprise_router.get(
+    "/external-agents/{connection_id}/connection-test",
+    response_model=ConnectionTestRead,
+)
+def get_latest_external_agent_connection_test(
+    connection_id: str,
+    current_user: CurrentUser,
+    db: DatabaseSession,
+) -> ConnectionTestRead:
+    return service.get_latest_connection_test_for_connection(
+        db,
+        current_user,
+        connection_id,
+    )
 
 
 @enterprise_router.get(

@@ -1533,6 +1533,7 @@ def _external_agent_bridge_snapshot(
         "manifest_id": manifest.id,
         "manifest_digest": manifest.source_digest,
         "manifest_protocol_version": manifest.protocol_version,
+        "discovery_mode": (manifest.disclosure_json or {}).get("discovery_mode"),
         "capabilities": [
             {
                 "asset_id": asset.id,
@@ -1541,6 +1542,8 @@ def _external_agent_bridge_snapshot(
                 "name": asset.name,
                 "version": asset.version,
                 "source_hash": asset.source_hash,
+                "source_type": asset.source_type,
+                "verification_status": asset.verification_status,
                 "risk_level": asset.risk_level,
                 "permissions": list(asset.permissions_json or []),
                 "input_schema": dict(asset.input_schema_json or {}),

@@ -61,6 +61,12 @@ class EnrollmentRead(ExternalAgentReadModel):
     requested_scopes: list[str]
     manifest_version: str
     connection_id: str | None
+    connection_status: str | None = None
+    workflow_stage: str
+    latest_manifest_id: str | None = None
+    latest_manifest_status: str | None = None
+    import_draft_id: str | None = None
+    import_draft_status: str | None = None
     created_at: datetime
 
 
@@ -100,6 +106,7 @@ class ExternalAgentConnectionRead(ExternalAgentReadModel):
     endpoint: str
     protocol_version: str
     status: str
+    workflow_stage: str
     health_status: str
     last_heartbeat_at: datetime | None
     last_manifest_sync_at: datetime | None
@@ -185,6 +192,7 @@ class ManifestExecution(StrictManifestModel):
 
 
 class ManifestDisclosure(StrictManifestModel):
+    discovery_mode: Literal["metadata_discovery", "declarative_only"] | None = None
     source_uploaded: bool = False
     knowledge_content_uploaded: bool = False
     secrets_uploaded: bool = False

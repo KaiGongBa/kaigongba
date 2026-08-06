@@ -55,6 +55,7 @@ class ExternalCapabilityBinding(BaseModel):
     portable: bool = False
     risk_level: str = "low"
     verification_status: str = "pending"
+    source_type: str = "declared"
 
 
 class ExternalAgentProvisionRequest(BaseModel):
@@ -72,6 +73,7 @@ class ExternalAgentProvisionRequest(BaseModel):
     runtime_type: str
     transport: str
     protocol_version: str
+    discovery_mode: Literal["metadata_discovery", "declarative_only"] | None = None
     sync_policy: str
     capabilities: list[ExternalCapabilityBinding] = Field(default_factory=list)
 

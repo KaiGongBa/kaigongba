@@ -162,6 +162,7 @@ def provision_external_agent(
                 "external_runtime_type": request.runtime_type,
                 "external_transport": request.transport,
                 "external_protocol_version": request.protocol_version,
+                "external_discovery_mode": request.discovery_mode,
                 "external_connection_id": request.connection_id,
                 "external_health_status": "pending_test",
                 "service_scope": request.service_scope,
@@ -184,6 +185,7 @@ def provision_external_agent(
                     "runtime_type": request.runtime_type,
                     "transport": request.transport,
                     "protocol_version": request.protocol_version,
+                    "discovery_mode": request.discovery_mode,
                     "draft_id": request.draft_id,
                 },
             )
@@ -197,6 +199,29 @@ def provision_external_agent(
                 metadata_json={"source": "external_agent_enrollment"},
             )
         )
+
+    if not created:
+        metadata = dict(agent.metadata_json or {})
+        metadata["external_discovery_mode"] = request.discovery_mode
+        metadata["external_capability_count"] = len(request.capabilities)
+        agent.metadata_json = metadata
+        agent.updated_at = utc_now()
+        db.add(agent)
+
+    selected_asset_ids = {capability.asset_id for capability in request.capabilities}
+    existing_capability_bindings = db.exec(
+        select(AgentResourceBinding).where(
+            AgentResourceBinding.tenant_id == request.tenant_id,
+            AgentResourceBinding.agent_id == agent.id,
+            AgentResourceBinding.resource_type == "external_capability",
+            AgentResourceBinding.status == "active",
+        )
+    ).all()
+    for binding in existing_capability_bindings:
+        if binding.resource_id not in selected_asset_ids:
+            binding.status = "inactive"
+            binding.updated_at = utc_now()
+            db.add(binding)
 
     for capability in request.capabilities:
         binding = db.exec(

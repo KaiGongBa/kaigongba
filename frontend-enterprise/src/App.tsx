@@ -40,6 +40,7 @@ import AccountManagementLayout, { LegacyOrganizationTeamRedirect } from "./pages
 import AgentsPage from "./pages/AgentsPage";
 import ExternalAgentEnrollmentPage from "./pages/ExternalAgentEnrollmentPage";
 import ExternalAgentOperationsPage from "./pages/ExternalAgentOperationsPage";
+import ExternalAgentReviewResumePage from "./pages/ExternalAgentReviewResumePage";
 import ChannelsPage from "./pages/ChannelsPage";
 import ConversationWorkspaceShell from "./pages/chat/ConversationWorkspaceShell";
 import DashboardPage from "./pages/dashboard/DashboardPage";
@@ -684,6 +685,10 @@ function Shell({
               <Route
                 path="/enterprise/agents/external/connect"
                 element={<ExternalAgentEnrollmentPage />}
+              />
+              <Route
+                path="/enterprise/agents/external/:connectionId/review"
+                element={<ExternalAgentReviewResumePage />}
               />
               <Route
                 path="/enterprise/agents/external/:connectionId"

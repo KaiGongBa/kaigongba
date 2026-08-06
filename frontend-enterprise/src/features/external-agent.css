@@ -35,12 +35,21 @@
 .external-agent-instructions { margin: 18px 0; padding-left: 22px; color: #525b69; font-size: 12px; line-height: 2; }
 .external-agent-connector-commands { display: flex; margin: 0 0 16px; flex-direction: column; gap: 8px; }
 .external-agent-connector-commands > div { display: grid; grid-template-columns: 130px minmax(0, 1fr) auto; align-items: center; gap: 8px; border: 1px solid #e0e4e9; border-radius: 8px; padding: 9px; background: #fafbfc; }
+.external-agent-connector-commands > div.external-agent-connector-release-warning { grid-template-columns: auto 1fr; border-color: #ead5aa; background: #fff9ed; color: #805b1e; }
+.external-agent-connector-release-warning > svg { width: 18px; }
+.external-agent-connector-release-warning > span { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+.external-agent-connector-release-warning small { font-size: 9px; line-height: 1.5; }
 .external-agent-connector-commands span, .external-agent-connector-commands a { display: flex; align-items: center; gap: 6px; color: #4d5664; font-size: 10px; }
 .external-agent-connector-commands span svg, .external-agent-connector-commands a svg { width: 14px; }
 .external-agent-connector-commands code { min-width: 0; overflow: hidden; color: #3e4857; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .external-agent-connector-commands button { display: flex; align-items: center; gap: 4px; border: 1px solid #d8dde5; border-radius: 6px; padding: 5px 7px; background: #fff; font-size: 9px; }
 .external-agent-connector-commands button svg { width: 12px; }
 .external-agent-connector-commands a { width: fit-content; color: #356fc8; text-decoration: none; }
+.external-agent-pairing-safety { display: flex; align-items: flex-start; gap: 6px; margin: 0; border-radius: 7px; padding: 8px 10px; background: #f2f7ff; color: #506a91; font-size: 9px; line-height: 1.55; }
+.external-agent-pairing-safety > svg { width: 14px; flex: none; }
+.external-agent-command-placeholder { display: flex; align-items: flex-start; gap: 6px; margin: 0; border-radius: 7px; padding: 8px 10px; background: #fff8e9; color: #805b1e; font-size: 9px; line-height: 1.55; }
+.external-agent-command-placeholder > svg { width: 14px; flex: none; }
+.external-agent-command-placeholder code { overflow: visible; color: inherit; text-overflow: clip; white-space: normal; }
 .external-agent-waiting { display: flex; align-items: center; gap: 8px; border-top: 1px solid #eceef1; padding-top: 14px; color: #667080; font-size: 12px; }
 .external-agent-waiting > svg { width: 16px; color: #3976ce; }
 .external-agent-waiting button { margin-left: auto; }
@@ -71,6 +80,12 @@
 .external-agent-manifest-summary dd { font-size: 11px; overflow-wrap: anywhere; }
 .external-agent-manifest-warning { display: flex; align-items: center; gap: 7px; border-radius: 7px; padding: 9px; background: #fff7e9; color: #8f601d; font-size: 11px; }
 .external-agent-manifest-warning svg { width: 15px; }
+.external-agent-discovery-mode { display: flex; align-items: flex-start; gap: 8px; border: 1px solid #d7e5d9; border-radius: 8px; padding: 10px; background: #f4faf5; color: #376846; }
+.external-agent-discovery-mode.is-declarative_only { border-color: #ead5aa; background: #fff9ed; color: #805b1e; }
+.external-agent-discovery-mode > svg { width: 17px; flex: none; }
+.external-agent-discovery-mode > div { display: flex; flex-direction: column; gap: 2px; }
+.external-agent-discovery-mode strong { font-size: 11px; }
+.external-agent-discovery-mode small { font-size: 9px; line-height: 1.5; }
 .external-agent-asset-list { display: flex; max-height: 430px; flex-direction: column; gap: 7px; overflow: auto; }
 .external-agent-asset-list > label { display: grid; grid-template-columns: auto auto 1fr; align-items: start; gap: 9px; border: 1px solid #e0e4e9; border-radius: 9px; padding: 11px; }
 .external-agent-asset-list > label.is-selected { border-color: #9db8e2; background: #f7faff; }
@@ -130,6 +145,15 @@
 .external-agent-ops-page > nav button { border: 0; border-bottom: 2px solid transparent; padding: 10px 2px; background: transparent; color: #737c89; font-size: 12px; }
 .external-agent-ops-page > nav button.is-active { border-bottom-color: #202329; color: #202329; font-weight: 600; }
 .external-agent-ops-alerts { display: flex; max-width: 1180px; margin: 0 auto 14px; flex-direction: column; gap: 6px; }
+.external-agent-setup-banner { display: grid; max-width: 1180px; grid-template-columns: auto 1fr auto; align-items: center; gap: 11px; margin: 0 auto 14px; border: 1px solid #d8e2f1; border-radius: 10px; padding: 12px 14px; background: #f5f8fd; color: #405f89; }
+.external-agent-setup-banner > svg { width: 20px; }
+.external-agent-setup-banner > div { display: flex; flex-direction: column; gap: 3px; }
+.external-agent-setup-banner strong { font-size: 12px; }
+.external-agent-setup-banner p { margin: 0; color: #68768a; font-size: 10px; }
+.external-agent-resume-error { display: flex; max-width: 760px; align-items: flex-start; gap: 12px; margin: 36px auto; }
+.external-agent-resume-error > svg { width: 24px; color: #a64b40; }
+.external-agent-resume-error h2 { margin: 0 0 5px; font-size: 16px; }
+.external-agent-resume-error p { margin: 0 0 14px; color: #6e7784; font-size: 11px; }
 .external-agent-ops-alerts > div { display: flex; align-items: center; gap: 9px; border: 1px solid #ead7ad; border-radius: 8px; padding: 9px 12px; background: #fff9ed; color: #7f5919; }
 .external-agent-ops-alerts > div.is-critical { border-color: #ecc6c1; background: #fff3f1; color: #943f35; }
 .external-agent-ops-alerts svg { width: 17px; }
@@ -186,6 +210,7 @@
 .external-agent-ops-capabilities > header p { margin: 3px 0 0; color: #818996; font-size: 9px; }
 .external-agent-ops-capabilities > header > span { border-radius: 12px; padding: 4px 8px; background: #edf4ff; color: #426ca6; font-size: 9px; }
 .external-agent-ops-capabilities > div { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.external-agent-ops-capabilities > .external-agent-discovery-mode { display: flex; margin-bottom: 12px; }
 .external-agent-ops-capabilities article { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; border: 1px solid #e2e5e9; border-radius: 9px; padding: 12px; }
 .external-agent-ops-capabilities article.is-disabled { opacity: .55; }
 .external-agent-ops-capabilities article > span { align-self: start; border-radius: 5px; padding: 4px 6px; background: #edf2fa; color: #426aa2; font-size: 8px; }
@@ -225,4 +250,4 @@
 .external-agent-dialog-backdrop section > footer { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; border-top: 1px solid #eceef1; padding-top: 13px; }
 .external-agent-dialog-backdrop section > footer > button:first-child { border: 1px solid #d9dee4; border-radius: 7px; padding: 0 14px; background: #fff; }
 @media (max-width: 820px) { .external-agent-enrollment-page { padding: 18px 14px 36px; } .external-agent-enrollment-page > header { grid-template-columns: 1fr; } .external-agent-enrollment-page > header > span { display: none; } .external-agent-stepper { grid-template-columns: 1fr; gap: 6px; } .external-agent-stepper span::after { display: none; } .external-agent-enrollment-layout, .external-agent-form-grid { grid-template-columns: 1fr; } .external-agent-connector-commands > div { grid-template-columns: 1fr auto; } .external-agent-connector-commands code { grid-column: 1 / -1; grid-row: 2; } }
-@media (max-width: 900px) { .external-agent-ops-page { padding: 18px 14px 40px; } .external-agent-ops-page > header { grid-template-columns: 1fr; } .external-agent-ops-header-actions { justify-content: flex-end; } .external-agent-ops-stats { grid-template-columns: 1fr 1fr; } .external-agent-ops-columns, .external-agent-task-layout, .external-agent-security-layout { grid-template-columns: 1fr; } .external-agent-ops-capabilities > div, .external-agent-security-form { grid-template-columns: 1fr; } }
+@media (max-width: 900px) { .external-agent-ops-page { padding: 18px 14px 40px; } .external-agent-ops-page > header { grid-template-columns: 1fr; } .external-agent-ops-header-actions { justify-content: flex-end; } .external-agent-setup-banner { grid-template-columns: auto 1fr; } .external-agent-setup-banner > button { grid-column: 1 / -1; } .external-agent-ops-stats { grid-template-columns: 1fr 1fr; } .external-agent-ops-columns, .external-agent-task-layout, .external-agent-security-layout { grid-template-columns: 1fr; } .external-agent-ops-capabilities > div, .external-agent-security-form { grid-template-columns: 1fr; } }

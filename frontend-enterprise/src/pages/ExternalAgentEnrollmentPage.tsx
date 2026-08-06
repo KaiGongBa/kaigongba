@@ -1,9 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ArrowLeft, BookOpen, CheckCircle2, Clipboard, Cloud, FileJson, KeyRound, LoaderCircle, RefreshCw, ShieldCheck, Terminal, Wifi } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
-import { api } from '@/api/client';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { ApiError, api } from '@/api/client';
 import { notify } from '@/components/ui/app-toast';
 import { Button } from '@/components/ui/button';
+import {
+  CONNECTOR_INSTALL_COMMAND,
+  CONNECTOR_REF,
+  CONNECTOR_REF_IS_PINNED,
+  CONNECTOR_SOURCE_URL,
+  connectorCommands,
+} from '@/features/external-agent-connector';
 import type { MarketplaceOrganization } from '@/features/marketplace/types';
 
 type EnrollmentCreated = {
@@ -21,6 +28,8 @@ type EnrollmentCreated = {
 type EnrollmentRead = Omit<EnrollmentCreated, 'pairingCode' | 'installInstruction'> & {
   usedAt?: string;
   connectionId?: string;
+  connectionStatus?: string;
+  workflowStage?: string;
   createdAt: string;
 };
 
@@ -87,12 +96,18 @@ type ConnectionTestRead = {
   completedAt?: string;
 };
 
+type ConnectionTransportRead = {
+  transport: string;
+};
+
 export default function ExternalAgentEnrollmentPage() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [enrollmentIdFromUrl] = useState(() => searchParams.get('enrollmentId')?.trim() || '');
   const [organizations, setOrganizations] = useState<MarketplaceOrganization[]>([]);
   const [organizationId, setOrganizationId] = useState('');
   const [transport, setTransport] = useState<'polling' | 'webhook' | 'a2a' | 'manual'>('polling');
-  const [enrollment, setEnrollment] = useState<EnrollmentCreated | null>(null);
+  const [enrollment, setEnrollment] = useState<EnrollmentCreated | EnrollmentRead | null>(null);
   const [status, setStatus] = useState<EnrollmentRead | null>(null);
   const [manifest, setManifest] = useState<ManifestRead | null>(null);
   const [draft, setDraft] = useState<ImportDraftRead | null>(null);
@@ -105,13 +120,40 @@ export default function ExternalAgentEnrollmentPage() {
 
   useEffect(() => {
     let cancelled = false;
-    api.get<MarketplaceOrganization[]>('/api/marketplace/organizations').then((rows) => {
-      if (cancelled) return;
-      setOrganizations(rows);
-      setOrganizationId(rows[0]?.id || '');
-    }).catch((error) => notify.error(error instanceof Error ? error.message : '企业列表加载失败')).finally(() => !cancelled && setLoading(false));
+    const load = async () => {
+      try {
+        const [rows, recovered] = await Promise.all([
+          api.get<MarketplaceOrganization[]>('/api/marketplace/organizations'),
+          enrollmentIdFromUrl
+            ? api.get<EnrollmentRead>(`/api/enterprise/external-agent-enrollments/${encodeURIComponent(enrollmentIdFromUrl)}`)
+            : Promise.resolve(null),
+        ]);
+        if (cancelled) return;
+        const recoveredConnection = recovered?.connectionId
+          ? await api.get<ConnectionTransportRead>(`/api/enterprise/external-agents/${encodeURIComponent(recovered.connectionId)}`).catch((error) => {
+            notify.error(error instanceof Error ? error.message : '原连接通信方式加载失败');
+            return null;
+          })
+          : null;
+        if (cancelled) return;
+        setOrganizations(rows);
+        if (recovered) {
+          setEnrollment(recovered);
+          setStatus(recovered);
+          setOrganizationId(recovered.organizationId);
+          if (isTransport(recoveredConnection?.transport)) setTransport(recoveredConnection.transport);
+        } else {
+          setOrganizationId(rows[0]?.id || '');
+        }
+      } catch (error) {
+        if (!cancelled) notify.error(error instanceof Error ? error.message : '外接 Agent 审核记录加载失败');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    void load();
     return () => { cancelled = true; };
-  }, []);
+  }, [enrollmentIdFromUrl]);
 
   useEffect(() => {
     if (!enrollment || status?.status === 'registered') return undefined;
@@ -149,14 +191,24 @@ export default function ExternalAgentEnrollmentPage() {
     return () => window.clearInterval(timer);
   }, [connectionTest]);
 
+  useEffect(() => {
+    if (draft?.status !== 'confirmed' || !draft.connectionId || transport === 'manual') return undefined;
+    let cancelled = false;
+    api.get<ConnectionTestRead>(`/api/enterprise/external-agents/${encodeURIComponent(draft.connectionId)}/connection-test`).then((result) => {
+      if (!cancelled) setConnectionTest(result);
+    }).catch((error) => {
+      if (!cancelled && (!(error instanceof ApiError) || error.status !== 404)) {
+        notify.error(error instanceof Error ? error.message : '连接测试进度加载失败');
+      }
+    });
+    return () => { cancelled = true; };
+  }, [draft?.connectionId, draft?.status, transport]);
+
   const selectedOrganization = organizations.find((item) => item.id === organizationId);
   const expired = Boolean(enrollment && new Date(enrollment.expiresAt).getTime() <= Date.now());
-  const pairingCode = enrollment?.pairingCode.trim() || '';
+  const pairingCode = enrollment && 'pairingCode' in enrollment ? enrollment.pairingCode.trim() : '';
   const pairingReady = Boolean(pairingCode && !expired);
-  const connectorSdkRevision = '833453adcfa1bd64d4eb9c9769756ea138b4414a';
-  const connectorInstallCommand = `python3 -m pip install "git+https://github.com/KaiGongBa/kaigongba.git@${connectorSdkRevision}#subdirectory=sdk/python"`;
-  const connectorManifestCommand = 'kaigongba-agent init-manifest --output kaigongba-agent-manifest.json';
-  const connectorCommand = pairingReady ? `kaigongba-agent --server ${window.location.origin} connect --pairing-code '${pairingCode}' --manifest ./kaigongba-agent-manifest.json --provider self-hosted --external-agent-ref external-${enrollment?.id}` : '';
+  const commands = enrollment ? connectorCommands({ baseUrl: window.location.origin, enrollmentId: enrollment.id, transport }) : null;
   const scopes = useMemo(() => {
     const base = ['manifest:write', 'heartbeat:write'];
     return transport === 'manual' ? base : [...base, 'tasks:claim', 'events:write', 'artifacts:write'];
@@ -177,6 +229,11 @@ export default function ExternalAgentEnrollmentPage() {
       });
       setEnrollment(result);
       setStatus(null);
+      setSearchParams((current) => {
+        const next = new URLSearchParams(current);
+        next.set('enrollmentId', result.id);
+        return next;
+      }, { replace: true });
       notify.success('一次性配对码已生成');
     } catch (error) {
       notify.error(error instanceof Error ? error.message : '生成配对码失败');
@@ -280,8 +337,9 @@ export default function ExternalAgentEnrollmentPage() {
     }
     setDraftBusy(true);
     try {
+      const idempotencyKey = `web-connection-test-${draft.id}-${crypto.randomUUID()}`;
       const result = await api.post<ConnectionTestRead>(`/api/enterprise/external-agents/${encodeURIComponent(draft.connectionId)}/connection-tests`, {
-        idempotency_key: `web-connection-test-${draft.id}`,
+        idempotency_key: idempotencyKey,
       });
       setConnectionTest(result);
       notify.success('无副作用连接测试已下发');
@@ -307,14 +365,24 @@ export default function ExternalAgentEnrollmentPage() {
       </section> : <div className="external-agent-enrollment-layout">
         <section className="external-agent-enrollment-card">
           <div className="external-agent-card-heading"><Wifi /><div><h2>{status?.status === 'registered' ? 'Agent 已安全登记' : '等待 Agent 连接'}</h2><p>{selectedOrganization?.name} · 配对码尾号 {enrollment.pairingCodeHint}</p></div></div>
-          {status?.status === 'registered' && manifest?.status === 'approved' ? (draft ? <EmployeeDraftReview draft={draft} onChange={setDraft} busy={draftBusy} connectionTest={connectionTest} testable={transport !== 'manual'} onSave={saveDraft} onConfirm={confirmDraft} onStartTest={startConnectionTest} /> : <div className="external-agent-loading"><LoaderCircle className="is-spinning" />正在根据已确认能力生成员工草稿…</div>) : status?.status === 'registered' && manifest ? <ManifestReview manifest={manifest} selectedAssetIds={selectedAssetIds} onSelectionChange={setSelectedAssetIds} reviewing={reviewing} onReview={reviewManifest} /> : status?.status === 'registered' ? <div className="external-agent-manifest-wait"><div className="external-agent-success"><CheckCircle2 /><div><strong>Agent 登记成功</strong><span>连接 ID：{status.connectionId}</span><small>正在等待 Agent 在本地展示扫描范围并确认上报。</small></div></div><div className="external-agent-waiting"><LoaderCircle className="is-spinning" /><span>等待能力清单…</span></div><label className="external-agent-manifest-upload"><FileJson /><span><strong>手动上传 Manifest</strong><small>适用于暂不支持接入 Skill 的 Agent；仍会执行相同校验。</small></span><input type="file" accept="application/json,.json" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadManifestFile(file); event.target.value = ''; }} /></label></div> : <>
+          {status?.status === 'registered' && manifest?.status === 'approved' ? (draft ? <EmployeeDraftReview draft={draft} onChange={setDraft} busy={draftBusy} connectionTest={connectionTest} testable={transport !== 'manual' && status.connectionStatus !== 'manual_ready'} onSave={saveDraft} onConfirm={confirmDraft} onStartTest={startConnectionTest} /> : <div className="external-agent-loading"><LoaderCircle className="is-spinning" />正在根据已确认能力生成员工草稿…</div>) : status?.status === 'registered' && manifest ? <ManifestReview manifest={manifest} selectedAssetIds={selectedAssetIds} onSelectionChange={setSelectedAssetIds} reviewing={reviewing} onReview={reviewManifest} /> : status?.status === 'registered' ? <div className="external-agent-manifest-wait"><div className="external-agent-success"><CheckCircle2 /><div><strong>Agent 登记成功</strong><span>连接 ID：{status.connectionId}</span><small>正在等待 Agent 在本地展示扫描范围并确认上报。</small></div></div><div className="external-agent-waiting"><LoaderCircle className="is-spinning" /><span>等待能力清单…</span></div><label className="external-agent-manifest-upload"><FileJson /><span><strong>手动上传 Manifest</strong><small>适用于暂不支持接入 Skill 的 Agent；仍会执行相同校验。</small></span><input type="file" accept="application/json,.json" onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadManifestFile(file); event.target.value = ''; }} /></label></div> : <>
             <div className={`external-agent-pairing-code ${expired ? 'is-expired' : ''}`}><small>{expired ? '配对码已过期' : '一次性配对码'}</small><strong>{pairingCode || '尚未生成'}</strong><button type="button" disabled={!pairingReady} onClick={() => void copy(pairingCode, '配对码已复制')}><Clipboard />复制</button></div>
             <ol className="external-agent-instructions"><li>安装“开工吧接入助手”，生成并人工确认 Manifest 扫描范围。</li><li>运行登记命令；Agent 将通过 preflight、register 和 Manifest 1.0 完成连接。</li><li>保持 worker 运行以持续上报心跳、领取连接测试和执行任务，无需开放本机公网端口。</li></ol>
-            <div className="external-agent-connector-commands"><div><span><Terminal />安装接入助手</span><code>{connectorInstallCommand}</code><button type="button" onClick={() => void copy(connectorInstallCommand, '安装命令已复制')}><Clipboard />复制</button></div><div><span><FileJson />生成能力清单</span><code>{connectorManifestCommand}</code><button type="button" onClick={() => void copy(connectorManifestCommand, 'Manifest 命令已复制')}><Clipboard />复制</button></div><div><span><Wifi />连接当前平台</span><code>{connectorCommand || '配对码不可用，请重新生成后连接'}</code><button type="button" disabled={!pairingReady} onClick={() => void copy(connectorCommand, '连接命令已复制')}><Clipboard />复制</button></div><a href={`https://github.com/KaiGongBa/kaigongba/tree/${connectorSdkRevision}/sdk/python#readme`} target="_blank" rel="noreferrer"><BookOpen />查看安装、Manifest 与任务处理文档</a></div>
+            <div className="external-agent-connector-commands">
+              {!CONNECTOR_REF_IS_PINNED && <div className="external-agent-connector-release-warning"><AlertTriangle /><span><strong>当前连接器来源为 {CONNECTOR_REF}</strong><small>正式发布前必须通过 VITE_EXTERNAL_AGENT_CONNECTOR_REF 替换为已审核的不可变 tag 或 commit。</small></span></div>}
+              <div><span><Terminal />1. 安装独立接入助手</span><code>{CONNECTOR_INSTALL_COMMAND}</code><button type="button" onClick={() => void copy(CONNECTOR_INSTALL_COMMAND, '安装命令已复制')}><Clipboard />复制</button></div>
+              <div><span><FileJson />2. 扫描已授权 Skill 元数据</span><code>{commands?.discoverPreview || ''}</code><button type="button" onClick={() => void copy(commands?.discoverPreview || '', '能力发现预览命令已复制')}><Clipboard />复制</button></div>
+              <div><span><ShieldCheck />3. 审阅摘要后确认 Manifest</span><code>{commands?.discoverConfirm || ''}</code><button type="button" onClick={() => void copy(commands?.discoverConfirm || '', 'Manifest 确认命令已复制')}><Clipboard />复制</button></div>
+              <div><span><Wifi />4. 登记 Agent（交互输入一次性码）</span><code>{commands?.enroll || ''}</code><button type="button" disabled={!pairingReady} onClick={() => void copy(commands?.enroll || '', '登记命令已复制')}><Clipboard />复制</button></div>
+              <div><span><ShieldCheck />5. 提交已确认 Manifest</span><code>{commands?.manifest || ''}</code><button type="button" onClick={() => void copy(commands?.manifest || '', 'Manifest 提交模板已复制')}><Clipboard />复制</button></div>
+              <p className="external-agent-command-placeholder"><AlertTriangle />命令中的 <code>/path/to/approved-skills</code>、Manifest 路径和 <code>sha256:reviewed-preview-digest</code> 都是占位模板。必须由用户审阅并替换为本机明确授权的窄目录、真实输出路径和预览返回的完整 Digest。</p>
+              <p className="external-agent-pairing-safety"><ShieldCheck />一次性配对码由连接器在受保护的交互输入中读取，不会写入命令、Shell 历史或进程参数。</p>
+              <a href={CONNECTOR_SOURCE_URL} target="_blank" rel="noreferrer"><BookOpen />查看独立 Connector 安装、Manifest 与任务文档</a>
+            </div>
             <div className="external-agent-waiting"><LoaderCircle className="is-spinning" /><span>正在等待 Agent 主动出站连接…</span><button type="button" onClick={() => api.get<EnrollmentRead>(`/api/enterprise/external-agent-enrollments/${encodeURIComponent(enrollment.id)}`).then(setStatus)}><RefreshCw />刷新</button></div>
           </>}
         </section>
-        <aside className="external-agent-enrollment-card"><div className="external-agent-card-heading"><Cloud /><div><h2>接入边界</h2><p>适用于 Codex、Coze、自建 Agent 等</p></div></div><dl><div><dt>运行位置</dt><dd>Agent 原环境</dd></div><div><dt>平台保存</dt><dd>身份、能力元数据、状态与结果</dd></div><div><dt>默认不保存</dt><dd>源码、密钥、知识正文与思维链</dd></div><div><dt>当前协议</dt><dd>1.0 / Manifest 1.0</dd></div><div><dt>连接状态</dt><dd>{status?.status === 'registered' ? '已登记，正在同步能力' : expired ? '配对码已过期' : '等待 Agent 主动连接'}</dd></div></dl><button type="button" className="external-agent-copy-instruction" disabled={!pairingReady} onClick={() => void copy(`${enrollment.installInstruction}\n${connectorInstallCommand}\n${connectorManifestCommand}\n${connectorCommand}`, '接入指令已复制')}><Clipboard />复制完整接入指令</button></aside>
+        <aside className="external-agent-enrollment-card"><div className="external-agent-card-heading"><Cloud /><div><h2>接入边界</h2><p>适用于 Codex、Coze、自建 Agent 等</p></div></div><dl><div><dt>运行位置</dt><dd>Agent 原环境</dd></div><div><dt>平台保存</dt><dd>身份、能力元数据、状态与结果</dd></div><div><dt>默认不保存</dt><dd>源码、密钥、知识正文与思维链</dd></div><div><dt>当前协议</dt><dd>1.0 / Manifest 1.0</dd></div><div><dt>连接状态</dt><dd>{status?.status === 'registered' ? '已登记，正在同步能力' : expired ? '配对码已过期' : '等待 Agent 主动连接'}</dd></div></dl><button type="button" className="external-agent-copy-instruction" disabled={!pairingReady} onClick={() => void copy([CONNECTOR_INSTALL_COMMAND, commands?.discoverPreview, commands?.discoverConfirm, commands?.enroll, commands?.manifest].filter(Boolean).join('\n'), '接入指令已复制')}><Clipboard />复制完整接入指令</button></aside>
       </div>}
     </main>
   );
@@ -353,8 +421,9 @@ function ConnectionTestPanel({ test, busy, testable, onStart }: { test: Connecti
 
 function ManifestReview({ manifest, selectedAssetIds, onSelectionChange, reviewing, onReview }: { manifest: ManifestRead; selectedAssetIds: string[]; onSelectionChange: (value: string[]) => void; reviewing: boolean; onReview: (decision: 'approved' | 'changes_requested') => Promise<void> }) {
   const selected = new Set(selectedAssetIds);
+  const discoveryMode = String(manifest.disclosure.discovery_mode || 'declarative_only');
   if (manifest.status === 'rejected_validation') return <div className="external-agent-manifest-errors"><AlertTriangle /><div><h3>能力清单未通过安全校验</h3>{manifest.validationErrors.map((item) => <p key={`${item.code}-${item.message}`}><code>{item.code}</code>{item.message}</p>)}</div></div>;
-  return <div className="external-agent-manifest-review"><div className="external-agent-manifest-summary"><div><span>员工候选</span><strong>{String(manifest.normalizedAgent.name || '未命名 Agent')}</strong><small>{String(manifest.normalizedAgent.description || '')}</small></div><dl><div><dt>能力总数</dt><dd>{manifest.assets.length}</dd></div><div><dt>已选择</dt><dd>{selectedAssetIds.length}</dd></div><div><dt>清单摘要</dt><dd title={manifest.sourceDigest}>{manifest.sourceDigest.slice(0, 12)}…</dd></div></dl></div>{manifest.validationWarnings.length > 0 && <div className="external-agent-manifest-warning"><AlertTriangle />{manifest.validationWarnings.map((item) => item.message).join('；')}</div>}<div className="external-agent-asset-list">{manifest.assets.map((asset) => <label className={selected.has(asset.id) ? 'is-selected' : ''} key={asset.id}><input type="checkbox" checked={selected.has(asset.id)} disabled={manifest.status === 'approved'} onChange={(event) => onSelectionChange(event.target.checked ? [...selectedAssetIds, asset.id] : selectedAssetIds.filter((id) => id !== asset.id))} /><span className={`is-${asset.kind}`}>{assetKind(asset.kind)}</span><div><strong>{asset.name}<small>{asset.version || '未声明版本'}</small></strong><p>{asset.description || '无补充说明'}</p><footer><em className={`is-${asset.riskLevel}`}>风险 {riskLabel(asset.riskLevel)}</em><em>{asset.callable ? '可调用' : '仅登记'}</em><em>{asset.portable ? '可导入' : '不可导出'}</em><em title={JSON.stringify(asset.provenance)}>来源 {asset.sourceType} · {asset.verificationStatus === 'verified_metadata' ? '元数据已验证' : '待连接测试'}</em></footer></div></label>)}</div>{manifest.status === 'approved' ? <div className="external-agent-success"><CheckCircle2 /><div><strong>能力清单已确认</strong><small>已选择 {selectedAssetIds.length} 项能力，下一阶段将生成可编辑员工档案。</small></div></div> : <div className="external-agent-review-actions"><button type="button" disabled={reviewing} onClick={() => void onReview('changes_requested')}>要求修正</button><Button disabled={reviewing} onClick={() => void onReview('approved')}>{reviewing ? <LoaderCircle className="is-spinning" /> : <CheckCircle2 />}确认所选能力</Button></div>}</div>;
+  return <div className="external-agent-manifest-review"><div className="external-agent-manifest-summary"><div><span>员工候选</span><strong>{String(manifest.normalizedAgent.name || '未命名 Agent')}</strong><small>{String(manifest.normalizedAgent.description || '')}</small></div><dl><div><dt>能力总数</dt><dd>{manifest.assets.length}</dd></div><div><dt>已选择</dt><dd>{selectedAssetIds.length}</dd></div><div><dt>清单摘要</dt><dd title={manifest.sourceDigest}>{manifest.sourceDigest.slice(0, 12)}…</dd></div></dl></div><div className={`external-agent-discovery-mode is-${discoveryMode}`}><ShieldCheck /><div><strong>{discoveryMode === 'metadata_discovery' ? '真实元数据发现' : '仅声明，未扫描本地技能'}</strong><small>{discoveryMode === 'metadata_discovery' ? '以下能力来自用户授权目录中的 Skill 元数据；源码、知识正文和密钥未上传。' : '以下能力由外部 Agent 声明，平台没有发现或验证 Codex Skill 目录；请按声明能力单独评估。'}</small></div></div>{manifest.validationWarnings.length > 0 && <div className="external-agent-manifest-warning"><AlertTriangle />{manifest.validationWarnings.map((item) => item.message).join('；')}</div>}<div className="external-agent-asset-list">{manifest.assets.map((asset) => <label className={selected.has(asset.id) ? 'is-selected' : ''} key={asset.id}><input type="checkbox" checked={selected.has(asset.id)} disabled={manifest.status === 'approved'} onChange={(event) => onSelectionChange(event.target.checked ? [...selectedAssetIds, asset.id] : selectedAssetIds.filter((id) => id !== asset.id))} /><span className={`is-${asset.kind}`}>{assetKind(asset.kind)}</span><div><strong>{asset.name}<small>{asset.version || '未声明版本'}</small></strong><p>{asset.description || '无补充说明'}</p><footer><em className={`is-${asset.riskLevel}`}>风险 {riskLabel(asset.riskLevel)}</em><em>{asset.callable ? '可调用' : '仅登记'}</em><em>{asset.portable ? '可导入' : '不可导出'}</em><em title={JSON.stringify(asset.provenance)}>来源 {asset.sourceType} · {verificationLabel(asset.verificationStatus)}</em></footer></div></label>)}</div>{manifest.status === 'approved' ? <div className="external-agent-success"><CheckCircle2 /><div><strong>能力清单已确认</strong><small>已选择 {selectedAssetIds.length} 项能力，下一阶段将生成可编辑员工档案。</small></div></div> : <div className="external-agent-review-actions"><button type="button" disabled={reviewing} onClick={() => void onReview('changes_requested')}>要求修正</button><Button disabled={reviewing} onClick={() => void onReview('approved')}>{reviewing ? <LoaderCircle className="is-spinning" /> : <CheckCircle2 />}确认所选能力</Button></div>}</div>;
 }
 
 function scopeLabel(value: string) {
@@ -363,3 +432,5 @@ function scopeLabel(value: string) {
 
 function assetKind(value: string) { return ({ skill: 'Skill', sop: 'SOP', tool: 'Tool', knowledge: '知识', model: '模型', runtime: '运行时' } as Record<string, string>)[value] || value; }
 function riskLabel(value: string) { return ({ low: '低', medium: '中', high: '高' } as Record<string, string>)[value] || value; }
+function verificationLabel(value: string) { return ({ verified_metadata: '元数据已验证', declared_only: '仅声明未验证', pending_runtime_test: '待连接测试' } as Record<string, string>)[value] || value; }
+function isTransport(value?: string): value is 'polling' | 'webhook' | 'a2a' | 'manual' { return Boolean(value && ['polling', 'webhook', 'a2a', 'manual'].includes(value)); }

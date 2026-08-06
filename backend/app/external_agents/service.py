@@ -271,7 +271,55 @@ def get_enrollment(
     if not enrollment or enrollment.tenant_id != current_user.tenant_id:
         raise HTTPException(status_code=404, detail="配对会话不存在")
     _require_manager(db, current_user, enrollment.organization_id)
-    return _enrollment_read(enrollment)
+    _reconcile_enrollment_expiry(db, enrollment)
+    return _enrollment_read(db, enrollment)
+
+
+def list_enrollments(
+    db: Session,
+    current_user: User,
+    organization_id: str | None = None,
+    *,
+    status: str | None = None,
+) -> list[EnrollmentRead]:
+    organization_ids = _authorized_organization_ids(db, current_user, organization_id)
+    statement = select(ExternalAgentEnrollment).where(
+        ExternalAgentEnrollment.tenant_id == current_user.tenant_id
+    )
+    if organization_ids is not None:
+        if not organization_ids:
+            return []
+        statement = statement.where(
+            ExternalAgentEnrollment.organization_id.in_(organization_ids)
+        )
+    rows = db.exec(statement.order_by(ExternalAgentEnrollment.created_at.desc())).all()
+    changed = False
+    for row in rows:
+        changed = _reconcile_enrollment_expiry(db, row, commit=False) or changed
+    if changed:
+        db.commit()
+    reads = [_enrollment_read(db, row) for row in rows]
+    if status:
+        reads = [row for row in reads if _enrollment_matches_status(row, status)]
+    return reads
+
+
+def get_enrollment_for_connection(
+    db: Session,
+    current_user: User,
+    connection_id: str,
+) -> EnrollmentRead:
+    connection = _get_connection(db, current_user, connection_id)
+    _require_member(db, current_user, connection.organization_id)
+    enrollment = db.exec(
+        select(ExternalAgentEnrollment).where(
+            ExternalAgentEnrollment.tenant_id == current_user.tenant_id,
+            ExternalAgentEnrollment.connection_id == connection.id,
+        )
+    ).first()
+    if not enrollment:
+        raise HTTPException(status_code=404, detail="该外部 Agent 没有对应的配对会话")
+    return _enrollment_read(db, enrollment, connection=connection)
 
 
 def revoke_enrollment(
@@ -300,24 +348,33 @@ def revoke_enrollment(
         )
         db.commit()
         db.refresh(enrollment)
-    return _enrollment_read(enrollment)
+    return _enrollment_read(db, enrollment)
 
 
 def list_connections(
-    db: Session, current_user: User, organization_id: str
+    db: Session,
+    current_user: User,
+    organization_id: str | None = None,
+    *,
+    status: str | None = None,
 ) -> list[ExternalAgentConnectionRead]:
-    _require_member(db, current_user, organization_id)
-    rows = db.exec(
-        select(ExternalAgentConnection)
-        .where(
-            ExternalAgentConnection.tenant_id == current_user.tenant_id,
-            ExternalAgentConnection.organization_id == organization_id,
+    organization_ids = _authorized_organization_ids(db, current_user, organization_id)
+    statement = select(ExternalAgentConnection).where(
+        ExternalAgentConnection.tenant_id == current_user.tenant_id
+    )
+    if organization_ids is not None:
+        if not organization_ids:
+            return []
+        statement = statement.where(
+            ExternalAgentConnection.organization_id.in_(organization_ids)
         )
-        .order_by(ExternalAgentConnection.created_at.desc())
-    ).all()
+    rows = db.exec(statement.order_by(ExternalAgentConnection.created_at.desc())).all()
     for row in rows:
         _reconcile_connection_health(db, row)
-    return [_connection_read(row) for row in rows]
+    reads = [_connection_read(row) for row in rows]
+    if status:
+        reads = [row for row in reads if status in {row.status, row.workflow_stage}]
+    return reads
 
 
 def get_connection(
@@ -822,6 +879,27 @@ def get_connection_test(
     if not row or row.tenant_id != current_user.tenant_id:
         raise HTTPException(status_code=404, detail="连接测试不存在")
     _require_member(db, current_user, row.organization_id)
+    _expire_connection_test(db, row)
+    return _connection_test_read(row)
+
+
+def get_latest_connection_test_for_connection(
+    db: Session,
+    current_user: User,
+    connection_id: str,
+) -> ConnectionTestRead:
+    connection = _get_connection(db, current_user, connection_id)
+    _require_member(db, current_user, connection.organization_id)
+    row = db.exec(
+        select(ExternalAgentConnectionTest)
+        .where(
+            ExternalAgentConnectionTest.tenant_id == current_user.tenant_id,
+            ExternalAgentConnectionTest.connection_id == connection.id,
+        )
+        .order_by(ExternalAgentConnectionTest.created_at.desc())
+    ).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="该外部 Agent 尚无连接测试")
     _expire_connection_test(db, row)
     return _connection_test_read(row)
 
@@ -2184,6 +2262,14 @@ def _provision_request(
     draft: ExternalAgentImportDraft,
     connection: ExternalAgentConnection,
 ) -> ExternalAgentProvisionRequest:
+    manifest = db.get(ExternalAgentManifest, draft.manifest_id)
+    if (
+        not manifest
+        or manifest.tenant_id != draft.tenant_id
+        or manifest.connection_id != connection.id
+        or manifest.status != "approved"
+    ):
+        raise HTTPException(status_code=409, detail="员工草稿对应的能力清单不可用")
     selected = set(draft.selected_asset_ids_json)
     assets = [
         asset
@@ -2207,6 +2293,7 @@ def _provision_request(
         runtime_type=connection.runtime_type,
         transport=connection.transport,
         protocol_version=connection.protocol_version,
+        discovery_mode=manifest.disclosure_json.get("discovery_mode"),
         sync_policy=draft.sync_policy,
         capabilities=[
             ExternalCapabilityBinding(
@@ -2220,6 +2307,7 @@ def _provision_request(
                 portable=asset.portable,
                 risk_level=asset.risk_level,
                 verification_status=asset.verification_status,
+                source_type=asset.source_type,
             )
             for asset in assets
         ],
@@ -2255,12 +2343,59 @@ def _connection_test_read(row: ExternalAgentConnectionTest) -> ConnectionTestRea
     )
 
 
-def _require_pending_enrollment(db: Session, enrollment: ExternalAgentEnrollment) -> None:
-    if enrollment.status == "pending" and enrollment.expires_at <= utc_now():
-        enrollment.status = "expired"
-        enrollment.updated_at = utc_now()
-        db.add(enrollment)
+def _connection_workflow_stage(status: str) -> str:
+    """Project internal connection states onto stable, user-facing workflow stages."""
+    if status in {"ready_for_draft", "draft_pending_confirmation"}:
+        return "pending_employee"
+    if status in {"connection_test_queued", "pending_connection_test"}:
+        return "pending_test"
+    if status in {"available", "manual_ready"}:
+        return "available"
+    return status
+
+
+def _enrollment_workflow_stage(
+    enrollment: ExternalAgentEnrollment,
+    connection: ExternalAgentConnection | None,
+) -> str:
+    if connection:
+        return _connection_workflow_stage(connection.status)
+    if enrollment.status == "pending":
+        return "pending_registration"
+    if enrollment.status == "registered":
+        return "registration_incomplete"
+    return enrollment.status
+
+
+def _enrollment_matches_status(row: EnrollmentRead, status: str) -> bool:
+    return status in {
+        row.status,
+        row.connection_status,
+        row.workflow_stage,
+        row.latest_manifest_status,
+        row.import_draft_status,
+    }
+
+
+def _reconcile_enrollment_expiry(
+    db: Session,
+    enrollment: ExternalAgentEnrollment,
+    *,
+    commit: bool = True,
+) -> bool:
+    if enrollment.status != "pending" or enrollment.expires_at > utc_now():
+        return False
+    enrollment.status = "expired"
+    enrollment.updated_at = utc_now()
+    db.add(enrollment)
+    if commit:
         db.commit()
+        db.refresh(enrollment)
+    return True
+
+
+def _require_pending_enrollment(db: Session, enrollment: ExternalAgentEnrollment) -> None:
+    _reconcile_enrollment_expiry(db, enrollment)
     if enrollment.status == "expired":
         raise HTTPException(status_code=410, detail="配对码已过期")
     if enrollment.status == "revoked":
@@ -2303,6 +2438,26 @@ def _require_member(db: Session, current_user: User, organization_id: str) -> Or
     if not membership:
         raise HTTPException(status_code=403, detail="当前用户不是该企业成员")
     return membership
+
+
+def _authorized_organization_ids(
+    db: Session,
+    current_user: User,
+    organization_id: str | None,
+) -> list[str] | None:
+    if organization_id:
+        _require_member(db, current_user, organization_id)
+        return [organization_id]
+    if is_admin_user(current_user):
+        return None
+    memberships = db.exec(
+        select(OrganizationMember.organization_id).where(
+            OrganizationMember.tenant_id == current_user.tenant_id,
+            OrganizationMember.user_id == current_user.id,
+            OrganizationMember.status == "active",
+        )
+    ).all()
+    return sorted(set(memberships))
 
 
 def _require_manager(db: Session, current_user: User, organization_id: str) -> None:
@@ -2384,7 +2539,29 @@ def _created_read(row: ExternalAgentEnrollment, pairing_code: str) -> Enrollment
     )
 
 
-def _enrollment_read(row: ExternalAgentEnrollment) -> EnrollmentRead:
+def _enrollment_read(
+    db: Session,
+    row: ExternalAgentEnrollment,
+    *,
+    connection: ExternalAgentConnection | None = None,
+) -> EnrollmentRead:
+    if connection is None and row.connection_id:
+        candidate = db.get(ExternalAgentConnection, row.connection_id)
+        if candidate and candidate.tenant_id == row.tenant_id:
+            connection = candidate
+    manifest = _latest_manifest(db, connection.id) if connection else None
+    draft = (
+        db.exec(
+            select(ExternalAgentImportDraft)
+            .where(
+                ExternalAgentImportDraft.tenant_id == row.tenant_id,
+                ExternalAgentImportDraft.connection_id == connection.id,
+            )
+            .order_by(ExternalAgentImportDraft.created_at.desc())
+        ).first()
+        if connection
+        else None
+    )
     return EnrollmentRead(
         id=row.id,
         organization_id=row.organization_id,
@@ -2395,6 +2572,12 @@ def _enrollment_read(row: ExternalAgentEnrollment) -> EnrollmentRead:
         requested_scopes=row.requested_scopes_json,
         manifest_version=row.manifest_version,
         connection_id=row.connection_id,
+        connection_status=connection.status if connection else None,
+        workflow_stage=_enrollment_workflow_stage(row, connection),
+        latest_manifest_id=manifest.id if manifest else None,
+        latest_manifest_status=manifest.status if manifest else None,
+        import_draft_id=draft.id if draft else None,
+        import_draft_status=draft.status if draft else None,
         created_at=row.created_at,
     )
 
@@ -2412,6 +2595,7 @@ def _connection_read(row: ExternalAgentConnection) -> ExternalAgentConnectionRea
         endpoint=row.endpoint,
         protocol_version=row.protocol_version,
         status=row.status,
+        workflow_stage=_connection_workflow_stage(row.status),
         health_status=row.health_status,
         last_heartbeat_at=row.last_heartbeat_at,
         last_manifest_sync_at=row.last_manifest_sync_at,

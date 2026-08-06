@@ -66,6 +66,7 @@ def validate_and_normalize_manifest(
     seen_ids: set[str] = set()
     seen_hashes: set[tuple[str, str]] = set()
     assets: list[dict[str, Any]] = []
+    discovery_mode = manifest.disclosure.discovery_mode
     for capability in manifest.capabilities:
         if capability.external_id in seen_ids:
             errors.append({"code": "duplicate_external_id", "message": f"能力 ID 重复：{capability.external_id}"})
@@ -85,7 +86,17 @@ def validate_and_normalize_manifest(
             errors.append({"code": "permission", "message": f"能力 {capability.external_id} 包含未知权限：{', '.join(invalid_permissions)}"})
         _validate_schema(capability.input_schema, capability.external_id, "input", errors)
         _validate_schema(capability.output_schema, capability.external_id, "output", errors)
-        assets.append(_normalize_capability(capability))
+        if discovery_mode == "declarative_only" and capability.source_type != "declared":
+            warnings.append(
+                {
+                    "code": "declarative_only_source",
+                    "message": (
+                        f"能力 {capability.external_id} 来自手动声明，"
+                        "不会按扫描发现的元数据验证"
+                    ),
+                }
+            )
+        assets.append(_normalize_capability(capability, discovery_mode=discovery_mode))
 
     agent = manifest.agent
     normalized_agent = {
@@ -118,13 +129,24 @@ def validate_and_normalize_manifest(
     )
 
 
-def _normalize_capability(capability: ManifestCapability) -> dict[str, Any]:
+def _normalize_capability(
+    capability: ManifestCapability,
+    *,
+    discovery_mode: str | None,
+) -> dict[str, Any]:
     derived_risk = _permission_risk(capability.permissions)
     risk = max((capability.risk_level, derived_risk), key=lambda value: RISK_ORDER[value])
     evidence = capability.evidence
     confidence = float(evidence.get("confidence", 1.0 if capability.source_hash else 0.7))
     method = str(evidence.get("method") or ("deterministic" if capability.source_hash else "declared"))
-    verification = "verified_metadata" if capability.source_hash and confidence >= 0.99 else "pending_test"
+    declarative_only = discovery_mode == "declarative_only"
+    verification = (
+        "declared_only"
+        if declarative_only
+        else "verified_metadata"
+        if capability.source_hash and confidence >= 0.99
+        else "pending_test"
+    )
     return {
         "external_id": capability.external_id,
         "kind": capability.kind,
@@ -135,15 +157,23 @@ def _normalize_capability(capability: ManifestCapability) -> dict[str, Any]:
         "callable": capability.callable,
         "risk_level": risk,
         "verification_status": verification,
-        "source_type": capability.source_type,
+        "source_type": "declared" if declarative_only else capability.source_type,
         "source_hash": capability.source_hash,
         "input_schema": capability.input_schema,
         "output_schema": capability.output_schema,
         "permissions": sorted(set(capability.permissions)),
         "evidence": evidence,
         "provenance": {
-            "name": {"source": "manifest.capabilities[].name", "method": method, "confidence": confidence},
-            "description": {"source": "manifest.capabilities[].description", "method": method, "confidence": confidence},
+            "name": {
+                "source": "manifest.capabilities[].name",
+                "method": "declared" if declarative_only else method,
+                "confidence": confidence,
+            },
+            "description": {
+                "source": "manifest.capabilities[].description",
+                "method": "declared" if declarative_only else method,
+                "confidence": confidence,
+            },
             "schemas": {"source": "manifest.capabilities[].schema", "method": "deterministic", "confidence": 1.0},
             "permissions": {"source": "manifest.capabilities[].permissions", "method": "deterministic", "confidence": 1.0},
         },

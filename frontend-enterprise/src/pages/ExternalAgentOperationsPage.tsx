@@ -4,6 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '@/api/client';
 import { notify } from '@/components/ui/app-toast';
 import { Button } from '@/components/ui/button';
+import { externalAgentNeedsSetup, externalAgentReviewPath } from '@/features/external-agent-connector';
 
 type Connection = { id: string; organizationId: string; agentProfileId?: string; provider: string; runtimeType: string; executionMode: string; transport: string; externalAgentRef: string; endpoint: string; protocolVersion: string; status: string; healthStatus: string; lastHeartbeatAt?: string; lastManifestSyncAt?: string; syncPolicy: string; metadata: Record<string, unknown>; createdAt: string; updatedAt: string };
 type Policy = { id: string; connectionId: string; allowedDomains: string[]; blockedDomains: string[]; webhookDeliveryEnabled: boolean; maxRequestsPerMinute: number; maxConcurrentTasks: number; heartbeatIntervalSeconds: number; status: string; updatedAt: string };
@@ -11,7 +12,7 @@ type TaskEvent = { id: string; sequence: number; eventType: string; summary: str
 type Task = { id: string; connectionId: string; capabilityAssetId: string; capabilityExternalId: string; status: string; goal: string; input: Record<string, unknown>; output: Record<string, unknown>; error: Record<string, unknown>; artifactRefs: Array<Record<string, unknown>>; priority: number; attemptCount: number; maxAttempts: number; approvalState: string; leaseExpiresAt?: string; timeoutAt: string; nextRetryAt?: string; resultReceiptId?: string; createdAt: string; startedAt?: string; completedAt?: string; events: TaskEvent[] };
 type Operations = { connection: Connection; policy: Policy; taskMetrics: Record<string, number>; healthMetrics: Record<string, unknown>; alerts: Array<{ level: string; code: string; message: string }>; recentHeartbeats: Array<Record<string, unknown>>; recentTasks: Task[] };
 type Asset = { id: string; externalId: string; kind: string; name: string; description: string; selected: boolean; callable: boolean; portable: boolean; riskLevel: string; verificationStatus: string; permissions: string[] };
-type Manifest = { id: string; sourceDigest: string; status: string; normalizedAgent: Record<string, unknown>; assets: Asset[]; submittedAt: string };
+type Manifest = { id: string; sourceDigest: string; status: string; normalizedAgent: Record<string, unknown>; disclosure?: Record<string, unknown>; assets: Asset[]; submittedAt: string };
 
 export default function ExternalAgentOperationsPage() {
   const { connectionId = '' } = useParams();
@@ -72,9 +73,11 @@ export default function ExternalAgentOperationsPage() {
   if (!operations) return <main className="external-agent-ops-page"><div className="external-agent-empty">连接不存在或当前账号无权访问。</div></main>;
   const connection = operations.connection;
   const callableAssets = manifest?.assets.filter((item) => item.selected && item.callable) || [];
+  const needsSetup = externalAgentNeedsSetup(connection.status) || Boolean(manifest && manifest.status !== 'approved');
 
   return <main className="external-agent-ops-page">
     <header><button type="button" onClick={() => navigate('/enterprise/agents')}><ArrowLeft />数字员工</button><div><div className="external-agent-ops-title"><h1>{String(manifest?.normalizedAgent.name || connection.externalAgentRef)}</h1><span>外接</span><em className={`is-${connection.healthStatus}`}>{healthLabel(connection.healthStatus)}</em></div><p>{connection.provider} · {connection.runtimeType} · {connection.transport} · 外部运行</p></div><div className="external-agent-ops-header-actions"><button type="button" onClick={() => void load()}><RefreshCw />刷新</button><Button onClick={() => setTaskFormOpen(true)} disabled={connection.status !== 'available' || callableAssets.length === 0}><Play />创建任务</Button></div></header>
+    {needsSetup && <section className="external-agent-setup-banner"><AlertTriangle /><div><strong>{setupTitle(connection.status, manifest?.status)}</strong><p>{setupDescription(connection.status, manifest?.status)}</p></div><Button onClick={() => navigate(externalAgentReviewPath(connection.id))}><CheckCircle2 />继续审核/创建员工</Button></section>}
     {operations.alerts.length > 0 && <section className="external-agent-ops-alerts">{operations.alerts.map((item) => <div className={`is-${item.level}`} key={item.code}><AlertTriangle /><span><strong>{alertTitle(item.code)}</strong><small>{item.message}</small></span></div>)}</section>}
     <nav>{(['overview', 'tasks', 'capabilities', 'security'] as const).map((item) => <button className={tab === item ? 'is-active' : ''} type="button" key={item} onClick={() => setTab(item)}>{({ overview: '运行概览', tasks: '任务与回执', capabilities: '已接能力', security: '安全与连接' } as const)[item]}</button>)}</nav>
     {tab === 'overview' && <Overview operations={operations} />}
@@ -83,6 +86,20 @@ export default function ExternalAgentOperationsPage() {
     {tab === 'security' && <SecurityPanel connection={connection} policy={operations.policy} busy={busy} credential={credential} setCredential={setCredential} onRotate={rotateCredential} onDisconnect={disconnect} onSaved={() => load(true)} />}
     {taskFormOpen && <TaskCreateDialog connection={connection} assets={callableAssets} onClose={() => setTaskFormOpen(false)} onCreated={async () => { setTaskFormOpen(false); setTab('tasks'); await load(true); }} />}
   </main>;
+}
+
+function setupTitle(connectionStatus: string, manifestStatus?: string) {
+  if (manifestStatus && manifestStatus !== 'approved') return 'Manifest 尚未完成人工审核';
+  if (connectionStatus === 'ready_for_draft' || connectionStatus === 'draft_pending_confirmation') return '能力已确认，待创建 AI 员工';
+  if (connectionStatus === 'connection_test_queued' || connectionStatus === 'pending_connection_test') return '员工已创建，待完成连接测试';
+  return '外接 Agent 尚未完成接入';
+}
+
+function setupDescription(connectionStatus: string, manifestStatus?: string) {
+  if (manifestStatus && manifestStatus !== 'approved') return '请核对能力元数据、权限与风险等级，选择允许接入的能力。';
+  if (connectionStatus === 'ready_for_draft' || connectionStatus === 'draft_pending_confirmation') return '请检查自动生成的员工档案，确认后才会出现在“我的数字员工”。';
+  if (connectionStatus === 'connection_test_queued' || connectionStatus === 'pending_connection_test') return '保持外部 Worker 运行，完成身份、协议版本和能力数量校验。';
+  return '运行页会保留连接记录，但只有完成审核、员工创建和连接测试后才能执行任务。';
 }
 
 function Overview({ operations }: { operations: Operations }) {
@@ -97,7 +114,8 @@ function TasksPanel({ tasks, selectedTask, onSelect, onAction, busy }: { tasks: 
 
 function CapabilitiesPanel({ manifest }: { manifest: Manifest | null }) {
   if (!manifest) return <div className="external-agent-empty">尚未发现能力清单。</div>;
-  return <section className="external-agent-ops-capabilities"><header><div><h2>已确认能力</h2><p>清单摘要 {manifest.sourceDigest.slice(0, 16)}… · {formatTime(manifest.submittedAt)}</p></div><span>{manifest.assets.filter((item) => item.selected).length} 项已启用</span></header><div>{manifest.assets.map((asset) => <article className={asset.selected ? '' : 'is-disabled'} key={asset.id}><span>{asset.kind.toUpperCase()}</span><div><strong>{asset.name}</strong><p>{asset.description || '无补充说明'}</p><footer><em>风险 {riskLabel(asset.riskLevel)}</em><em>{asset.callable ? '可调用' : '仅登记'}</em><em>{asset.portable ? '可导入' : '不可导出'}</em><em>{asset.verificationStatus}</em></footer></div><i>{asset.selected ? '已启用' : '未选择'}</i></article>)}</div></section>;
+  const discoveryMode = String(manifest.disclosure?.discovery_mode || 'declarative_only');
+  return <section className="external-agent-ops-capabilities"><header><div><h2>已确认能力</h2><p>清单摘要 {manifest.sourceDigest.slice(0, 16)}… · {formatTime(manifest.submittedAt)}</p></div><span>{manifest.assets.filter((item) => item.selected).length} 项已启用</span></header><div className={`external-agent-discovery-mode is-${discoveryMode}`}><ShieldCheck /><div><strong>{discoveryMode === 'metadata_discovery' ? '真实元数据发现' : '仅声明能力'}</strong><small>{discoveryMode === 'metadata_discovery' ? '能力来自用户授权的 Skill 元数据扫描。' : '本次未扫描 Codex Skill 目录，不应视为已验证技能。'}</small></div></div><div>{manifest.assets.map((asset) => <article className={asset.selected ? '' : 'is-disabled'} key={asset.id}><span>{asset.kind.toUpperCase()}</span><div><strong>{asset.name}</strong><p>{asset.description || '无补充说明'}</p><footer><em>风险 {riskLabel(asset.riskLevel)}</em><em>{asset.callable ? '可调用' : '仅登记'}</em><em>{asset.portable ? '可导入' : '不可导出'}</em><em>{verificationLabel(asset.verificationStatus)}</em></footer></div><i>{asset.selected ? '已启用' : '未选择'}</i></article>)}</div></section>;
 }
 
 function SecurityPanel({ connection, policy, busy, credential, setCredential, onRotate, onDisconnect, onSaved }: { connection: Connection; policy: Policy; busy: boolean; credential: string; setCredential: (value: string) => void; onRotate: () => Promise<void>; onDisconnect: () => Promise<void>; onSaved: () => Promise<void> }) {
@@ -119,4 +137,5 @@ function formatTime(value?: string) { return value ? new Date(value).toLocaleStr
 function healthLabel(value: string) { return ({ online: '在线', degraded: '连接异常', offline: '离线', unknown: '待心跳', revoked: '已撤销' } as Record<string, string>)[value] || value; }
 function taskStatus(value: string) { return ({ queued: '排队中', leased: '已领取', running: '执行中', waiting_approval: '待批准', waiting_input: '待补充', cancellation_requested: '取消中', succeeded: '已成功', failed: '失败', cancelled: '已取消', expired: '已超时' } as Record<string, string>)[value] || value; }
 function riskLabel(value: string) { return ({ low: '低', medium: '中', high: '高' } as Record<string, string>)[value] || value; }
+function verificationLabel(value: string) { return ({ verified_metadata: '元数据已验证', declared_only: '仅声明未验证', pending_runtime_test: '待连接测试' } as Record<string, string>)[value] || value; }
 function alertTitle(value: string) { return ({ heartbeat_missing: '等待首次心跳', agent_offline: 'Agent 已离线', agent_degraded: '连接状态降级', task_failures: '存在异常任务', rate_limited: '请求触发限流', webhook_disabled: '云端投递已关闭' } as Record<string, string>)[value] || '运行提醒'; }
