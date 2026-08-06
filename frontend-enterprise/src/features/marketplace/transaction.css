@@ -13,15 +13,41 @@
 .transaction-steps b { display: grid; width: 28px; height: 28px; place-items: center; border: 1px solid #e0e4e9; border-radius: 50%; background: #fafbfc; color: #555d6b; }
 .transaction-steps .is-active { color: #23262d; font-weight: 650; }
 .transaction-steps .is-active b { border-color: #202329; background: #202329; color: #fff; }
-.transaction-ai-requirement-entry { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 14px; margin: 0 0 16px; border: 1px solid #d9d6f6; border-radius: 10px; padding: 15px 16px; background: #fbfaff; }
-.transaction-ai-requirement-icon { display: grid; width: 38px; height: 38px; place-items: center; border-radius: 10px; background: #ece9ff; color: #625ac6; }
-.transaction-ai-requirement-icon svg { width: 19px; }
-.transaction-ai-requirement-entry h2 { margin: 0; color: #252832; font-size: 14px; }
-.transaction-ai-requirement-entry p { margin: 4px 0 9px; color: #747c8b; font-size: 11px; }
-.transaction-ai-requirement-entry textarea { min-height: 58px; width: 100%; padding: 9px 11px; line-height: 1.55; }
-.transaction-ai-requirement-entry > button { display: inline-flex; min-height: 38px; align-items: center; gap: 6px; border: 0; border-radius: 7px; padding: 0 14px; background: #26292f; color: #fff; white-space: nowrap; }
-.transaction-ai-requirement-entry > button:disabled { cursor: not-allowed; opacity: .45; }
-.transaction-ai-requirement-entry > button svg { width: 15px; }
+.transaction-ai-workspace { margin: 0 0 16px; }
+.transaction-ai-composer { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: stretch; overflow: hidden; border: 1px solid #d9dde5; border-radius: 10px; background: #fff; }
+.transaction-ai-requirement-icon { display: grid; width: 58px; place-items: center; border-right: 1px solid #eceef2; color: #6b64d8; }
+.transaction-ai-requirement-icon svg { width: 21px; }
+.transaction-ai-composer-field { display: block; min-width: 0; }
+.transaction-ai-composer textarea { display: block; min-height: 72px; width: 100%; border: 0; border-radius: 0; padding: 16px 18px; color: #242832; font-size: 14px; line-height: 1.6; resize: vertical; }
+.transaction-ai-composer textarea:focus { border: 0; box-shadow: inset 0 0 0 2px rgb(37 42 52 / 6%); }
+.transaction-ai-analyze-button { min-width: 118px; margin: 13px; border: 0; border-radius: 7px; padding: 0 18px; background: #16191f; color: #fff; font-size: 13px; font-weight: 650; white-space: nowrap; }
+.transaction-ai-analyze-button:disabled { cursor: not-allowed; opacity: .35; }
+.transaction-ai-readiness { display: grid; grid-template-columns: minmax(270px, 1.25fr) minmax(260px, 1fr) minmax(120px, .45fr) minmax(170px, .55fr); margin-top: 12px; border: 1px solid #dfe3ea; border-radius: 10px; background: #fff; }
+.transaction-ai-result-group { min-width: 0; padding: 15px 16px; }
+.transaction-ai-result-group + .transaction-ai-result-group { border-left: 1px solid #e4e7ec; }
+.transaction-ai-result-group > strong { display: block; margin-bottom: 10px; color: #e12a26; font-size: 12px; font-weight: 700; }
+.transaction-ai-fact-list { display: flex; flex-wrap: wrap; gap: 7px; }
+.transaction-ai-fact-list button { display: inline-flex; min-width: 0; max-width: 100%; min-height: 32px; align-items: center; gap: 6px; border: 1px solid #dfe3e9; border-radius: 7px; padding: 5px 9px; background: #fff; color: #282c34; font-size: 12px; }
+.transaction-ai-fact-list button:hover { border-color: #c5cad3; background: #fafbfc; }
+.transaction-ai-fact-list button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.transaction-ai-fact-list button svg { width: 12px; flex: none; color: #697181; }
+.transaction-ai-result-group.is-expanded p { margin: 0; color: #30343c; font-size: 12px; line-height: 1.7; }
+.transaction-ai-result-group.is-pending > div { display: flex; flex-wrap: wrap; gap: 6px; }
+.transaction-ai-result-group.is-pending button, .transaction-ai-result-group.is-pending span { border: 1px solid #efc16f; border-radius: 6px; padding: 5px 8px; background: #fffaf1; color: #b56a18; font-size: 11px; white-space: nowrap; }
+.transaction-ai-result-group.is-pending button:hover { border-color: #d89c3b; background: #fff4df; }
+.transaction-ai-result-group.is-pending span.is-complete { border-color: #b9dfc4; background: #f4fbf6; color: #1c894b; }
+.transaction-ai-result-group.is-action { display: flex; flex-direction: column; align-items: stretch; justify-content: center; text-align: center; }
+.transaction-ai-result-group.is-action > strong { margin-bottom: 8px; color: #272b33; font-size: 12px; }
+.transaction-ai-result-group.is-action > button:not(.transaction-ai-text-button) { min-height: 38px; border: 0; border-radius: 7px; padding: 0 12px; background: #eb1c18; color: #fff; font-size: 12px; font-weight: 650; }
+.transaction-ai-text-button { align-self: center; margin-top: 7px; border: 0; padding: 0; background: transparent; color: #758199; font-size: 10px; }
+.transaction-ai-text-button:hover { color: #252a34; }
+.transaction-ai-result-notes { display: flex; flex-wrap: wrap; gap: 6px 14px; grid-column: 1 / -1; border-top: 1px solid #eceef2; padding: 8px 16px; background: #fafbfc; }
+.transaction-ai-result-notes p { margin: 0; color: #9a5d22; font-size: 10px; }
+.transaction-ai-readiness.is-status-only { grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 13px 16px; }
+.transaction-ai-readiness.is-status-only > svg { width: 18px; color: #6b64d8; }
+.transaction-ai-readiness.is-status-only strong { color: #282c34; font-size: 12px; }
+.transaction-ai-readiness.is-status-only p { margin: 3px 0 0; color: #737c8a; font-size: 11px; }
+.transaction-ai-readiness.is-status-only.is-error { border-color: #e6b6b3; background: #fff8f7; }
 .transaction-editor-layout { display: grid; grid-template-columns: minmax(620px, 1fr) 330px; align-items: start; gap: 18px; }
 .transaction-form-stack, .transaction-side-stack { display: flex; min-width: 0; flex-direction: column; gap: 14px; }
 .transaction-card { min-width: 0; border: 1px solid #e3e6eb; border-radius: 10px; padding: 16px; background: #fff; }
@@ -253,6 +279,9 @@
 .marketplace-status.is-draft, .marketplace-status.is-withdrawn, .marketplace-status.is-rejected { color: #6b7280; background: #eff0f2; }
 
 @media (max-width: 1280px) {
+  .transaction-ai-readiness { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .transaction-ai-result-group.is-pending { border-top: 1px solid #e4e7ec; border-left: 0; }
+  .transaction-ai-result-group.is-action { border-top: 1px solid #e4e7ec; }
   .transaction-editor-layout, .transaction-quote-layout, .transaction-compare-layout { grid-template-columns: 1fr; }
   .transaction-detail-layout { grid-template-columns: minmax(300px, .85fr) minmax(420px, 1.2fr); }
   .transaction-detail-layout > aside { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, 1fr); }
@@ -261,8 +290,11 @@
 }
 
 @media (max-width: 900px) {
-  .transaction-ai-requirement-entry { grid-template-columns: auto 1fr; }
-  .transaction-ai-requirement-entry > button { grid-column: 2; justify-self: start; }
+  .transaction-ai-composer { grid-template-columns: 46px minmax(0, 1fr); }
+  .transaction-ai-requirement-icon { width: 46px; grid-row: 1 / 3; }
+  .transaction-ai-analyze-button { grid-column: 2; min-height: 38px; margin: 0 12px 12px; justify-self: start; }
+  .transaction-ai-readiness { grid-template-columns: 1fr; }
+  .transaction-ai-result-group + .transaction-ai-result-group { border-top: 1px solid #e4e7ec; border-left: 0; }
   .transaction-steps, .transaction-agreement-steps { grid-template-columns: repeat(2, 1fr); row-gap: 14px; padding-inline: 12px; }
   .transaction-detail-layout, .transaction-agreement-layout { grid-template-columns: 1fr; }
   .transaction-detail-layout > aside, .transaction-agreement-layout > .transaction-side-stack { display: flex; grid-column: auto; }

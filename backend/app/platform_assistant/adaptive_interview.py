@@ -128,6 +128,12 @@ class AdaptiveInterviewCoordinator:
         candidates = load_active_category_candidates(self.db)
         allowed_fields = _allowed_fact_fields(candidates)
         fact_scope = _fact_scope(scope, organization_id)
+        self._ensure_trusted_organization(
+            fact_scope,
+            workflow_run_id=workflow_run_id,
+            organization_id=organization_id,
+            authorized_organization_ids=authorized_organization_ids,
+        )
         current = self.ledger.current_facts(
             fact_scope,
             workflow_run_id=workflow_run_id,
@@ -176,11 +182,20 @@ class AdaptiveInterviewCoordinator:
             trusted_options=preliminary_options,
             context_summary=_context_summary(current, preliminary_active),
         )
-        if analysis.facts:
+        current_fields = {item.field for item in current}
+        mergeable_facts = tuple(
+            item
+            for item in analysis.facts
+            if not (
+                item.source == "ai_expansion"
+                and item.field in current_fields
+            )
+        )
+        if mergeable_facts:
             self.ledger.merge_candidates(
                 fact_scope,
                 workflow_run_id=workflow_run_id,
-                candidates=analysis.facts,
+                candidates=mergeable_facts,
             )
         current = self.ledger.current_facts(
             fact_scope,
@@ -465,6 +480,59 @@ class AdaptiveInterviewCoordinator:
             TrustedOption("highly_confidential", "高度保密"),
         )
         return result
+
+    def _ensure_trusted_organization(
+        self,
+        scope: FactLedgerScope,
+        *,
+        workflow_run_id: str,
+        organization_id: str | None,
+        authorized_organization_ids: Iterable[str],
+    ) -> None:
+        """Project the page's membership-validated organization as confirmed.
+
+        The organization switcher is already a user-controlled selection and
+        the runtime has checked it against current membership. Re-asking for
+        the same organization inside the assistant only creates duplicate
+        form work, so the trusted page selection is recorded once here.
+        """
+
+        allowed = set(authorized_organization_ids)
+        if organization_id is None or organization_id not in allowed:
+            return
+        current = self.ledger.current_facts(
+            scope,
+            workflow_run_id=workflow_run_id,
+        )
+        existing = next(
+            (item for item in current if item.field == "organization_id"),
+            None,
+        )
+        if existing is not None:
+            return
+        merged = self.ledger.merge_candidates(
+            scope,
+            workflow_run_id=workflow_run_id,
+            candidates=[
+                FactCandidateInput(
+                    field="organization_id",
+                    value=organization_id,
+                    source="existing_record",
+                    source_ref="authorized_page_organization",
+                    confidence=1.0,
+                    confirmed_by_user=False,
+                    needs_confirmation=True,
+                )
+            ],
+        )
+        if merged:
+            self.ledger.confirm(
+                scope,
+                workflow_run_id=workflow_run_id,
+                fact_id=merged[0].fact.id,
+                expected_version=merged[0].fact.version,
+                actor_user_id=scope.user_id,
+            )
 
 
 def _fact_scope(scope: RunScope, organization_id: str | None) -> FactLedgerScope:

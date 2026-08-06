@@ -1,4 +1,4 @@
-import { ArrowLeft, Check, FileText, LockKeyhole, Paperclip, Plus, ShieldCheck, Sparkles, Trash2 } from 'lucide-react';
+import { ArrowLeft, Check, FileText, LockKeyhole, Paperclip, PencilLine, Plus, ShieldCheck, Sparkles, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { notify } from '@/components/ui/app-toast';
@@ -144,6 +144,18 @@ export default function DemandCreatePage() {
       : { ...current, categoryId: undefined, category: value });
   }
 
+  function reviewAssistantField(field: string) {
+    focusPublishField(({
+      title: 'title',
+      category: 'category',
+      schedule: 'deadline',
+      budget_min: 'budgetMax',
+      budget_max: 'budgetMax',
+      deliverables: 'deliverables',
+      acceptance_criteria: 'criteria',
+    } as Partial<Record<string, PublishField>>)[field] || 'description');
+  }
+
   async function onFiles(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files || []);
     if (!files.length) return;
@@ -265,42 +277,47 @@ export default function DemandCreatePage() {
         onOrganizationChange={organization.selectOrganization}
       />
       <div className="transaction-steps"><span className="is-active"><b>1</b>描述需求</span><span><b>2</b>交付与验收</span><span><b>3</b>预算与周期</span><span><b>4</b>预览发布</span></div>
-      <section className="transaction-ai-requirement-entry" aria-labelledby="ai-requirement-entry-title">
-        <span className="transaction-ai-requirement-icon"><Sparkles /></span>
-        <div>
-          <h2 id="ai-requirement-entry-title">先用一句话告诉开小花你想做什么</h2>
-          <p>开小花会理解当前需求，按实际业务动态追问，再把完整内容写回下面的真实需求表。</p>
-          <textarea
-            aria-label="自然语言描述需求"
-            value={aiBrief}
-            maxLength={1000}
-            placeholder="例如：两周后要做一份面向投资人的融资路演 PPT，我已经有商业计划书。"
-            onChange={(event) => setAiBrief(event.target.value)}
-          />
+      <section className="transaction-ai-workspace" aria-labelledby="ai-requirement-entry-title">
+        <span className="sr-only" id="ai-requirement-entry-title">AI 需求解析与自动填表</span>
+        <div className="transaction-ai-composer">
+          <span className="transaction-ai-requirement-icon" aria-hidden="true"><Sparkles /></span>
+          <label className="transaction-ai-composer-field">
+            <span className="sr-only">自然语言描述需求</span>
+            <textarea
+              aria-label="自然语言描述需求"
+              value={aiBrief}
+              maxLength={1000}
+              placeholder="描述你想完成的任务，例如：为制造业客户制作一份面向投资人的融资路演 PPT，两周内交付。"
+              onChange={(event) => setAiBrief(event.target.value)}
+            />
+          </label>
+          <button
+            type="button"
+            className="transaction-ai-analyze-button"
+            disabled={!aiBrief.trim()}
+            onClick={() => openKaiAssistant({
+              view: 'chat',
+              autoSend: true,
+              startNewWorkflow: true,
+              entrypoint: 'requirement.create',
+              prompt: `我想发布一个需求：${aiBrief.trim()}。请直接分析所属行业、内容要求、交付规范和验收标准，主动扩写为完整可编辑草稿并填入需求表单。不要让我重复填写已能合理生成的软性内容；只对无法安全推断的硬信息保留待确认。`,
+            })}
+          >AI 解析</button>
         </div>
-        <button
-          type="button"
-          disabled={!aiBrief.trim()}
-          onClick={() => openKaiAssistant({
-            view: 'chat',
-            autoSend: true,
-            startNewWorkflow: true,
-            entrypoint: 'requirement.create',
-            prompt: `我想发布一个需求：${aiBrief.trim()}。请先分析已有信息，并只追问最关键的 1 到 3 个问题。`,
-          })}
-        ><Sparkles />让开小花分析</button>
+        {draftId ? (
+          <AssistantDraftStatus
+            state={draftLoadState}
+            error={draftError}
+            response={draftResponse}
+            appliedVersion={appliedDraftVersion}
+            onRetry={() => setLoadAttempt((value) => value + 1)}
+            onReview={() => focusPublishField('title')}
+            onEditField={reviewAssistantField}
+          />
+        ) : null}
       </section>
       <div className="transaction-editor-layout">
         <div className="transaction-form-stack">
-          {draftId ? (
-            <AssistantDraftStatus
-              state={draftLoadState}
-              error={draftError}
-              response={draftResponse}
-              appliedVersion={appliedDraftVersion}
-              onRetry={() => setLoadAttempt((value) => value + 1)}
-            />
-          ) : null}
           {validationErrors.length > 0 ? (
             <section className="transaction-validation-summary" role="alert" aria-labelledby="publish-validation-title">
               <div><strong id="publish-validation-title">还不能发布，请补充以下信息</strong><small>草稿仍然可以保存。</small></div>
@@ -489,33 +506,183 @@ function AssistantDraftStatus({
   response,
   appliedVersion,
   onRetry,
+  onReview,
+  onEditField,
 }: {
   state: DraftLoadState;
   error: string;
   response: AssistantRequirementDraftResponse | null;
   appliedVersion: number | null;
   onRetry: () => void;
+  onReview: () => void;
+  onEditField: (field: string) => void;
 }) {
   if (state === 'loading') {
-    return <section className="transaction-card" aria-live="polite"><h2>开小花需求草稿</h2><p>正在安全读取草稿…</p></section>;
+    return <section className="transaction-ai-readiness is-status-only" aria-live="polite"><Sparkles /><div><strong>正在读取 AI 草稿</strong><p>解析结果准备好后会自动填入下方表单。</p></div></section>;
   }
   if (state === 'error') {
-    return <section className="transaction-card" role="alert"><h2>开小花需求草稿</h2><p>{error}；您可继续手工填写，或重试读取。</p><button type="button" className="marketplace-secondary-button" onClick={onRetry}>重试</button></section>;
+    return <section className="transaction-ai-readiness is-status-only is-error" role="alert"><div><strong>AI 草稿读取失败</strong><p>{error}；你可以继续手工填写，或重试读取。</p></div><button type="button" className="marketplace-secondary-button" onClick={onRetry}>重试</button></section>;
   }
   if (state !== 'ready' || !response) return null;
   const latestVersion = response.draft.draft_version;
   const versionChanged = appliedVersion !== null && latestVersion !== appliedVersion;
   const warnings = response.warnings || [];
-  const missing = response.draft.missing_fields || [];
+  const recognized = assistantRecognizedItems(response);
+  const expanded = assistantExpandedSummary(response);
+  const pending = assistantPendingItems(response);
+  const filledCount = assistantFilledFieldCount(response);
   return (
-    <section className="transaction-card" aria-live="polite">
-      <h2>开小花需求草稿 v{appliedVersion ?? latestVersion}</h2>
-      <p>{versionChanged ? `已检测到 v${latestVersion}，为保护您当前编辑的内容，未自动覆盖。` : '已将草稿中的非空内容填入表单，您可以继续修改后保存或发布。'}</p>
-      <p><strong>待补字段：</strong>{missing.length ? missing.join('、') : '无'}</p>
-      {warnings.length ? <p><strong>草稿警告：</strong>{warnings.map((item) => item.message).join('；')}</p> : null}
-      {response.handoff.blockers.length ? <p><strong>交接提示：</strong>{response.handoff.blockers.map((item) => item.message).join('；')}</p> : null}
+    <section className="transaction-ai-readiness" aria-live="polite">
+      <span className="sr-only">开小花需求草稿 v{appliedVersion ?? latestVersion}</span>
+      <div className="transaction-ai-result-group is-recognized">
+        <strong>AI 已识别</strong>
+        <div className="transaction-ai-fact-list">
+          {recognized.map((item) => (
+            <button type="button" key={`${item.field}-${item.value}`} onClick={() => onEditField(item.field)} aria-label={`修改${item.label}：${item.value}`}>
+              <span>{item.value}</span><PencilLine />
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="transaction-ai-result-group is-expanded">
+        <strong>AI 已扩写</strong>
+        <p>{expanded || '已根据行业规范补全服务范围、交付物与验收要求'}</p>
+      </div>
+      <div className="transaction-ai-result-group is-pending">
+        <strong>仍需确认</strong>
+        <div>{pending.length ? pending.map((item) => (
+          <button type="button" key={`${item.field}-${item.label}`} onClick={() => onEditField(item.field)}>{item.label}</button>
+        )) : <span className="is-complete">无需补充</span>}</div>
+      </div>
+      <div className="transaction-ai-result-group is-action">
+        <strong>已自动填入 {filledCount} 项</strong>
+        <button type="button" onClick={onReview}>检查已填表单</button>
+        <button type="button" className="transaction-ai-text-button" onClick={onReview}>查看完整草稿</button>
+      </div>
+      {versionChanged || warnings.length ? (
+        <div className="transaction-ai-result-notes">
+          {versionChanged ? <p>检测到 v{latestVersion}，为保护你当前编辑的内容，未自动覆盖。</p> : null}
+          {warnings.map((item) => <p key={`${item.field}-${item.code}`}>{item.message}</p>)}
+        </div>
+      ) : null}
     </section>
   );
+}
+
+type AssistantDraftDisplayItem = { field: string; label: string; value: string };
+
+function assistantRecognizedItems(response: AssistantRequirementDraftResponse): AssistantDraftDisplayItem[] {
+  const directSources = new Set(['user_message', 'user_choice', 'user_edit', 'attachment_extraction']);
+  const preferred = ['title', 'category', 'target_audience', 'use_scenario', 'schedule']
+    .flatMap((field) => {
+      const value = assistantDraftFieldValue(response, field);
+      return value ? [{ field, label: requirementDraftFieldLabel(field), value }] : [];
+    });
+  const direct = Object.entries(response.field_sources)
+    .filter(([, source]) => directSources.has(source.source))
+    .filter(([field]) => !preferred.some((item) => item.field === field))
+    .flatMap(([field]) => {
+      const value = assistantDraftFieldValue(response, field);
+      return value ? [{ field, label: requirementDraftFieldLabel(field), value }] : [];
+    });
+  return [...preferred, ...direct].slice(0, 4);
+}
+
+function assistantExpandedSummary(response: AssistantRequirementDraftResponse) {
+  const priorityFields = ['service_scope', 'deliverables', 'acceptance_criteria', 'goal', 'background', 'risks'];
+  const expandedFields = priorityFields.filter((field) => response.field_sources[field]?.source === 'ai_expansion');
+  const fields = expandedFields.length ? expandedFields : priorityFields;
+  const fragments = fields.flatMap((field) => assistantDraftFieldFragments(response, field));
+  return truncateText([...new Set(fragments)].slice(0, 6).join('、'), 150);
+}
+
+function assistantPendingItems(response: AssistantRequirementDraftResponse) {
+  const excluded = new Set(['currency', 'visibility', 'invite_limit', 'confidentiality_level', 'budget_min']);
+  const issueFields = [...response.warnings, ...response.handoff.blockers].map((item) => (
+    item.field === 'desired_delivery_at' || item.message.includes('desired_delivery_at') || item.message.includes('相对工期')
+      ? 'schedule'
+      : item.field
+  ));
+  const fields = [...(response.draft.missing_fields || []), ...issueFields]
+    .filter((item) => !item.startsWith('field_source:'))
+    .map((item) => item.replace('confirmation:', ''))
+    .filter((item) => !excluded.has(item));
+  const normalized = fields.map((field) => field === 'budget_max'
+    ? { field, label: '预算范围' }
+    : { field, label: requirementDraftFieldLabel(field) });
+  return normalized
+    .filter((item, index) => normalized.findIndex((candidate) => candidate.label === item.label) === index)
+    .slice(0, 3);
+}
+
+function assistantFilledFieldCount(response: AssistantRequirementDraftResponse) {
+  const seed = response.form_seed;
+  return [
+    seed.title,
+    seed.category,
+    seed.description,
+    seed.budget_min_amount || seed.budget_max_amount,
+    seed.desired_delivery_at,
+    seed.deliverables?.length,
+    seed.acceptance_criteria?.length,
+    seed.attachments?.length,
+  ].filter(Boolean).length;
+}
+
+function assistantDraftFieldValue(response: AssistantRequirementDraftResponse, field: string) {
+  const fragments = assistantDraftFieldFragments(response, field);
+  return truncateText(fragments.join('、'), 34);
+}
+
+function assistantDraftFieldFragments(response: AssistantRequirementDraftResponse, field: string): string[] {
+  const value = response.draft[field] ?? ({
+    title: response.form_seed.title,
+    category: response.form_seed.category,
+    schedule: response.form_seed.desired_delivery_at,
+    deliverables: response.form_seed.deliverables,
+    acceptance_criteria: response.form_seed.acceptance_criteria,
+  } as Record<string, unknown>)[field];
+  if (typeof value === 'string') return value.trim() ? [formatAssistantDraftText(field, value)] : [];
+  if (typeof value === 'number') return [String(value)];
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => {
+      if (typeof item === 'string') return item.trim() ? [item.trim()] : [];
+      if (item && typeof item === 'object' && 'name' in item && typeof item.name === 'string') return [item.name];
+      return [];
+    });
+  }
+  if (value && typeof value === 'object' && 'kind' in value) {
+    const schedule = value as { kind?: unknown; local_datetime?: unknown; duration?: unknown; unit?: unknown };
+    if (schedule.kind === 'deadline' && typeof schedule.local_datetime === 'string') return [formatAssistantDraftText('schedule', schedule.local_datetime)];
+    if (schedule.kind === 'duration' && typeof schedule.duration === 'number') {
+      const unit = ({ hour: '小时', calendar_day: '天', business_day: '个工作日', week: '周' } as Record<string, string>)[String(schedule.unit)] || '';
+      return [`${schedule.duration}${unit}`];
+    }
+  }
+  return [];
+}
+
+function formatAssistantDraftText(field: string, value: string) {
+  if (field !== 'schedule') return value;
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  return match ? `${match[1]}年${Number(match[2])}月${Number(match[3])}日` : value;
+}
+
+function truncateText(value: string, maximum: number) {
+  return value.length > maximum ? `${value.slice(0, maximum - 1)}…` : value;
+}
+
+function requirementDraftFieldLabel(value: string) {
+  const key = value.replace('confirmation:', '').replace('field_source:', '');
+  return ({
+    organization_id: '发布企业', title: '需求标题', category: '业务分类', background: '项目背景',
+    goal: '项目目标', target_audience: '目标受众', use_scenario: '使用场景',
+    target_audience_or_use_scenario: '目标受众或使用场景', service_scope: '服务范围',
+    exclusions: '排除项', risks: '风险与规范', dependencies: '依赖材料', budget_min: '预算下限',
+    budget_max: '预算上限', schedule: '期望完成时间', visibility: '可见范围', invite_limit: '邀请数量',
+    desired_delivery_at: '期望完成时间',
+    confidentiality_level: '保密等级', deliverables: '交付物', acceptance_criteria: '验收标准', attachments: '附件',
+  } as Record<string, string>)[key] || key;
 }
 
 function formatBytes(value: number) {

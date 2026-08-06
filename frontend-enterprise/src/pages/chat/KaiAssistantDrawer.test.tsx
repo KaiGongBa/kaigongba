@@ -125,6 +125,29 @@ describe('Kai Xiaohua isolated assistant drawer', () => {
     expect(screen.getByTestId('location').textContent).toBe('/enterprise/demands/new');
   });
 
+  it('attaches an AI-generated draft to the current requirement form automatically', async () => {
+    const service = mockAssistantService(directDraftResult());
+    renderDrawer('/enterprise/demands/new', service);
+
+    window.dispatchEvent(new CustomEvent(OPEN_KAI_ASSISTANT_EVENT, {
+      detail: {
+        view: 'chat',
+        prompt: '直接分析并扩写融资路演PPT需求',
+        autoSend: true,
+        startNewWorkflow: true,
+        entrypoint: 'requirement.create',
+      },
+    }));
+
+    await waitFor(() => expect(service.sendTurn).toHaveBeenCalledWith(expect.objectContaining({
+      entrypoint: 'requirement.create',
+    })));
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe(
+      '/enterprise/demands/new?draftId=reqdraft_auto_fill_001',
+    ));
+    expect(await screen.findByText('AI 已扩写并填入需求')).toBeTruthy();
+  });
+
   it('archives an existing assistant workflow before a demand-page new-requirement launch', async () => {
     const service = mockAssistantService(v2InterviewResult());
     renderDrawer('/enterprise/demands/new', service);
@@ -599,6 +622,23 @@ function guidanceResult(): AssistantTurnResult {
       },
     ],
     workflow: null,
+  };
+}
+
+function directDraftResult(): AssistantTurnResult {
+  return {
+    sessionId: 'session_structured', runId: 'run_requirement', messageId: `message_direct_${crypto.randomUUID()}`,
+    assistantText: '我已扩写需求并自动填入发布表单。',
+    blocks: [{
+      schema_version: '1.0', block_id: 'block_requirement_auto_fill', block_version: 1,
+      type: 'deep_link', status: 'pending', title: 'AI 已扩写并填入需求',
+      description: '请在真实需求页确认或修改。', route_id: 'enterprise.requirement.create',
+      route_params: { draftId: 'reqdraft_auto_fill_001' }, label: '检查并修改 AI 草稿',
+    }],
+    workflow: {
+      capability_id: 'requirement.create', capability_version: '2.0.0', state: 'reviewing', row_version: 3,
+      progress: { completed_required: 5, total_required: 7 },
+    },
   };
 }
 

@@ -446,10 +446,29 @@ class PlatformAssistantRuntime:
     ) -> RuntimeResult:
         del current_user
         snapshot = self.runs.get_run_snapshot(scope, run_id)
+        trusted_organization_id = snapshot.run.organization_id
         draft = self.drafts.create(
-            RequirementDraftScope(scope.tenant_id, scope.user_id, scope.session_id),
-            RequirementDraftContent(currency="CNY"),
-            field_sources={},
+            RequirementDraftScope(
+                scope.tenant_id,
+                scope.user_id,
+                scope.session_id,
+                trusted_organization_id,
+            ),
+            RequirementDraftContent(
+                organization_id=trusted_organization_id,
+                currency="CNY",
+            ),
+            field_sources=(
+                {
+                    "organization_id": DraftFieldSourceInput(
+                        source="existing_record",
+                        source_ref="authorized_page_organization",
+                        confirmed=True,
+                    )
+                }
+                if trusted_organization_id
+                else {}
+            ),
             idempotency_key=f"kx-adaptive-create-{run_id}",
             run_id=run_id,
         )
@@ -478,13 +497,14 @@ class PlatformAssistantRuntime:
         )
         blocks = self._materialize_adaptive_blocks(turn, updated, client_request_id)
         self._append_adaptive_blocks(scope, run_id, blocks, client_request_id)
+        review_ready = _adaptive_draft_review_ready(updated)
         self.runs.advance_run(
             scope,
             run_id,
             state="collecting",
             current_step=blocks[-1]["block_id"],
         )
-        if turn.readiness.handoff.ready:
+        if turn.readiness.handoff.ready or review_ready:
             self.runs.advance_run(
                 scope,
                 run_id,
@@ -494,7 +514,12 @@ class PlatformAssistantRuntime:
         return RuntimeResult(
             snapshot=self.runs.get_run_snapshot(scope, run_id),
             draft=updated,
-            assistant_text="我会根据你的描述逐步分析，每轮只确认最关键的信息。",
+            assistant_text=(
+                "我已根据你的描述、服务行业与常见规范扩写需求，"
+                "并自动填入发布表单。你可以直接确认或修改。"
+                if review_ready
+                else "我已开始分析需求，只会对无法安全推断的关键信息请你确认。"
+            ),
             degraded=turn.degraded,
             degradation_code=turn.degradation_code,
             ai_request_ids=self.orchestrator.request_ids,
@@ -545,7 +570,8 @@ class PlatformAssistantRuntime:
         )
         blocks = self._materialize_adaptive_blocks(turn, updated, client_request_id)
         self._append_adaptive_blocks(scope, run_id, blocks, client_request_id)
-        if turn.readiness.handoff.ready and snapshot.run.state == "collecting":
+        review_ready = _adaptive_draft_review_ready(updated)
+        if (turn.readiness.handoff.ready or review_ready) and snapshot.run.state == "collecting":
             self.runs.advance_run(
                 scope,
                 run_id,
@@ -556,8 +582,8 @@ class PlatformAssistantRuntime:
             snapshot=self.runs.get_run_snapshot(scope, run_id),
             draft=updated,
             assistant_text=(
-                "信息已达到完整需求标准，请检查最终草稿。"
-                if turn.readiness.handoff.ready
+                "需求已按行业与交付规范扩写并填入表单，请直接确认或修改。"
+                if review_ready
                 else "收到。我已更新信息，并选择了下一项最关键的问题。"
             ),
             degraded=turn.degraded,
@@ -636,7 +662,8 @@ class PlatformAssistantRuntime:
         )
         blocks = self._materialize_adaptive_blocks(turn, updated, client_request_id)
         self._append_adaptive_blocks(scope, run_id, blocks, client_request_id)
-        if turn.readiness.handoff.ready and snapshot.run.state == "collecting":
+        review_ready = _adaptive_draft_review_ready(updated)
+        if (turn.readiness.handoff.ready or review_ready) and snapshot.run.state == "collecting":
             self.runs.advance_run(
                 scope,
                 run_id,
@@ -647,8 +674,8 @@ class PlatformAssistantRuntime:
             snapshot=self.runs.get_run_snapshot(scope, run_id),
             draft=updated,
             assistant_text=(
-                "信息已达到完整需求标准，请检查最终草稿。"
-                if turn.readiness.handoff.ready
+                "需求已按行业与交付规范扩写并填入表单，请直接确认或修改。"
+                if review_ready
                 else "已记录你的回答，我会继续追问当前最关键的信息。"
             ),
             degraded=turn.degraded,
@@ -677,8 +704,20 @@ class PlatformAssistantRuntime:
                 continue
             if fact.status != "confirmed" and not (
                 fact.status == "candidate"
-                and not fact.hard_fact
-                and fact.source in {"user_message", "user_choice", "user_edit"}
+                and (
+                    (
+                        not fact.hard_fact
+                        and fact.source
+                        in {
+                            "user_message",
+                            "user_choice",
+                            "user_edit",
+                            "attachment_extraction",
+                            "ai_expansion",
+                        }
+                    )
+                    or (fact.hard_fact and fact.source == "user_message")
+                )
             ):
                 continue
             candidate_value = _draft_fact_value(fact.field, fact.value_json)
@@ -798,7 +837,8 @@ class PlatformAssistantRuntime:
         draft: RequirementDraftRecord,
         seed: str,
     ) -> tuple[dict[str, Any], ...]:
-        if not turn.readiness.handoff.ready:
+        review_ready = _adaptive_draft_review_ready(draft)
+        if not turn.readiness.handoff.ready and not review_ready:
             return turn.blocks
         preview = _draft_preview(draft)
         deep_link = validate_structured_block(
@@ -808,14 +848,20 @@ class PlatformAssistantRuntime:
                 "block_version": 1,
                 "type": "deep_link",
                 "status": "pending",
-                "title": "需求已经整理完成",
-                "description": "打开真实需求发布页后会自动带入草稿；最终发布仍由你确认。",
+                "title": "AI 已扩写并填入需求",
+                "description": "已结合服务行业、内容要求与常见规范生成草稿；请在真实发布页直接确认或修改。",
                 "route_id": "enterprise.requirement.create",
                 "route_params": {"draftId": draft.draft.id},
-                "label": "检查并写入需求发布页",
+                "label": "检查并修改 AI 草稿",
             }
         )
-        return (*turn.blocks, preview, deep_link)
+        # Once a useful AI draft exists, the real form becomes the review
+        # surface. Do not keep presenting soft-field questions that would make
+        # the user re-enter content the model has already drafted.
+        state_blocks = tuple(
+            block for block in turn.blocks if block.get("type") != "question_group"
+        )
+        return (*state_blocks, preview, deep_link)
 
     def _validate_identity_and_context(
         self,
@@ -1412,6 +1458,32 @@ def _draft_preview(record: RequirementDraftRecord) -> dict[str, Any]:
                 }
             ],
         }
+    )
+
+
+def _adaptive_draft_review_ready(record: RequirementDraftRecord) -> bool:
+    """Return whether AI produced enough editable content to open the form.
+
+    Budget, exact delivery time, visibility and other hard facts may remain
+    empty; the real form already exposes those controls.  The assistant should
+    stop interviewing once it has produced the substantive brief the user
+    asked it to draft.
+    """
+
+    content = record.content
+    has_ai_expansion = any(
+        source.source == "ai_expansion"
+        for field, source in record.field_sources.items()
+        if field not in {"currency", "change_summary"}
+    )
+    return bool(
+        has_ai_expansion
+        and content.title
+        and content.category
+        and content.goal
+        and (content.target_audience or content.use_scenario)
+        and content.deliverables
+        and content.acceptance_criteria
     )
 
 

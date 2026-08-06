@@ -628,6 +628,163 @@ class AdaptiveRoundGateway:
         raise AssertionError(f"unexpected model prompt: {system_prompt[:80]}")
 
 
+class DirectDraftGateway:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, Any]]] = []
+
+    def generate_json(self, system_prompt: str, payload: dict[str, Any]) -> dict[str, Any]:
+        self.calls.append((system_prompt, payload))
+        if "需求访谈规划器" not in system_prompt:
+            raise AssertionError(f"unexpected model prompt: {system_prompt[:80]}")
+        return {
+            "facts": [
+                {
+                    "field": "goal",
+                    "value": "制作一份面向投资人的融资路演PPT",
+                    "confidence": 0.99,
+                    "evidence_quote": "面向投资人的融资路演PPT",
+                    "inferred": False,
+                }
+            ],
+            "classification": {
+                "category_id": "presentation-design",
+                "confidence": 0.96,
+                "reason_code": "ai_category_match",
+                "alternative_category_ids": [],
+            },
+            "expanded_fields": [
+                {
+                    "field": "title",
+                    "value": "融资路演 PPT 内容策划与视觉设计",
+                    "based_on_fields": ["goal"],
+                    "needs_confirmation": True,
+                },
+                {
+                    "field": "background",
+                    "value": "为投资人展示公司业务、市场机会、商业模式与融资计划。",
+                    "based_on_fields": ["goal"],
+                    "needs_confirmation": True,
+                },
+                {
+                    "field": "target_audience",
+                    "value": "潜在投资人与投资机构决策者",
+                    "based_on_fields": ["goal"],
+                    "needs_confirmation": True,
+                },
+                {
+                    "field": "use_scenario",
+                    "value": "融资路演、投资人沟通与会后资料传阅",
+                    "based_on_fields": ["goal"],
+                    "needs_confirmation": True,
+                },
+                {
+                    "field": "service_scope",
+                    "value": ["内容结构梳理", "核心数据可视化", "路演版式与视觉设计"],
+                    "based_on_fields": ["goal"],
+                    "needs_confirmation": True,
+                },
+                {
+                    "field": "exclusions",
+                    "value": ["不包含财务审计或投资承诺"],
+                    "based_on_fields": ["goal"],
+                    "needs_confirmation": True,
+                },
+                {
+                    "field": "risks",
+                    "value": ["对外披露数据需由需求方核对，并按适用规范处理敏感信息"],
+                    "based_on_fields": ["goal"],
+                    "needs_confirmation": True,
+                },
+                {
+                    "field": "dependencies",
+                    "value": ["需提供商业计划书、财务数据与品牌素材"],
+                    "based_on_fields": ["goal"],
+                    "needs_confirmation": True,
+                },
+                {
+                    "field": "deliverables",
+                    "value": [
+                        {"name": "可编辑融资路演文件", "format": ".pptx", "required": True},
+                        {"name": "投资人传阅版", "format": ".pdf", "required": True},
+                    ],
+                    "based_on_fields": ["goal"],
+                    "needs_confirmation": True,
+                },
+                {
+                    "field": "acceptance_criteria",
+                    "value": [
+                        "内容结构覆盖市场、产品、商业模式、财务与融资计划",
+                        "所有数据图表可追溯且 PPTX 文字与图表可编辑",
+                        "视觉风格与品牌保持一致",
+                    ],
+                    "based_on_fields": ["goal"],
+                    "needs_confirmation": True,
+                },
+            ],
+            "questions": [],
+        }
+
+
+def test_adaptive_entrypoint_expands_and_materializes_editable_draft_in_one_round(
+    db: Session, user: User, scope: RunScope
+) -> None:
+    db.add(
+        ServiceCategoryCatalog(
+            id="presentation-design",
+            name="演示文稿设计",
+            description="融资路演与工作汇报演示文稿设计",
+            aliases_json=["PPT设计", "融资路演PPT"],
+            example_tasks_json=["制作融资路演PPT"],
+            required_facets_json=["page_count"],
+            sort_order=10,
+        )
+    )
+    db.add(
+        Organization(
+            id="org_buyer",
+            tenant_id=user.tenant_id,
+            slug="buyer-org-direct-draft",
+            name="采购企业",
+            owner_user_id=user.id,
+        )
+    )
+    db.commit()
+    gateway = DirectDraftGateway()
+
+    result = PlatformAssistantRuntime(
+        db,
+        orchestrator=RequirementWorkflowOrchestrator(gateway),
+    ).handle_message(
+        current_user=user,
+        scope=scope,
+        resolved_context=context(),
+        message="帮我制作一份面向投资人的融资路演PPT",
+        client_request_id="runtime-v2-direct-draft-001",
+        authorized_organization_ids={"org_buyer"},
+        protocol_version="2.0",
+        entrypoint="requirement.create",
+    )
+
+    assert len(gateway.calls) == 1
+    assert result.snapshot.run.state == "reviewing"
+    assert result.draft is not None
+    assert result.draft.content.organization_id == "org_buyer"
+    assert result.draft.content.title == "融资路演 PPT 内容策划与视觉设计"
+    assert result.draft.content.category == "演示文稿设计"
+    assert len(result.draft.content.deliverables) == 2
+    assert len(result.draft.content.acceptance_criteria) == 3
+    assert result.draft.field_sources["title"].source == "ai_expansion"
+    assert [block["type"] for block in result.ui_blocks] == [
+        "interview_state",
+        "draft_preview",
+        "deep_link",
+    ]
+    assert result.ui_blocks[-1]["route_params"] == {
+        "draftId": result.draft.draft.id
+    }
+    assert "自动填入" in result.assistant_text
+
+
 def test_adaptive_initial_round_uses_at_most_two_model_calls(
     db: Session, user: User, scope: RunScope
 ) -> None:
@@ -745,8 +902,11 @@ def test_adaptive_followup_uses_compact_context_and_merges_latest_message(
     assert payload["latest_user_message"] == "主要面向公司管理层和潜在投资人"
     assert set(payload) == {
         "latest_user_message",
+        "reference_time_utc",
+        "default_timezone",
         "confirmed_facts",
         "current_missing_information",
+        "requested_expansion_fields",
         "classification_candidates",
         "allowed_fields",
         "trusted_options",

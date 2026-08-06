@@ -35,6 +35,7 @@ import {
 } from '@/features/kai-assistant/components/StructuredBlockRenderer';
 import { collectAssistantOverlayPageContext, createPageInstanceId } from '@/features/kai-assistant/pageContext';
 import { OPEN_KAI_ASSISTANT_EVENT, type OpenKaiAssistantDetail } from '@/features/kai-assistant/assistantEvents';
+import { buildSafePlatformAssistantUrl } from '@/features/kai-assistant/routeRegistry';
 import type {
   AnswerSubmission,
   PlatformAssistantErrorEnvelope,
@@ -366,6 +367,19 @@ export default function KaiAssistantDrawer({
       setActiveWorkflow(null);
     } else if (result.runId) {
       setActiveWorkflow({ sessionId: result.sessionId, runId: result.runId, workflow: result.workflow });
+    }
+    const requirementLink = result.blocks.find((block) => (
+      block.type === 'deep_link'
+      && block.route_id === 'enterprise.requirement.create'
+    ));
+    if (location.pathname === '/enterprise/demands/new' && requirementLink?.type === 'deep_link') {
+      const url = buildSafePlatformAssistantUrl(requirementLink.route_id, requirementLink.route_params);
+      if (url && `${location.pathname}${location.search}` !== url) {
+        // The user started this workflow from the real requirement form. Keep
+        // that page mounted and attach the generated draft immediately so its
+        // non-empty fields are filled without another click or another form.
+        navigate(url, { replace: true });
+      }
     }
   }
 

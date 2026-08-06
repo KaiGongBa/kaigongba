@@ -101,12 +101,13 @@ describe('demand create assistant handoff', () => {
     renderPage('/enterprise/demands/new');
 
     await user.type(screen.getByLabelText('自然语言描述需求'), '两周后做一份融资路演PPT，我已经有商业计划书');
-    await user.click(screen.getByRole('button', { name: /让开小花分析/ }));
+    await user.click(screen.getByRole('button', { name: 'AI 解析' }));
 
     expect(openRequest).toHaveBeenCalledTimes(1);
     const event = openRequest.mock.calls[0]?.[0] as CustomEvent<{ prompt: string; autoSend: boolean; startNewWorkflow: boolean }>;
     expect(event.detail.prompt).toContain('融资路演PPT');
-    expect(event.detail.prompt).toContain('只追问最关键的 1 到 3 个问题');
+    expect(event.detail.prompt).toContain('主动扩写为完整可编辑草稿并填入需求表单');
+    expect(event.detail.prompt).toContain('不要让我重复填写');
     expect(event.detail.autoSend).toBe(true);
     expect(event.detail.startNewWorkflow).toBe(true);
     window.removeEventListener(OPEN_KAI_ASSISTANT_EVENT, openRequest);
@@ -158,6 +159,10 @@ describe('demand create assistant handoff', () => {
     expect(input('期望完成时间').value).toBe('2026-09-02T18:30');
     expect(input('保密等级 *').value).toBe('confidential');
     expect(screen.getByDisplayValue('招聘流程诊断报告')).toBeTruthy();
+    expect(screen.getByText('AI 已识别')).toBeTruthy();
+    expect(screen.getByText('AI 已扩写')).toBeTruthy();
+    expect(screen.getByText('已自动填入 7 项')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '检查已填表单' })).toBeTruthy();
     expect(screen.getByText('依赖材料')).toBeTruthy();
     expect(screen.getByText('工期需要再确认')).toBeTruthy();
   });
