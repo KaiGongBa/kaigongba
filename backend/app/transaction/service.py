@@ -61,6 +61,14 @@ from app.transaction.object_storage import (
     ObjectNotFoundError,
     get_order_object_store,
 )
+from app.transaction.matching import (
+    AI_ASSISTED_MIN_SCORE,
+    DETERMINISTIC_MIN_SCORE,
+    MATCH_ENGINE,
+    MatchDecision,
+    clamp_ai_score,
+    evaluate_service_candidate,
+)
 from app.transaction.schemas import (
     AcceptanceCommand,
     AgreementChangeRequest,
@@ -2789,7 +2797,15 @@ def _run_matching(
             MarketplaceAIService.visibility == "public",
         )
     ).all()
-    candidates: list[tuple[int, MarketplaceAIService, MarketplaceProviderProfile, list[str]]] = []
+    candidates: list[
+        tuple[
+            int,
+            MarketplaceAIService,
+            MarketplaceProviderProfile,
+            list[str],
+            MatchDecision,
+        ]
+    ] = []
     for service in services:
         provider = db.get(MarketplaceProviderProfile, service.provider_id)
         if (
@@ -2798,8 +2814,18 @@ def _run_matching(
             or provider.organization_id == requirement.buyer_organization_id
         ):
             continue
-        score, reasons = _match_score(requirement, requirement_version, service)
-        candidates.append((score, service, provider, reasons))
+        decision = evaluate_service_candidate(db, requirement, requirement_version, service)
+        if not decision.eligible:
+            continue
+        candidates.append(
+            (
+                decision.score,
+                service,
+                provider,
+                list(decision.reasons),
+                decision,
+            )
+        )
     candidates.sort(key=lambda item: (-item[0], item[1].id))
     ai_rankings = _ai_match_rankings(
         db,
@@ -2809,19 +2835,45 @@ def _run_matching(
         candidates[:50],
     )
     if ai_rankings:
-        candidates = [
-            (
-                int(ai_rankings.get(service.id, {}).get("score", score)),
-                service,
-                provider,
-                _string_list(ai_rankings.get(service.id, {}).get("reasons"), 5)
-                or reasons,
+        reranked: list[
+            tuple[
+                int,
+                MarketplaceAIService,
+                MarketplaceProviderProfile,
+                list[str],
+                MatchDecision,
+            ]
+        ] = []
+        for score, service, provider, reasons, decision in candidates:
+            ai_item = ai_rankings.get(service.id)
+            if not ai_item:
+                if decision.semantic_ready and score >= DETERMINISTIC_MIN_SCORE:
+                    reranked.append((score, service, provider, reasons, decision))
+                continue
+            if ai_item.get("eligible") is False:
+                continue
+            final_score = clamp_ai_score(score, int(ai_item.get("score", score)))
+            if final_score < AI_ASSISTED_MIN_SCORE:
+                continue
+            reranked.append(
+                (
+                    final_score,
+                    service,
+                    provider,
+                    _string_list(ai_item.get("reasons"), 5) or reasons,
+                    decision,
+                )
             )
-            for score, service, provider, reasons in candidates
-        ]
+        candidates = reranked
         candidates.sort(key=lambda item: (-item[0], item[1].id))
+    else:
+        candidates = [
+            item
+            for item in candidates
+            if item[4].semantic_ready and item[0] >= DETERMINISTIC_MIN_SCORE
+        ]
     invited_provider_ids: set[str] = set()
-    for score, service, provider, reasons in candidates:
+    for score, service, provider, reasons, decision in candidates:
         if len(invited_provider_ids) >= invite_limit:
             break
         if provider.organization_id in invited_provider_ids:
@@ -2834,6 +2886,7 @@ def _run_matching(
             dict.fromkeys(
                 [
                     *ai_risk_flags,
+                    *decision.risk_flags,
                     *([] if provider.verification_status == "verified" else ["服务商待验证"]),
                 ]
             )
@@ -2853,11 +2906,13 @@ def _run_matching(
                 score=score,
                 reasons_json=reasons,
                 risk_flags_json=risk_flags,
+                generation_engine=MATCH_ENGINE,
             )
         else:
             recommendation.score = score
             recommendation.reasons_json = reasons
             recommendation.risk_flags_json = risk_flags
+            recommendation.generation_engine = MATCH_ENGINE
             recommendation.generated_at = utc_now()
         db.add(recommendation)
         db.flush()
@@ -2902,7 +2957,13 @@ def _ai_match_rankings(
     requirement: TransactionRequirement,
     requirement_version: TransactionRequirementVersion,
     candidates: list[
-        tuple[int, MarketplaceAIService, MarketplaceProviderProfile, list[str]]
+        tuple[
+            int,
+            MarketplaceAIService,
+            MarketplaceProviderProfile,
+            list[str],
+            MatchDecision,
+        ]
     ],
 ) -> dict[str, dict[str, Any]]:
     if not candidates:
@@ -2933,20 +2994,31 @@ def _ai_match_rankings(
                 "verified": service.verified,
                 "baseline_score": score,
                 "baseline_reasons": reasons,
+                **decision.ai_payload(),
+                "service_snapshot": (
+                    decision.profile.service_version.snapshot_json
+                    if decision.profile.service_version
+                    else {}
+                ),
             }
-            for score, service, _provider, reasons in candidates
+            for score, service, _provider, reasons, decision in candidates
         ],
     }
     try:
         result = gateway.generate_json(
-            """你是开工吧服务匹配助手。只能从给定候选中排序，不能新增服务商。
-只返回 JSON object：{\"recommendations\":[{\"service_id\":\"...\",\"score\":0-100,
+            """你是开工吧服务匹配审核器。只能审核给定候选，不能新增服务商。
+必须对需求核心任务、交付物、验收标准与候选的已发布服务范围、可调用能力和运行状态逐项核对。
+运行未就绪、能力证据不足、预算或工期不满足时 eligible 必须为 false，不能用泛化能力推断替代证据。
+只返回 JSON object：{\"recommendations\":[{\"service_id\":\"...\",\"eligible\":true,
+\"score\":0-100,\"capability_coverage\":0-100,\"missing_capabilities\":[\"...\"],
 \"reasons\":[\"...\"],\"risk_flags\":[\"...\"]}]}。理由必须可由输入事实支持。""",
             payload,
         )
     except LLMError:
         return {}
-    valid_ids = {service.id for _score, service, _provider, _reasons in candidates}
+    valid_ids = {
+        service.id for _score, service, _provider, _reasons, _decision in candidates
+    }
     values = result.get("recommendations")
     if not isinstance(values, list):
         return {}
@@ -2963,6 +3035,9 @@ def _ai_match_rankings(
             continue
         rankings[service_id] = {
             "score": score,
+            "eligible": item.get("eligible") is not False,
+            "capability_coverage": item.get("capability_coverage"),
+            "missing_capabilities": _string_list(item.get("missing_capabilities"), 10),
             "reasons": _string_list(item.get("reasons"), 5),
             "risk_flags": _string_list(item.get("risk_flags"), 5),
         }
@@ -4307,36 +4382,6 @@ def _validate_generator_skill(
     if requested_version and requested_version != version.version:
         raise HTTPException(status_code=409, detail="报价生成 Skill 版本已更新，请重新选择")
     return version.version
-
-
-def _match_score(
-    requirement: TransactionRequirement,
-    version: TransactionRequirementVersion,
-    service: MarketplaceAIService,
-) -> tuple[int, list[str]]:
-    text = f"{requirement.title} {requirement.category} {version.description}".lower()
-    service_text = f"{service.name} {service.category} {service.description}".lower()
-    groups = [
-        {"合同", "法律", "法务", "审查", "风控"},
-        {"财务", "报表", "经营", "分析"},
-        {"招聘", "人才", "岗位", "面试"},
-        {"客服", "售后", "工单", "投诉"},
-        {"投标", "招标", "标书"},
-        {"运维", "it", "设备", "账号", "权限"},
-    ]
-    score = 55
-    reasons: list[str] = []
-    for group in groups:
-        if any(token in text for token in group) and any(token in service_text for token in group):
-            score += 25
-            reasons.append("业务领域与需求高度匹配")
-            break
-    if service.verified:
-        score += 8
-        reasons.append("服务已通过平台审核")
-    if not reasons:
-        reasons.append("服务能力覆盖需求描述中的核心交付")
-    return min(score, 100), reasons
 
 
 def _delivery_days(requirement: TransactionRequirement) -> int:

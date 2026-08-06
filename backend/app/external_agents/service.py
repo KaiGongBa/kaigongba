@@ -1013,6 +1013,39 @@ def create_external_task(
 ) -> ExternalTaskRead:
     connection = _get_connection(db, current_user, request.connection_id)
     _require_manager(db, current_user, connection.organization_id)
+    task = _enqueue_external_task_record(db, current_user, connection, request)
+    db.commit()
+    db.refresh(task)
+    return _task_read(db, task)
+
+
+def enqueue_execution_external_task(
+    db: Session,
+    current_user: User,
+    request: ExternalTaskCreateRequest,
+) -> ExternalAgentTask:
+    """Atomically attach an external task to an already-authorized order run.
+
+    The caller owns the transaction so execution-run creation and task creation
+    either commit together or roll back together.
+    """
+
+    connection = db.get(ExternalAgentConnection, request.connection_id)
+    if (
+        not connection
+        or connection.tenant_id != current_user.tenant_id
+        or not connection.agent_profile_id
+    ):
+        raise HTTPException(status_code=409, detail="订单绑定的外接员工连接不存在")
+    return _enqueue_external_task_record(db, current_user, connection, request)
+
+
+def _enqueue_external_task_record(
+    db: Session,
+    current_user: User,
+    connection: ExternalAgentConnection,
+    request: ExternalTaskCreateRequest,
+) -> ExternalAgentTask:
     if connection.status != "available" or connection.health_status not in {"online", "unknown"}:
         raise HTTPException(status_code=409, detail="外部 Agent 尚未通过连接测试或当前不可用")
     existing = db.exec(
@@ -1024,7 +1057,7 @@ def create_external_task(
     if existing:
         if existing.connection_id != connection.id:
             raise HTTPException(status_code=409, detail="任务幂等键已用于其他外部 Agent")
-        return _task_read(db, existing)
+        return existing
     asset = db.get(ExternalAgentDiscoveredAsset, request.capability_asset_id)
     if (
         not asset
@@ -1095,9 +1128,7 @@ def create_external_task(
             "order_id": task.order_id,
         },
     )
-    db.commit()
-    db.refresh(task)
-    return _task_read(db, task)
+    return task
 
 
 def list_external_tasks(
@@ -1454,6 +1485,10 @@ def submit_external_task_result(
         actor_type="external_agent",
         actor_id=principal.connection.id,
     )
+    if task.execution_run_id and task.status in TERMINAL_TASK_STATUSES:
+        from app.execution.service import apply_external_task_result
+
+        apply_external_task_result(db, task)
     db.commit()
     return receipt
 

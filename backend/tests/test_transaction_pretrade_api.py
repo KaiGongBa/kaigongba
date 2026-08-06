@@ -20,6 +20,7 @@ from app.api.transactions import router
 from app.config import get_settings
 from app.db import get_session
 from app.db.models import (
+    MarketplaceAIService,
     MarketplaceAIServiceVersion,
     OrganizationMember,
     Tenant,
@@ -343,6 +344,27 @@ def test_real_requirement_match_quote_selection_and_two_party_confirmation(
 ) -> None:
     client, engine, user = transaction_app
     headers = _auth(user)
+    # Keep the multi-provider quote-comparison coverage without relying on the
+    # old matcher that invited unrelated customer-service, legal and finance
+    # providers to an IT operations requirement.
+    with Session(engine) as db:
+        second_it_service = db.get(MarketplaceAIService, "after-sales")
+        second_it_version = db.get(
+            MarketplaceAIServiceVersion,
+            second_it_service.current_version_id if second_it_service else "",
+        )
+        assert second_it_service is not None and second_it_version is not None
+        second_it_service.name = "IT 运维安全复核员"
+        second_it_service.category = "IT 运维"
+        second_it_service.description = "复核账号权限、设备申领与故障处理流程并输出风险报告。"
+        second_it_version.snapshot_json = {
+            **second_it_version.snapshot_json,
+            "service_scope": ["账号权限审查", "设备流程复核", "运维风险报告"],
+            "deliverables": [{"name": "IT 运维风险报告.pdf", "format": "PDF"}],
+        }
+        db.add(second_it_service)
+        db.add(second_it_version)
+        db.commit()
 
     created = client.post(
         "/api/transactions/requirements",
@@ -362,8 +384,8 @@ def test_real_requirement_match_quote_selection_and_two_party_confirmation(
     )
     assert published.status_code == 200, published.text
     assert published.json()["status"] == "matching"
-    assert len(published.json()["matches"]) == 6
-    assert published.json()["invitationCount"] == 6
+    assert len(published.json()["matches"]) == 2
+    assert published.json()["invitationCount"] == 2
 
     cloud_quote = _generate_quote(
         client,
@@ -442,14 +464,14 @@ def test_real_requirement_match_quote_selection_and_two_party_confirmation(
     )
     assert repeated_selection.status_code == 409
     with Session(engine) as db:
-        assert outbox_worker.publish_quote_draft_outbox_once(db, limit=20) == 6
+        assert outbox_worker.publish_quote_draft_outbox_once(db, limit=20) == 2
         cancelled_quotes = db.exec(
             select(TransactionQuote).where(
                 TransactionQuote.requirement_id == requirement_id,
                 TransactionQuote.status == "cancelled",
             )
         ).all()
-        assert len(cancelled_quotes) == 4
+        assert len(cancelled_quotes) == 0
         assert all(item.current_version_id is None for item in cancelled_quotes)
     visible_after_selection = client.get(
         f"/api/transactions/requirements/{requirement_id}/quotes",
@@ -646,9 +668,8 @@ def test_real_requirement_match_quote_selection_and_two_party_confirmation(
         assert {quote.status for quote in quotes} == {
             "selected",
             "rejected",
-            "cancelled",
         }
-        assert sum(quote.status == "cancelled" for quote in quotes) == 4
+        assert sum(quote.status == "cancelled" for quote in quotes) == 0
         assert len(confirmations) == 2
         assert len(payment_rows) == 1
         assert len(payment_events) == 2
@@ -663,6 +684,286 @@ def test_real_requirement_match_quote_selection_and_two_party_confirmation(
             "payment.succeeded",
             "order.created",
         }
+
+
+def test_phase5g8_independent_buyer_provider_accounts_complete_transaction(
+    transaction_app: tuple[TestClient, object, User],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client, engine, _legacy_user = transaction_app
+    with Session(engine) as db:
+        buyer = User(
+            id="phase5g8_buyer",
+            tenant_id="tenant_demo",
+            username="phase5g8_buyer",
+            password_hash="test",
+        )
+        provider = User(
+            id="phase5g8_provider",
+            tenant_id="tenant_demo",
+            username="phase5g8_provider",
+            password_hash="test",
+        )
+        payment_reviewer = User(
+            id="phase5g8_payment_reviewer",
+            tenant_id="tenant_demo",
+            username="phase5g8_payment_reviewer",
+            role="admin",
+            password_hash="test",
+        )
+        db.add(buyer)
+        db.add(provider)
+        db.add(payment_reviewer)
+        db.add(
+            OrganizationMember(
+                id="phase5g8_buyer_membership",
+                tenant_id="tenant_demo",
+                organization_id="org_demo_buyer",
+                user_id=buyer.id,
+                role="owner",
+                roles_json=["owner", "buyer_owner"],
+                data_scope_json={"mode": "all_orders"},
+                status="active",
+            )
+        )
+        db.add(
+            OrganizationMember(
+                id="phase5g8_provider_membership",
+                tenant_id="tenant_demo",
+                organization_id="org_cloud_ops",
+                user_id=provider.id,
+                role="owner",
+                roles_json=["owner", "seller_admin"],
+                data_scope_json={"mode": "all_orders"},
+                status="active",
+            )
+        )
+        db.commit()
+        db.refresh(buyer)
+        db.refresh(provider)
+        db.refresh(payment_reviewer)
+
+    buyer_headers = _auth(buyer)
+    provider_headers = _auth(provider)
+    reviewer_headers = _auth(payment_reviewer)
+    created = client.post(
+        "/api/transactions/requirements",
+        json={
+            **_requirement_payload(),
+            "title": "5G-8 独立双账号企业 IT 运维审查",
+        },
+        headers=buyer_headers,
+    )
+    assert created.status_code == 200, created.text
+    requirement_id = created.json()["id"]
+
+    provider_cannot_publish = client.post(
+        f"/api/transactions/requirements/{requirement_id}/publish",
+        params={"organizationId": "org_demo_buyer"},
+        headers=provider_headers,
+    )
+    assert provider_cannot_publish.status_code == 403
+    published = client.post(
+        f"/api/transactions/requirements/{requirement_id}/publish",
+        params={"organizationId": "org_demo_buyer"},
+        headers=buyer_headers,
+    )
+    assert published.status_code == 200, published.text
+    assert published.json()["status"] == "matching"
+
+    monkeypatch.setattr(
+        AIModelGateway,
+        "generate_json",
+        lambda _gateway, _prompt, _payload: {
+            "service_scope": ["核验企业账号权限、设备申领和故障处理流程"],
+            "exclusions": ["不包含未经确认的系统改造"],
+            "delivery_days": 7,
+            "included_revisions": 2,
+            "milestones": [
+                {
+                    "name": "审查与报告",
+                    "description": "提交风险清单、修订建议和最终报告",
+                    "deliverables": ["风险清单", "修订建议", "最终报告"],
+                    "acceptance_criteria": ["覆盖全部采购范围"],
+                    "duration_days": 7,
+                }
+            ],
+            "acceptance_criteria": ["风险条目和修订建议可由采购方逐项复核"],
+        },
+    )
+    with Session(engine) as db:
+        assert outbox_worker.publish_quote_draft_outbox_once(db, limit=20) == published.json()[
+            "invitationCount"
+        ]
+
+    buyer_cannot_open_provider_workbench = client.get(
+        "/api/transactions/provider/workbench",
+        params={"organizationId": "org_cloud_ops"},
+        headers=buyer_headers,
+    )
+    assert buyer_cannot_open_provider_workbench.status_code == 403
+    provider_workbench = client.get(
+        "/api/transactions/provider/workbench",
+        params={"organizationId": "org_cloud_ops"},
+        headers=provider_headers,
+    )
+    assert provider_workbench.status_code == 200, provider_workbench.text
+    provider_quote = next(
+        item
+        for item in provider_workbench.json()["quoteDrafts"]
+        if item["requirementId"] == requirement_id
+    )
+    quote_id = provider_quote["id"]
+    assert provider_quote["status"] == "ai_draft"
+    assert provider_quote["canConfirm"] is True
+
+    hidden_from_buyer = client.get(
+        f"/api/transactions/quotes/{quote_id}",
+        params={"organizationId": "org_demo_buyer"},
+        headers=buyer_headers,
+    )
+    assert hidden_from_buyer.status_code == 404
+    buyer_cannot_send_provider_quote = client.post(
+        f"/api/transactions/quotes/{quote_id}/confirm-send",
+        params={"organizationId": "org_cloud_ops"},
+        headers=buyer_headers,
+    )
+    assert buyer_cannot_send_provider_quote.status_code == 403
+    sent = client.post(
+        f"/api/transactions/quotes/{quote_id}/confirm-send",
+        params={"organizationId": "org_cloud_ops"},
+        headers=provider_headers,
+    )
+    assert sent.status_code == 200, sent.text
+    assert sent.json()["status"] == "sent"
+
+    provider_cannot_select = client.post(
+        f"/api/transactions/requirements/{requirement_id}/select-quote",
+        json={"organization_id": "org_demo_buyer", "quote_id": quote_id},
+        headers=provider_headers,
+    )
+    assert provider_cannot_select.status_code == 403
+    buyer_quotes = client.get(
+        f"/api/transactions/requirements/{requirement_id}/quotes",
+        params={"organizationId": "org_demo_buyer"},
+        headers=buyer_headers,
+    )
+    assert buyer_quotes.status_code == 200, buyer_quotes.text
+    assert [item["id"] for item in buyer_quotes.json()] == [quote_id]
+    selected = client.post(
+        f"/api/transactions/requirements/{requirement_id}/select-quote",
+        json={
+            "organization_id": "org_demo_buyer",
+            "quote_id": quote_id,
+            "buyer_note": "5G-8 独立甲方确认选择该报价",
+        },
+        headers=buyer_headers,
+    )
+    assert selected.status_code == 200, selected.text
+    agreement_id = selected.json()["id"]
+
+    provider_cannot_confirm_buyer_party = client.post(
+        f"/api/transactions/agreements/{agreement_id}/confirm",
+        json={
+            "organization_id": "org_demo_buyer",
+            "confirmation_statement": "乙方不得替甲方确认协议。",
+        },
+        headers=provider_headers,
+    )
+    assert provider_cannot_confirm_buyer_party.status_code == 403
+    buyer_confirmed = client.post(
+        f"/api/transactions/agreements/{agreement_id}/confirm",
+        json={
+            "organization_id": "org_demo_buyer",
+            "confirmation_statement": "甲方已核对冻结的需求、报价和验收标准。",
+        },
+        headers=buyer_headers,
+    )
+    assert buyer_confirmed.status_code == 200, buyer_confirmed.text
+    assert buyer_confirmed.json()["status"] == "partially_confirmed"
+    provider_confirmed = client.post(
+        f"/api/transactions/agreements/{agreement_id}/confirm",
+        json={
+            "organization_id": "org_cloud_ops",
+            "confirmation_statement": "乙方已核对冻结的服务范围、工期和交付标准。",
+        },
+        headers=provider_headers,
+    )
+    assert provider_confirmed.status_code == 200, provider_confirmed.text
+    assert provider_confirmed.json()["status"] == "active"
+
+    provider_cannot_create_payment = client.post(
+        f"/api/transactions/agreements/{agreement_id}/payment-orders",
+        json={"organization_id": "org_cloud_ops"},
+        headers=provider_headers,
+    )
+    assert provider_cannot_create_payment.status_code == 403
+    payment = client.post(
+        f"/api/transactions/agreements/{agreement_id}/payment-orders",
+        json={"organization_id": "org_demo_buyer"},
+        headers=buyer_headers,
+    )
+    assert payment.status_code == 200, payment.text
+    payment_id = payment.json()["id"]
+    callback = {
+        "organization_id": "org_demo_buyer",
+        "result": "success",
+        "confirmation_code": "DEMO-PAY",
+        "callback_id": "phase5g8-demo-payment-success",
+        "acknowledged_demo": True,
+    }
+    buyer_cannot_simulate_payment = client.post(
+        f"/api/transactions/payment-orders/{payment_id}/demo-simulate",
+        json=callback,
+        headers=buyer_headers,
+    )
+    assert buyer_cannot_simulate_payment.status_code == 403
+    paid = client.post(
+        f"/api/transactions/payment-orders/{payment_id}/demo-simulate",
+        json=callback,
+        headers=reviewer_headers,
+    )
+    assert paid.status_code == 200, paid.text
+    order_id = paid.json()["orderId"]
+
+    buyer_workspace = client.get(
+        f"/api/transactions/orders/{order_id}/workspace",
+        params={"organizationId": "org_demo_buyer"},
+        headers=buyer_headers,
+    )
+    provider_workspace = client.get(
+        f"/api/transactions/orders/{order_id}/workspace",
+        params={"organizationId": "org_cloud_ops"},
+        headers=provider_headers,
+    )
+    assert buyer_workspace.status_code == 200, buyer_workspace.text
+    assert provider_workspace.status_code == 200, provider_workspace.text
+    assert buyer_workspace.json()["perspective"] == "buyer"
+    assert provider_workspace.json()["perspective"] == "provider"
+    buyer_cross_scope = client.get(
+        f"/api/transactions/orders/{order_id}/workspace",
+        params={"organizationId": "org_cloud_ops"},
+        headers=buyer_headers,
+    )
+    provider_cross_scope = client.get(
+        f"/api/transactions/orders/{order_id}/workspace",
+        params={"organizationId": "org_demo_buyer"},
+        headers=provider_headers,
+    )
+    assert buyer_cross_scope.status_code == 403
+    assert provider_cross_scope.status_code == 403
+
+    with Session(engine) as db:
+        requirement = db.get(TransactionRequirement, requirement_id)
+        quote = db.get(TransactionQuote, quote_id)
+        agreement = db.get(TransactionAgreement, agreement_id)
+        order = db.get(TransactionOrder, order_id)
+        assert requirement is not None and requirement.status == "contracted"
+        assert quote is not None and quote.status == "selected"
+        assert agreement is not None and agreement.status == "active"
+        assert order is not None and order.status == "paid"
+        assert order.buyer_organization_id == "org_demo_buyer"
+        assert order.provider_organization_id == "org_cloud_ops"
 
 
 def test_incomplete_requirement_can_be_saved_but_not_published(

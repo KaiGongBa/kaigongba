@@ -3,7 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from fastapi import HTTPException
@@ -11,6 +11,10 @@ from sqlalchemy import func
 from sqlmodel import Session, select
 
 from app.db.models import (
+    ExternalAgentConnection,
+    ExternalAgentDiscoveredAsset,
+    ExternalAgentNetworkPolicy,
+    ExternalAgentTask,
     MarketplaceAIService,
     MarketplaceAuditLog,
     OrganizationMember,
@@ -112,6 +116,162 @@ def _agent_for_order(db: Session, order: TransactionOrder) -> str | None:
         return str(agent_id)
     service = db.get(MarketplaceAIService, order.service_id)
     return service.agent_profile_id if service else None
+
+
+def _external_bridge_for_order(order: TransactionOrder) -> dict[str, Any] | None:
+    service_data = dict(order.snapshot_json.get("service") or {})
+    service_snapshot = service_data.get("snapshot")
+    if not isinstance(service_snapshot, dict):
+        return None
+    bridge = service_snapshot.get("external_agent_bridge")
+    return dict(bridge) if isinstance(bridge, dict) else None
+
+
+def _enqueue_external_node_task(
+    db: Session,
+    current_user: User,
+    order: TransactionOrder,
+    milestone: TransactionOrderMilestone,
+    run: TransactionExecutionRun,
+) -> ExternalAgentTask | None:
+    bridge = _external_bridge_for_order(order)
+    if not bridge or not run.current_node_key:
+        return None
+    node = db.exec(
+        select(TransactionExecutionNodeRun)
+        .where(
+            TransactionExecutionNodeRun.execution_run_id == run.id,
+            TransactionExecutionNodeRun.node_key == run.current_node_key,
+        )
+        .order_by(TransactionExecutionNodeRun.attempt.desc())
+    ).first()
+    if not node or node.execution_mode != "agent" or node.status != "running":
+        return None
+
+    bridge_capabilities = [
+        item for item in bridge.get("capabilities") or [] if isinstance(item, dict)
+    ]
+    connection = db.get(
+        ExternalAgentConnection,
+        str(bridge.get("connection_id") or ""),
+    )
+    if not connection or connection.status != "available" or connection.health_status != "online":
+        raise HTTPException(status_code=409, detail="成交服务的外接员工当前不可用")
+    policy = db.exec(
+        select(ExternalAgentNetworkPolicy).where(
+            ExternalAgentNetworkPolicy.connection_id == connection.id
+        )
+    ).first()
+    heartbeat_interval = policy.heartbeat_interval_seconds if policy else 60
+    if (
+        not connection.last_heartbeat_at
+        or utc_now() - connection.last_heartbeat_at
+        > timedelta(seconds=heartbeat_interval * 3)
+    ):
+        raise HTTPException(status_code=409, detail="成交服务的外接员工心跳已过期")
+    asset_ids = [str(item.get("asset_id") or "") for item in bridge_capabilities]
+    assets = [
+        asset
+        for asset_id in asset_ids
+        if asset_id
+        for asset in [db.get(ExternalAgentDiscoveredAsset, asset_id)]
+        if asset
+        and asset.connection_id == str(bridge.get("connection_id") or "")
+        and asset.selected
+        and asset.callable
+    ]
+    if not assets:
+        raise HTTPException(status_code=409, detail="成交服务的外接能力快照当前不可调用")
+    asset = max(assets, key=lambda item: _capability_affinity(node.name, item))
+    service_data = dict(order.snapshot_json.get("service") or {})
+    service_snapshot = dict(service_data.get("snapshot") or {})
+    requirement = dict(order.snapshot_json.get("requirement") or {})
+    quote = dict(order.snapshot_json.get("quote") or {})
+    declared_permissions = set(asset.permissions_json or [])
+    granted_permissions = sorted(
+        declared_permissions.intersection(service_snapshot.get("data_permissions") or [])
+    )
+    attachment_refs = [
+        str(item.get("file_id") or item.get("storage_key") or item.get("ref") or "")
+        for item in requirement.get("attachments") or []
+        if isinstance(item, dict)
+    ]
+    attachment_refs = [item for item in attachment_refs if item]
+
+    from app.external_agents.schemas import ExternalTaskCreateRequest
+    from app.external_agents.service import enqueue_execution_external_task
+
+    task = enqueue_execution_external_task(
+        db,
+        current_user,
+        ExternalTaskCreateRequest(
+            connection_id=str(bridge.get("connection_id") or ""),
+            capability_asset_id=asset.id,
+            goal=(
+                f"为订单「{order.title}」执行里程碑「{milestone.name}」的"
+                f"节点「{node.name}」，严格遵守成交范围和验收标准。"
+            ),
+            input={
+                "schema_version": "order-execution-v1",
+                "order": {"id": order.id, "code": order.code, "title": order.title},
+                "milestone": {
+                    "id": milestone.id,
+                    "name": milestone.name,
+                    "description": milestone.description,
+                    "input_materials": milestone.input_materials_json,
+                    "deliverables": milestone.deliverables_json,
+                    "acceptance_criteria": milestone.acceptance_criteria_json,
+                },
+                "execution": {
+                    "run_id": run.id,
+                    "node_key": node.node_key,
+                    "node_name": node.name,
+                    "attempt": node.attempt,
+                },
+                "requirement": requirement,
+                "contracted_scope": quote.get("service_scope") or [],
+                "contracted_exclusions": quote.get("exclusions") or [],
+            },
+            attachment_refs=attachment_refs,
+            permission_grants=granted_permissions,
+            output_schema=dict(asset.output_schema_json or {}),
+            idempotency_key=f"execution:{run.id}:node:{node.node_key}:attempt:{node.attempt}",
+            order_id=order.id,
+            milestone_id=milestone.id,
+            execution_run_id=run.id,
+            timeout_seconds=max(1800, min(86400, milestone.duration_days * 86400)),
+            max_attempts=3,
+            requires_approval=asset.risk_level == "high",
+        ),
+    )
+    _append_event(
+        db,
+        run,
+        "external_agent.task_queued",
+        f"外接员工已领取执行准备：{node.name}",
+        node_run_id=node.id,
+        event_id=f"external-task-queued:{task.id}",
+        public_payload={"task_id": task.id, "node_key": node.node_key},
+        internal_payload={
+            "connection_id": task.connection_id,
+            "capability_asset_id": task.capability_asset_id,
+        },
+        actor_type="platform",
+        actor_user_id=current_user.id,
+    )
+    return task
+
+
+def _capability_affinity(node_name: str, asset: ExternalAgentDiscoveredAsset) -> int:
+    haystack = f"{asset.name} {asset.description} {asset.external_id}".lower()
+    normalized = "".join(node_name.lower().split())
+    if normalized and normalized in haystack:
+        return 100
+    pairs = {
+        normalized[index : index + 2]
+        for index in range(max(0, len(normalized) - 1))
+    }
+    return sum(pair in haystack for pair in pairs)
 
 
 def _normalize_nodes(
@@ -444,6 +604,7 @@ def start_execution(
             "skill_package_digest": package.digest if package else None,
         },
     )
+    _enqueue_external_node_task(db, current_user, order, milestone, run)
     if milestone.status == "pending":
         milestone.status = "in_progress"
         milestone.updated_at = now
@@ -557,6 +718,11 @@ def command_execution(
     else:  # pragma: no cover - Literal protects this branch
         raise HTTPException(status_code=422, detail="未知执行命令")
 
+    if request.action in {"retry_node", "complete_node"} and run.status == "running":
+        order = db.get(TransactionOrder, run.order_id)
+        milestone = db.get(TransactionOrderMilestone, run.milestone_id)
+        if order and milestone:
+            _enqueue_external_node_task(db, current_user, order, milestone, run)
     run.updated_at = now
     db.add(run)
     _append_event(
@@ -627,13 +793,14 @@ def _advance_run(
         )
     ).one()
     if next_node:
-        next_node.status = "running"
+        waiting_for_provider = next_node.execution_mode == "human"
+        next_node.status = "waiting_confirmation" if waiting_for_provider else "running"
         next_node.started_at = now
-        next_node.public_summary = "正在执行"
+        next_node.public_summary = "等待乙方人工复核" if waiting_for_provider else "正在执行"
         next_node.updated_at = now
         db.add(next_node)
         run.current_node_key = next_node.node_key
-        run.status = "running"
+        run.status = "waiting_confirmation" if waiting_for_provider else "running"
         run.progress_percent = int(completed_node.sequence / max(int(total), 1) * 100)
     else:
         run.current_node_key = None
@@ -641,6 +808,107 @@ def _advance_run(
         run.progress_percent = 100
         run.completed_at = now
         run.result_summary_json = {"summary": "SOP 执行已完成，等待乙方提交交付物"}
+
+
+def apply_external_task_result(db: Session, task: ExternalAgentTask) -> None:
+    """Project a terminal external-Agent result onto the frozen order SOP."""
+
+    if not task.execution_run_id or task.status not in {"succeeded", "failed", "cancelled"}:
+        return
+    run = db.get(TransactionExecutionRun, task.execution_run_id)
+    if not run or run.order_id != task.order_id or run.milestone_id != task.milestone_id:
+        raise HTTPException(status_code=409, detail="外接任务与订单执行批次关联不一致")
+    event_id = f"external-task-result:{task.id}:{task.result_idempotency_key or task.status}"
+    duplicate = db.exec(
+        select(TransactionExecutionEvent).where(TransactionExecutionEvent.event_id == event_id)
+    ).first()
+    if duplicate:
+        return
+    execution_input = task.input_json.get("execution")
+    node_key = (
+        str(execution_input.get("node_key") or "")
+        if isinstance(execution_input, dict)
+        else ""
+    )
+    node = db.exec(
+        select(TransactionExecutionNodeRun)
+        .where(
+            TransactionExecutionNodeRun.execution_run_id == run.id,
+            TransactionExecutionNodeRun.node_key == node_key,
+        )
+        .order_by(TransactionExecutionNodeRun.attempt.desc())
+    ).first()
+    if not node:
+        raise HTTPException(status_code=409, detail="外接任务对应的 SOP 节点不存在")
+    now = utc_now()
+    public_result = {
+        "output": task.output_json,
+        "artifacts": task.artifact_refs_json,
+        "receipt_id": task.result_receipt_id,
+    }
+    if task.status == "succeeded":
+        node.status = "succeeded"
+        node.public_summary = "外接员工已完成该执行节点"
+        node.result_json = public_result
+        node.internal_detail_json = {
+            "external_task_id": task.id,
+            "connection_id": task.connection_id,
+            "capability_external_id": task.capability_external_id,
+        }
+        node.completed_at = now
+        node.updated_at = now
+        db.add(node)
+        _advance_run(db, run, node, now)
+        if run.status == "succeeded":
+            run.result_summary_json = public_result
+        elif run.status == "running":
+            order = db.get(TransactionOrder, run.order_id)
+            milestone = db.get(TransactionOrderMilestone, run.milestone_id)
+            actor = db.get(User, task.created_by_user_id)
+            if order and milestone and actor:
+                try:
+                    _enqueue_external_node_task(db, actor, order, milestone, run)
+                except HTTPException as exc:
+                    run.status = "failed"
+                    run.internal_error_json = {
+                        "code": "external_agent_next_node_unavailable",
+                        "detail": exc.detail,
+                    }
+    else:
+        node.status = task.status
+        node.public_summary = (
+            "外接员工执行失败，等待乙方处理"
+            if task.status == "failed"
+            else "外接员工任务已取消"
+        )
+        node.result_json = public_result
+        node.internal_detail_json = {
+            "external_task_id": task.id,
+            "error": task.error_json,
+        }
+        node.completed_at = now
+        node.updated_at = now
+        run.status = task.status
+        run.internal_error_json = task.error_json
+        run.completed_at = now
+        db.add(node)
+    run.updated_at = now
+    db.add(run)
+    _append_event(
+        db,
+        run,
+        f"external_agent.task_{task.status}",
+        node.public_summary,
+        node_run_id=node.id,
+        event_id=event_id,
+        public_payload=public_result,
+        internal_payload={
+            "external_task_id": task.id,
+            "connection_id": task.connection_id,
+            "error": task.error_json,
+        },
+        actor_type="external_agent",
+    )
 
 
 def receive_internal_event(
