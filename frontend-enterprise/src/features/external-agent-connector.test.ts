@@ -15,7 +15,7 @@ describe('external Agent connector release and routing contract', () => {
     expect(CONNECTOR_INSTALL_COMMAND).toContain('kaigongba-agent-connector.git@');
     expect(CONNECTOR_INSTALL_COMMAND).not.toContain('KaiGongBa/kaigongba.git');
     expect(CONNECTOR_INSTALL_COMMAND).not.toContain('subdirectory=sdk/python');
-    expect(CONNECTOR_REF).toBe('v0.7.1');
+    expect(CONNECTOR_REF).toBe('v0.7.2');
     expect(CONNECTOR_REF_IS_PINNED).toBe(true);
   });
 

@@ -6,7 +6,7 @@ const configuredRef = import.meta.env.VITE_EXTERNAL_AGENT_CONNECTOR_REF?.trim();
  * tag or SHA. The built-in fallback is the first independently released tag.
  */
 export const CONNECTOR_REPOSITORY = 'KaiGongBa/kaigongba-agent-connector';
-export const CONNECTOR_REF = configuredRef || 'v0.7.1';
+export const CONNECTOR_REF = configuredRef || 'v0.7.2';
 export const CONNECTOR_REF_IS_PINNED = /^(?:[0-9a-f]{40}|v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)$/.test(CONNECTOR_REF);
 export const CONNECTOR_SOURCE_URL = `https://github.com/${CONNECTOR_REPOSITORY}/tree/${encodeURIComponent(CONNECTOR_REF)}`;
 export const CONNECTOR_INSTALL_COMMAND = `python3 -m pip install "git+https://github.com/${CONNECTOR_REPOSITORY}.git@${CONNECTOR_REF}"`;
