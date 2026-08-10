@@ -76,7 +76,7 @@ jobs:
         run: npm --prefix frontend-enterprise run config:check
       - name: Release-candidate manifest
         run: python3 scripts/phase5c_release_manifest.py --require-clean --output .artifacts/phase5c/release-manifest.json
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: phase5c-release-manifest
           path: .artifacts/phase5c/release-manifest.json
